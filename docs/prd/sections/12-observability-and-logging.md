@@ -1,0 +1,35 @@
+# 12. Observability and Logging
+
+
+### 12.1  Audit Log Entry Format
+| { "ts":"2025-05-03T14:22:05.412Z",   "op":"FIELD_REVERTED",   "project":"projeto-x",   "card_id":"card-abc123",   "actor":"watcher",   "reverted_fields": ["id", "version"],   "reason": "immutable_field_changed",   "version_after": 8 } |
+| --- |
+
+### 12.2  Audit Event Types
+| Event | Trigger | Produced By |
+| --- | --- | --- |
+| CREATE | Card created via MCP | All actors |
+| UPDATE | Fields updated via MCP | All actors |
+| MOVE | Status transition via kanban_move_card | All actors |
+| REORDER | Position changed via kanban_reorder_card | All actors |
+| HUMAN_EDIT | Human direct edit reconciled by watcher | File watcher |
+| FIELD_REVERTED | Immutable or invalid field reverted — includes reverted_fields and reason | File watcher |
+| EXTERNAL_MUTATION | File change from sync tool detected — processed as human edit | File watcher |
+| PARSE_ERROR | Corrupted .md file detected and reverted | File watcher |
+| CONFLICT | 409 issued — both versions and conflicting_fields | MCP |
+| AUTH_FAIL | 401 issued — token hash prefix logged | MCP |
+| INVALID_FIELDS | 400 due to disallowed fields | MCP |
+| RECONCILED | File changed while MCP was offline, reconciled on startup | Startup |
+| ORPHAN_REMOVED | SQLite entry had no corresponding .md file | Startup |
+| SQLITE_REBUILT | SQLite deleted or corrupted, rebuilt from .md files | Startup |
+| TOKEN_CREATED | New agent token issued | CLI |
+| TOKEN_REVOKED | Agent token revoked | CLI |
+| IDEMPOTENT_HIT | Duplicate request_id — cached response returned | MCP |
+| STARTUP | MCP start with version and vault path | MCP |
+| SHUTDOWN | MCP graceful stop | MCP |
+
+### 12.3  Application Logs
+- Structured JSON to stdout. Fields: ts, level, request_id, project, card_id, duration_ms.
+- Sensitive data (raw tokens, card body) never logged.
+- Default level: info. LOG_LEVEL=debug for verbose output.
+

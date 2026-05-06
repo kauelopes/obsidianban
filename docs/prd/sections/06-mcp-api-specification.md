@@ -1,0 +1,86 @@
+# 6. MCP API Specification
+
+| Scope: the MCP API is for agents and for the plugin's board-interaction actions (drag, create-via-board). It is NOT the required path for human card edits — those happen via the Obsidian editor and are reconciled by the file watcher. |
+| --- |
+
+### 6.1  Idempotency
+- All mutating tools accept an optional request_id (UUID v4).
+- If request_id is seen within 24h: return cached response without re-execution.
+- If request_id is not UUID v4: reject with 400 invalid_request_id.
+- Idempotency store persisted to .kanban/idempotency.json for crash recovery.
+
+### 6.2  kanban_list_cards
+| Parameter | Type | Description |
+| --- | --- | --- |
+| status | string, optional | Filter by status. |
+| tags | string[], optional | AND filter: all specified tags must be present. |
+| assigned_to | string, optional | Filter by assignee. |
+| limit | integer, optional | Max results. Default 50. Max 200. |
+| offset | integer, optional | Pagination offset. Default 0. |
+| order_by | string, optional | position (default) | updated_at | priority | due_date |
+Served directly from SQLite — zero .md file reads. Returns card summaries without body text.
+
+### 6.3  kanban_get_card
+| Parameter | Type | Description |
+| --- | --- | --- |
+| id | string, required | Card ID to retrieve. |
+Reads .md file from disk (not SQLite) to ensure latest state including body text. Returns 404 for cards in other projects.
+
+### 6.4  kanban_create_card
+| Parameter | Type | Description |
+| --- | --- | --- |
+| title | string, required | Non-empty, max 200 chars. |
+| status | string, optional | Defaults to first column in _meta.json. |
+| priority | string, optional | Enum: low|medium|high|critical. Default: medium. |
+| tags | string[], optional | Array of tag strings. |
+| due_date | string, optional | ISO 8601 date YYYY-MM-DD. |
+| assigned_to | string, optional | Agent or human identity. Default: null. |
+| body | string, optional | Markdown body text. |
+| agent_notes | string, optional | Max 2000 chars. |
+| request_id | string, optional | UUID v4 for idempotent retry. |
+
+### 6.5  kanban_update_card
+| Disallowed fields in payload → entire request rejected with 400 and disallowed_fields list. No silent ignoring. |
+| --- |
+| Parameter | Type | Description |
+| --- | --- | --- |
+| id | string, required | Card to update. |
+| version | integer, required | Must match current file version exactly. |
+| title | string, optional | Replace. |
+| status | string, optional | Replace. Must be valid column. |
+| priority | string, optional | Replace. |
+| tags | string[], optional | Replace entire array. |
+| due_date | string|null, optional | Replace. null clears. |
+| assigned_to | string|null, optional | Replace. null unassigns. |
+| agent_notes | string, optional | Replace. Max 2000 chars. |
+| body | string, optional | Replace entire body. |
+| request_id | string, optional | UUID v4. |
+Agent-writable: title, status, priority, tags, due_date, assigned_to, agent_notes, body. Manager additionally: owner. Any other field → 400.
+
+### 6.6  kanban_move_card
+| Parameter | Type | Description |
+| --- | --- | --- |
+| id | string, required | Card to move. |
+| version | integer, required | Must match current version. |
+| to_status | string, required | Target column. Must be valid. |
+| request_id | string, optional | UUID v4. |
+
+### 6.7  kanban_reorder_card
+| Parameter | Type | Description |
+| --- | --- | --- |
+| id | string, required | Card to reorder. |
+| version | integer, required | Must match current version. |
+| after_card_id | string|null, required | Insert after this card. null = move to top. |
+| request_id | string, optional | UUID v4. |
+Normalizes all positions in column to multiples of 1000. Returns affected_cards array with {id, new_version} pairs.
+
+### 6.8  Error Schemas
+
+#### 409 Conflict
+| { "error": "conflict",   "message": "Version mismatch: expected 7, found 9",   "your_version": 7, "current_version": 9,   "conflicting_fields": ["status"],   "current_card": { /* full card */ } } |
+| --- |
+
+#### 400 Disallowed Fields
+| { "error": "invalid_fields",   "message": "Request contains fields not writable by this actor",   "disallowed_fields": ["owner","version"],   "allowed_fields": ["title","status","priority","tags","due_date",                       "assigned_to","agent_notes","body","request_id"] } |
+| --- |
+
