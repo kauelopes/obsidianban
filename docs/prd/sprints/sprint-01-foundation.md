@@ -68,27 +68,31 @@ Criar o schema `cards` conforme §5.3 do PRD, com todos os campos de frontmatter
 
 ```sql
 CREATE TABLE cards (
-  id           TEXT PRIMARY KEY,
-  project      TEXT NOT NULL,
-  title        TEXT NOT NULL,
-  status       TEXT NOT NULL,
-  version      INTEGER NOT NULL,
-  position     INTEGER NOT NULL,
-  priority     TEXT NOT NULL DEFAULT 'medium',
-  tags         TEXT NOT NULL DEFAULT '[]',  -- JSON array
-  due_date     TEXT,
-  assigned_to  TEXT,
-  owner        TEXT,
-  agent_notes  TEXT,
-  created_at   TEXT NOT NULL,
-  updated_at   TEXT NOT NULL,
-  created_by   TEXT NOT NULL,
-  updated_by   TEXT NOT NULL,
-  file_hash    TEXT NOT NULL  -- SHA-256 do .md file
+  id                   TEXT PRIMARY KEY,
+  project              TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  type                 TEXT NOT NULL,
+  version              INTEGER NOT NULL,
+  position             INTEGER NOT NULL,
+  priority             TEXT NOT NULL DEFAULT 'medium',
+  tags                 TEXT NOT NULL DEFAULT '[]',  -- JSON array
+  due_date             TEXT,
+  assigned_to          TEXT,
+  owner                TEXT,
+  agent_notes          TEXT,
+  total_input_tokens   INTEGER NOT NULL DEFAULT 0,
+  total_output_tokens  INTEGER NOT NULL DEFAULT 0,
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL,
+  created_by           TEXT NOT NULL,
+  updated_by           TEXT NOT NULL,
+  file_hash            TEXT NOT NULL  -- SHA-256 do .md file
 );
 
 CREATE INDEX idx_project_status   ON cards(project, status);
 CREATE INDEX idx_project_position ON cards(project, status, position);
+CREATE INDEX idx_project_type     ON cards(project, type);
 CREATE INDEX idx_due_date         ON cards(due_date);
 CREATE INDEX idx_assigned_to      ON cards(assigned_to);
 ```
@@ -97,11 +101,13 @@ CREATE INDEX idx_assigned_to      ON cards(assigned_to);
 - Schema criado em `db.sqlite` no primeiro startup
 - Todos os índices presentes e verificáveis via `PRAGMA index_list`
 - Startup seguro: se schema já existe, não recriar destrutivamente
+- Colunas `type`, `total_input_tokens` e `total_output_tokens` presentes com defaults corretos
 
 **Testes:**
 - Startup com DB inexistente → schema criado corretamente
 - Startup com DB existente → nenhuma alteração destrutiva
-- Verificar índices com `PRAGMA index_list('cards')`
+- Verificar índices com `PRAGMA index_list('cards')` — incluindo `idx_project_type`
+- Inserir card sem `total_input_tokens` → valor default `0` aplicado automaticamente
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -132,11 +138,13 @@ Toda escrita de card deve ser atômica: arquivo `.md` e SQLite atualizados junto
 - Kill -9 durante a escrita não produz `.md` corrompido (apenas `.tmp` no pior caso)
 - Startup limpa arquivos `.tmp` órfãos antes de aceitar conexões
 - `file_hash` em SQLite sempre bate com SHA-256 do `.md` após escrita
+- `total_input_tokens` e `total_output_tokens` acumulados corretamente no frontmatter e no SQLite a cada escrita mutante
 
 **Testes:**
 - Simular kill durante step 3 → apenas `.tmp` presente → startup limpa e o sistema segue consistente
 - Simular kill durante step 5 → `.md` válido presente (rename já aconteceu)
 - Após qualquer escrita bem-sucedida: SHA-256 do `.md` == `file_hash` no SQLite
+- Executar 3 operações mutantes no mesmo card com tokens distintos → `total_input_tokens` no frontmatter = soma dos três `input_tokens` reportados
 
 **Execução** _(preencher ao concluir)_
 - Agente:

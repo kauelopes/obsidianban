@@ -5,13 +5,18 @@
 | { "ts":"2025-05-03T14:22:05.412Z",   "op":"FIELD_REVERTED",   "project":"projeto-x",   "card_id":"card-abc123",   "actor":"watcher",   "reverted_fields": ["id", "version"],   "reason": "immutable_field_changed",   "version_after": 8 } |
 | --- |
 
+MCP mutating operations (`CREATE`, `UPDATE`, `MOVE`, `REORDER`) additionally include token tracking fields:
+
+| { "ts":"2025-05-03T14:22:05.412Z",   "op":"MOVE",   "project":"projeto-x",   "card_id":"card-abc123",   "actor":"agent:codex-1",   "version": 8,   "from_status": "doing",   "to_status": "done",   "input_tokens": 3840,   "output_tokens": 512,   "model": "claude-opus-4-7" } |
+| --- |
+
 ### 12.2  Audit Event Types
-| Event | Trigger | Produced By |
-| --- | --- | --- |
-| CREATE | Card created via MCP | All actors |
-| UPDATE | Fields updated via MCP | All actors |
-| MOVE | Status transition via kanban_move_card | All actors |
-| REORDER | Position changed via kanban_reorder_card | All actors |
+| Event | Trigger | Produced By | Token fields |
+| --- | --- | --- | --- |
+| CREATE | Card created via MCP | All actors | input_tokens, output_tokens, model |
+| UPDATE | Fields updated via MCP | All actors | input_tokens, output_tokens, model |
+| MOVE | Status transition via kanban_move_card | All actors | input_tokens, output_tokens, model |
+| REORDER | Position changed via kanban_reorder_card | All actors | input_tokens, output_tokens, model |
 | HUMAN_EDIT | Human direct edit reconciled by watcher | File watcher |
 | FIELD_REVERTED | Immutable or invalid field reverted — includes reverted_fields and reason | File watcher |
 | EXTERNAL_MUTATION | File change from sync tool detected — processed as human edit | File watcher |

@@ -104,6 +104,10 @@ Cria um novo card. MCP gera `id`, `version=1`, `position`, `created_at` e `creat
 | Parâmetro | Tipo | Descrição |
 |---|---|---|
 | `title` | string, obrigatório | Não-vazio, máx 200 chars |
+| `type` | string, obrigatório | Livre — descreve a natureza do trabalho. Sem validação de enum. |
+| `input_tokens` | integer, obrigatório | Tokens de entrada consumidos pelo agente para produzir esta chamada |
+| `output_tokens` | integer, obrigatório | Tokens de saída gerados pelo agente para produzir esta chamada |
+| `model` | string, obrigatório | Identificador do modelo utilizado (ex: `claude-opus-4-7`) |
 | `status` | string, opcional | Padrão: primeira coluna do `_meta.json` |
 | `priority` | string, opcional | `low\|medium\|high\|critical`. Padrão: `medium` |
 | `tags` | string[], opcional | |
@@ -120,14 +124,20 @@ Cria um novo card. MCP gera `id`, `version=1`, `position`, `created_at` e `creat
 - Campos do sistema no payload → 400 com `disallowed_fields`
 - `status` padrão é a primeira coluna em `_meta.json` se omitido
 - Campos inválidos (title vazio, status inexistente, due_date mal-formatado) → 400
-- Retry com mesmo `request_id` → resposta idêntica, apenas 1 arquivo criado
-- Audit log: entrada `CREATE`
+- `type` ausente → 400
+- `input_tokens` ou `output_tokens` ausentes ou negativos → 400
+- `model` ausente ou vazio → 400
+- Retry com mesmo `request_id` → resposta idêntica, apenas 1 arquivo criado, tokens não re-acumulados
+- Audit log: entrada `CREATE` com `input_tokens`, `output_tokens`, `model`
+- Frontmatter do card criado contém `type`, `total_input_tokens` e `total_output_tokens`
 
 **Testes:**
-- Criar card mínimo (só `title`) → defaults corretos (`version=1`, `priority=medium`)
+- Criar card mínimo sem `type` → 400
+- Criar card com `input_tokens: -1` → 400
+- Criar card com todos os campos obrigatórios → `total_input_tokens` no frontmatter igual ao `input_tokens` enviado
 - `status` de coluna inexistente → 400
 - `id` no payload → 400 com `disallowed_fields: ["id"]`
-- Retry com mesmo `request_id` → mesmo card, sem duplicata no filesystem
+- Retry com mesmo `request_id` → mesmo card, sem duplicata, `total_input_tokens` não duplicado
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -149,6 +159,9 @@ Atualiza campos de um card. Usa optimistic concurrency: `version` deve bater com
 |---|---|---|
 | `id` | string, obrigatório | |
 | `version` | integer, obrigatório | Deve bater com versão atual |
+| `input_tokens` | integer, obrigatório | Tokens de entrada consumidos pelo agente para produzir esta chamada |
+| `output_tokens` | integer, obrigatório | Tokens de saída gerados pelo agente para produzir esta chamada |
+| `model` | string, obrigatório | Identificador do modelo utilizado |
 | `title` | string, opcional | Replace |
 | `status` | string, opcional | Replace. Deve ser coluna válida |
 | `priority` | string, opcional | Replace |
@@ -165,16 +178,19 @@ Atualiza campos de um card. Usa optimistic concurrency: `version` deve bater com
 
 **Definition of Done:**
 - Campo proibido no payload → 400 com `disallowed_fields` (verificado antes do version check)
+- `input_tokens`, `output_tokens` ou `model` ausentes → 400
 - `version` incorreta sem campos proibidos → 409 com `current_card` e `conflicting_fields`
 - Semântica Replace: sem append automático em nenhum campo
-- Audit log: entrada `UPDATE` com `changed_fields`
+- Audit log: entrada `UPDATE` com `changed_fields`, `input_tokens`, `output_tokens`, `model`
+- `total_input_tokens` e `total_output_tokens` no frontmatter acumulados após update bem-sucedido
 
 **Testes:**
 - Agente envia `owner` → 400 `disallowed_fields: ["owner"]`
-- `version` correta + campos válidos → versão+1, log `UPDATE`
+- `version` correta + campos válidos → versão+1, log `UPDATE` com tokens corretos
 - `version` desatualizada → 409 com `current_card`
 - `version` correta + `owner` no payload → 400 (campos proibidos têm prioridade)
-- Retry com mesmo `request_id` → mesma resposta, version não incrementa novamente
+- Retry com mesmo `request_id` → mesma resposta, version não incrementa, tokens não re-acumulados
+- Após update: `total_input_tokens` no frontmatter = valor anterior + `input_tokens` desta chamada
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -197,19 +213,25 @@ Move um card para outra coluna. Card é adicionado ao final da coluna destino (`
 | `id` | string, obrigatório | |
 | `version` | integer, obrigatório | Deve bater com versão atual |
 | `to_status` | string, obrigatório | Coluna destino válida |
+| `input_tokens` | integer, obrigatório | Tokens de entrada consumidos pelo agente para produzir esta chamada |
+| `output_tokens` | integer, obrigatório | Tokens de saída gerados pelo agente para produzir esta chamada |
+| `model` | string, obrigatório | Identificador do modelo utilizado |
 | `request_id` | string, opcional | UUID v4 |
 
 **Definition of Done:**
 - `to_status` inexistente em `_meta.json` → 400
+- `input_tokens`, `output_tokens` ou `model` ausentes → 400
 - `version` desatualizada → 409
 - Card movido aparece no **final** da coluna destino
 - Flag `MCP-originated` suprime reprocessamento pelo file watcher
-- Audit log: entrada `MOVE` com `from_status`, `to_status`
+- Audit log: entrada `MOVE` com `from_status`, `to_status`, `input_tokens`, `output_tokens`, `model`
+- `total_input_tokens` e `total_output_tokens` no frontmatter acumulados após move bem-sucedido
 
 **Testes:**
-- Mover com version correta → status atualizado, `position = MAX+1000`, version+1, log `MOVE`
+- Mover com version correta → status atualizado, `position = MAX+1000`, version+1, log `MOVE` com tokens
 - Mover com version stale → 409 com `current_card`
 - Mover para coluna inexistente → 400
+- Após move: `total_input_tokens` no frontmatter = valor anterior + `input_tokens` desta chamada
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -232,20 +254,27 @@ Reposiciona um card dentro da sua coluna atual. Após a operação, normaliza **
 | `id` | string, obrigatório | |
 | `version` | integer, obrigatório | Deve bater com versão atual |
 | `after_card_id` | string\|null, obrigatório | Inserir após este card. `null` = mover para o topo |
+| `input_tokens` | integer, obrigatório | Tokens de entrada consumidos pelo agente para produzir esta chamada |
+| `output_tokens` | integer, obrigatório | Tokens de saída gerados pelo agente para produzir esta chamada |
+| `model` | string, obrigatório | Identificador do modelo utilizado |
 | `request_id` | string, opcional | UUID v4 |
 
 **Normalização:** após o reorder, todos os cards da coluna recebem `position = 1000, 2000, 3000, ...` na ordem atual.
 
 **Definition of Done:**
 - `after_card_id` de card em outra coluna → 400
+- `input_tokens`, `output_tokens` ou `model` ausentes → 400
 - Após reorder, todos os positions são múltiplos de 1000
 - Todos os cards afetados têm version incrementada e aparecem em `affected_cards`
+- Audit log: entrada `REORDER` com `input_tokens`, `output_tokens`, `model`
+- Apenas o card alvo tem `total_input_tokens` acumulado (os demais afetados são reposicionados, não recebem tokens)
 
 **Testes:**
 - Reordenar entre 5 cards → positions resultantes `1000, 2000, 3000, 4000, 5000`
 - `after_card_id: null` → card vai para o topo (position 1000 após normalização)
 - `after_card_id` de outro projeto/coluna → 400
 - Todos os afetados em `affected_cards` com version correta
+- Log `REORDER` contém os tokens da chamada; apenas o card alvo acumula no frontmatter
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -304,10 +333,10 @@ Toda mutação de qualquer origem produz uma entrada no `audit.ndjson`. Arquivo 
 **Event types:**
 | Tipo | Origem | Campos obrigatórios |
 |---|---|---|
-| `CREATE` | MCP agent | `ts, op, actor, project, card_id, version` |
-| `UPDATE` | MCP agent | `ts, op, actor, project, card_id, version, changed_fields` |
-| `MOVE` | MCP agent/plugin | `ts, op, actor, project, card_id, version, from_status, to_status` |
-| `REORDER` | MCP agent/plugin | `ts, op, actor, project, card_id, version, affected_cards` |
+| `CREATE` | MCP agent | `ts, op, actor, project, card_id, version, input_tokens, output_tokens, model` |
+| `UPDATE` | MCP agent | `ts, op, actor, project, card_id, version, changed_fields, input_tokens, output_tokens, model` |
+| `MOVE` | MCP agent/plugin | `ts, op, actor, project, card_id, version, from_status, to_status, input_tokens, output_tokens, model` |
+| `REORDER` | MCP agent/plugin | `ts, op, actor, project, card_id, version, affected_cards, input_tokens, output_tokens, model` |
 | `HUMAN_EDIT` | File watcher | `ts, op, actor, project, card_id, version` |
 | `FIELD_REVERTED` | File watcher | `ts, op, project, card_id, field, reason` |
 | `PARSE_ERROR` | File watcher | `ts, op, project, card_id, reason` |
@@ -321,13 +350,15 @@ Toda mutação de qualquer origem produz uma entrada no `audit.ndjson`. Arquivo 
 - Arquivo append-only, nunca sobrescrito
 - Nenhuma entrada contém token raw ou body de card
 - `EXTERNAL_MUTATION` logado em até 200ms após escrita externa
+- Operações `CREATE`, `UPDATE`, `MOVE`, `REORDER` incluem `input_tokens`, `output_tokens` e `model` na entrada do log
 
 **Testes:**
-- Criar card → log `CREATE` com actor e version corretos
-- Edição humana → log `HUMAN_EDIT`
+- Criar card → log `CREATE` com actor, version e campos de token corretos
+- Edição humana → log `HUMAN_EDIT` (sem campos de token — não é operação MCP)
 - Revert de campo imutável → log `FIELD_REVERTED` com `field` e `reason`
 - Restart com SQLite deletado → log `SQLITE_REBUILT` com `card_count` correto
 - Inspecionar log → ausência de tokens raw e body de cards
+- Verificar que entradas de watcher e startup não contêm campos de token
 
 **Execução** _(preencher ao concluir)_
 - Agente:
