@@ -98,15 +98,16 @@ CREATE INDEX idx_assigned_to      ON cards(assigned_to);
 ```
 
 **Definition of Done:**
-- Schema criado em `db.sqlite` no primeiro startup
+- Schema criado em `db.sqlite` no primeiro startup com tabelas `cards` e `token_log`
 - Todos os índices presentes e verificáveis via `PRAGMA index_list`
 - Startup seguro: se schema já existe, não recriar destrutivamente
-- Colunas `type`, `total_input_tokens` e `total_output_tokens` presentes com defaults corretos
+- Colunas `type`, `total_input_tokens` e `total_output_tokens` presentes em `cards` com defaults corretos
 
 **Testes:**
-- Startup com DB inexistente → schema criado corretamente
+- Startup com DB inexistente → ambas as tabelas criadas corretamente
 - Startup com DB existente → nenhuma alteração destrutiva
 - Verificar índices com `PRAGMA index_list('cards')` — incluindo `idx_project_type`
+- Verificar índices de `token_log` com `PRAGMA index_list('token_log')`
 - Inserir card sem `total_input_tokens` → valor default `0` aplicado automaticamente
 
 **Execução** _(preencher ao concluir)_

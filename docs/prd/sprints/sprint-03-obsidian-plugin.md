@@ -26,6 +26,8 @@
 | TASK-28 | Implementar collapse de frontmatter e advisory banner em cards | `implementation` |
 | TASK-29 | Implementar handling de erros na UI (409 overlay, toasts, banner offline) | `implementation` |
 | TASK-30 | Implementar optimistic UI com rollback | `implementation` |
+| TASK-31 | Implementar endpoint HTTP de métricas de tokens | `implementation` |
+| TASK-32 | Implementar painel de métricas no plugin | `implementation` |
 
 ---
 
@@ -444,6 +446,107 @@ Para ações do usuário (drag, criação), o board reflete a mudança imediatam
 - Arrastar card → movimento imediato no board, sem esperar resposta MCP
 - Simular timeout no MCP → card volta à posição original, toast de erro exibido
 - Múltiplos drags rápidos → rollback do último não afeta os anteriores confirmados
+
+**Execução** _(preencher ao concluir)_
+- Agente:
+- Input tokens:
+- Output tokens:
+- Observações:
+
+---
+
+### TASK-31: Implementar endpoint HTTP de métricas de tokens
+
+**Tipo:** `implementation`
+
+**Descrição:**
+Endpoint somente leitura `GET /metrics` no MCP server que agrega os dados da tabela `token_log` e retorna um objeto JSON com todas as dimensões de consumo. Não requer token de autenticação de agente — autenticação por IP local é suficiente (localhost-only).
+
+**Schema de resposta:**
+```json
+{
+  "summary": {
+    "total_input_tokens": 0,
+    "total_output_tokens": 0,
+    "total_ops": 0
+  },
+  "by_type": [
+    { "type": "implementation", "input_tokens": 0, "output_tokens": 0, "ops": 0 }
+  ],
+  "by_day": [
+    { "date": "2025-05-06", "input_tokens": 0, "output_tokens": 0 }
+  ],
+  "by_model": [
+    { "model": "claude-opus-4-7", "input_tokens": 0, "output_tokens": 0 }
+  ],
+  "by_agent": [
+    { "actor": "agent:codex-1", "input_tokens": 0, "output_tokens": 0 }
+  ],
+  "by_operation": [
+    { "op": "CREATE", "input_tokens": 0, "output_tokens": 0, "count": 0 }
+  ]
+}
+```
+
+**Parâmetros de query opcionais:**
+| Parâmetro | Tipo | Descrição |
+|---|---|---|
+| `from_date` | string | ISO 8601 — filtrar a partir desta data |
+| `to_date` | string | ISO 8601 — filtrar até esta data |
+
+**Definition of Done:**
+- `GET /metrics` retorna o schema completo com dados reais da `token_log`
+- `from_date` e `to_date` filtram corretamente
+- Endpoint restrito a localhost — requisições de IPs externos retornam 403
+- `token_log` vazia → todos os valores zerados, sem erro
+
+**Testes:**
+- Executar 10 operações mutantes → `GET /metrics` reflete totais corretos
+- `GET /metrics?from_date=2025-05-01&to_date=2025-05-01` → retorna apenas ops daquele dia
+- Requisição de IP externo → 403
+- `token_log` vazia → resposta com zeros, status 200
+
+**Execução** _(preencher ao concluir)_
+- Agente:
+- Input tokens:
+- Output tokens:
+- Observações:
+
+---
+
+### TASK-32: Implementar painel de métricas no plugin
+
+**Tipo:** `implementation`
+
+**Descrição:**
+View dedicada no sidebar do Obsidian (ItemView) que exibe as métricas de consumo de tokens. Consome o endpoint `GET /metrics`. Layout simples com tabelas — sem gráficos.
+
+**Layout:**
+- **Resumo:** total de input tokens, output tokens e operações
+- **Por tipo de card:** tabela com colunas `Tipo | Input | Output | Ops`
+- **Por dia (últimos 30 dias):** tabela com colunas `Data | Input | Output`
+- **Por modelo:** tabela com colunas `Modelo | Input | Output`
+- Botão "Atualizar" para refetch manual
+- Filtros de data opcionais (`De:` / `Até:`) que disparam novo fetch
+
+**Regras de implementação:**
+- View registrada via `this.registerView(...)` — nunca armazenada como campo na classe Plugin (RULE-04)
+- Listener de abertura registrado via `this.registerEvent(...)` (RULE-02)
+- Cores via variáveis CSS do Obsidian (RULE-07)
+
+**Definition of Done:**
+- Painel abre via Command Palette ("Show metrics panel")
+- Dados carregam automaticamente ao abrir
+- Botão "Atualizar" refaz o fetch
+- MCP offline → mensagem "MCP unavailable" no painel, sem crash
+- Filtros de data funcionais
+
+**Testes:**
+- Abrir painel → tabelas preenchidas com dados reais
+- Clicar "Atualizar" → dados atualizados
+- MCP offline → painel exibe mensagem de indisponibilidade
+- Filtrar por período → tabelas refletem apenas o intervalo selecionado
+- Fechar e reabrir painel → nenhum listener duplicado
 
 **Execução** _(preencher ao concluir)_
 - Agente:

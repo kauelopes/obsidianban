@@ -33,7 +33,26 @@ MCP mutating operations (`CREATE`, `UPDATE`, `MOVE`, `REORDER`) additionally inc
 | STARTUP | MCP start with version and vault path | MCP |
 | SHUTDOWN | MCP graceful stop | MCP |
 
-### 12.3  Application Logs
+### 12.3  Token Metrics
+
+A tabela `token_log` no SQLite é a fonte para todas as métricas de consumo. O endpoint HTTP `GET /metrics` do MCP server agrega os dados e os entrega ao plugin para exibição no painel.
+
+**Agregações disponíveis:**
+
+| Dimensão | Descrição |
+| --- | --- |
+| `summary` | Totais gerais: `total_input_tokens`, `total_output_tokens`, `total_ops` |
+| `by_type` | Tokens agrupados por `card_type` — identifica quais tipos de trabalho são mais custosos |
+| `by_day` | Tokens por dia — série temporal para acompanhar tendência de consumo |
+| `by_model` | Tokens por modelo — compara custo entre diferentes LLMs |
+| `by_agent` | Tokens por `actor` — identifica quais agentes consomem mais |
+| `by_operation` | Tokens por tipo de operação (`CREATE`, `UPDATE`, `MOVE`, `REORDER`) |
+
+Parâmetros opcionais: `from_date` e `to_date` (ISO 8601) para filtrar o período consultado.
+
+O endpoint é somente leitura e não requer parâmetros de token na chamada.
+
+### 12.5  Application Logs
 - Structured JSON to stdout. Fields: ts, level, request_id, project, card_id, duration_ms.
 - Sensitive data (raw tokens, card body) never logged.
 - Default level: info. LOG_LEVEL=debug for verbose output.

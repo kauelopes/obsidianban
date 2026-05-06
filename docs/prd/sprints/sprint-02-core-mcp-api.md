@@ -351,14 +351,17 @@ Toda mutação de qualquer origem produz uma entrada no `audit.ndjson`. Arquivo 
 - Nenhuma entrada contém token raw ou body de card
 - `EXTERNAL_MUTATION` logado em até 200ms após escrita externa
 - Operações `CREATE`, `UPDATE`, `MOVE`, `REORDER` incluem `input_tokens`, `output_tokens` e `model` na entrada do log
+- Cada operação mutante bem-sucedida escreve uma linha em `token_log` no SQLite
+- Retries idempotentes (mesmo `request_id`) não escrevem em `token_log`
 
 **Testes:**
-- Criar card → log `CREATE` com actor, version e campos de token corretos
-- Edição humana → log `HUMAN_EDIT` (sem campos de token — não é operação MCP)
+- Criar card → log `CREATE` com actor, version e campos de token corretos; linha em `token_log` com os mesmos valores
+- Edição humana → log `HUMAN_EDIT` (sem campos de token — não é operação MCP); nenhuma linha em `token_log`
 - Revert de campo imutável → log `FIELD_REVERTED` com `field` e `reason`
 - Restart com SQLite deletado → log `SQLITE_REBUILT` com `card_count` correto
 - Inspecionar log → ausência de tokens raw e body de cards
 - Verificar que entradas de watcher e startup não contêm campos de token
+- Retry com mesmo `request_id` → nenhuma linha nova em `token_log`
 
 **Execução** _(preencher ao concluir)_
 - Agente:

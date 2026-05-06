@@ -12,16 +12,16 @@
 
 | ID | Título | Tipo |
 |---|---|---|
-| TASK-31 | Testes de simulação de sync externo | `testing` |
-| TASK-32 | Stress test de reconciliação na inicialização (1000+ cards) | `testing` |
-| TASK-33 | Executar todos os E2E Acceptance Tests (§14.3) | `testing` |
-| TASK-34 | Produzir guia de integração para agentes | `documentation` |
+| TASK-33 | Testes de simulação de sync externo | `testing` |
+| TASK-34 | Stress test de reconciliação na inicialização (1000+ cards) | `testing` |
+| TASK-35 | Executar todos os E2E Acceptance Tests (§14.3) | `testing` |
+| TASK-36 | Produzir guia de integração para agentes | `documentation` |
 
 ---
 
 ## Task Details
 
-### TASK-31: Testes de simulação de sync externo
+### TASK-35: Testes de simulação de sync externo
 
 **Tipo:** `testing`
 
@@ -57,7 +57,7 @@ Simular o comportamento de ferramentas de sync de arquivos (ex: Syncthing, iClou
 
 ---
 
-### TASK-32: Stress test de reconciliação na inicialização (1000+ cards)
+### TASK-36: Stress test de reconciliação na inicialização (1000+ cards)
 
 **Tipo:** `testing`
 
@@ -98,7 +98,7 @@ Validar que a reconciliação de startup é correta e completa com volume alto d
 
 ---
 
-### TASK-33: Executar todos os E2E Acceptance Tests (§14.3)
+### TASK-35: Executar todos os E2E Acceptance Tests (§14.3)
 
 **Tipo:** `testing`
 
@@ -152,7 +152,7 @@ _(Os testes são os próprios itens AT-01 a AT-11 da tabela acima.)_
 
 ---
 
-### TASK-34: Produzir guia de integração para agentes
+### TASK-36: Produzir guia de integração para agentes
 
 **Tipo:** `documentation`
 

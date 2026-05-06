@@ -8,7 +8,7 @@ Cada sprint é um conjunto de entregáveis coesos que podem ser testados e final
 |---|---|---|---|
 | [Sprint 01](sprint-01-foundation.md) | Foundation | Infraestrutura base: vault, SQLite, atomic writer, file watcher, tokens, scaffold MCP | — |
 | [Sprint 02](sprint-02-core-mcp-api.md) | Core MCP API | As 6 tools MCP com validação completa, 409/400, audit log | Sprint 01 |
-| [Sprint 03](sprint-03-obsidian-plugin.md) | Obsidian Plugin | Board Kanban, drag-drop, SSE, acessibilidade, erros na UI | Sprint 02 |
+| [Sprint 03](sprint-03-obsidian-plugin.md) | Obsidian Plugin | Board Kanban, drag-drop, SSE, acessibilidade, erros na UI, painel de métricas | Sprint 02 |
 | [Sprint 04](sprint-04-hardening.md) | Hardening & Acceptance | E2E acceptance tests, stress test, guia de integração | Sprints 01–03 |
 
 ## Dependências entre sprints

@@ -50,6 +50,28 @@ SQLite stores all frontmatter fields needed for queries and board rendering. Car
 | --- |
 file_hash stores the SHA-256 of the full .md file at the time of last index update. Used during startup reconciliation to detect files changed while MCP was offline.
 
+#### token_log — per-operation token events
+```sql
+CREATE TABLE token_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts              TEXT NOT NULL,        -- ISO 8601 timestamp da operação
+  op              TEXT NOT NULL,        -- CREATE | UPDATE | MOVE | REORDER
+  card_id         TEXT NOT NULL,
+  card_type       TEXT NOT NULL,        -- snapshot do type no momento da op
+  actor           TEXT NOT NULL,
+  model           TEXT NOT NULL,
+  input_tokens    INTEGER NOT NULL,
+  output_tokens   INTEGER NOT NULL,
+  project         TEXT NOT NULL
+);
+
+CREATE INDEX idx_token_log_ts       ON token_log(ts);
+CREATE INDEX idx_token_log_type     ON token_log(card_type);
+CREATE INDEX idx_token_log_model    ON token_log(model);
+CREATE INDEX idx_token_log_project  ON token_log(project);
+```
+Cada operação mutante bem-sucedida escreve uma linha. Retries idempotentes (mesmo `request_id`) não escrevem. A tabela nunca é alterada — apenas appended e consultada.
+
 ### 5.4  Card Ordering
 - position is a non-negative integer. Unique per (project, status) pair.
 - On creation: position = MAX(position WHERE project=X AND status=Y) + 1000. Gap-based assignment reduces normalization frequency.
