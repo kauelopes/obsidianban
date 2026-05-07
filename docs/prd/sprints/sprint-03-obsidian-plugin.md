@@ -4,7 +4,7 @@
 
 **Pré-requisito:** Sprint 02 concluído — as 6 tools MCP operacionais, SSE endpoint disponível.
 
-**Critério de encerramento:** plugin instalado em vault de teste, board renderizado, drag-and-drop funcional, edição de card via Obsidian nativo com advisory banner, todos os erros (409, 400, 500, offline) com feedback visual correto e todos os RULE checks passando.
+**Critério de encerramento:** plugin instalado em vault de teste, board renderizado, drag-and-drop funcional, edição de card via Obsidian nativo com advisory banner, todos os erros (409, 400, 500, offline) com feedback visual correto, painel de métricas de tokens funcional e todos os RULE checks passando.
 
 ---
 

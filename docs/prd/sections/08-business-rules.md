@@ -11,12 +11,13 @@
 ### 8.2  Immutable Field Protection (File Watcher)
 - BR-06: Agents write exclusively via MCP. No exceptions.
 - BR-07: Humans may edit .md files directly. The file watcher is the enforcement layer for human edits.
-- BR-08: If a human changes an immutable field (id, project, version, position, created_at, created_by), the file watcher reverts those specific fields to their SQLite-indexed values. Editable fields in the same save are preserved. A FIELD_REVERTED entry is written to the audit log per reverted field.
+- BR-08: If a human changes an immutable field (id, project, type, version, position, created_at, created_by), the file watcher reverts those specific fields to their SQLite-indexed values. Editable fields in the same save are preserved. A FIELD_REVERTED entry is written to the audit log per reverted field.
 - BR-09: If frontmatter cannot be parsed (corrupted YAML), the watcher reverts the entire file to the last known good state from SQLite + the last stored body text. Logs PARSE_ERROR.
 - BR-10: If a human sets an invalid value for a mutable field (e.g. a status not in columns), the watcher reverts that field only, preserving all other changes. Logs FIELD_REVERTED.
 
 ### 8.3  Field Validation
 - BR-11: title: non-empty, max 200 chars.
+- BR-11b: type: non-empty string. Required at creation. Immutable after creation — not accepted in kanban_update_card. Watcher reverts direct changes.
 - BR-12: status: must be present in project's columns array.
 - BR-13: due_date: YYYY-MM-DD only. Invalid format reverted by watcher or rejected by MCP.
 - BR-14: tags: max 20 items, max 50 chars per tag.

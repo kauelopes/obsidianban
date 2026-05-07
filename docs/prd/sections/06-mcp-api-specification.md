@@ -62,7 +62,7 @@ Reads .md file from disk (not SQLite) to ensure latest state including body text
 | agent_notes | string, optional | Replace. Max 2000 chars. |
 | body | string, optional | Replace entire body. |
 | request_id | string, optional | UUID v4. |
-Agent-writable: title, status, priority, tags, due_date, assigned_to, agent_notes, body. Manager additionally: owner. Any other field → 400.
+Agent-writable: title, status, priority, tags, due_date, assigned_to, agent_notes, body. Manager additionally: owner. Any other field → 400. `type` is immutable after creation and is not accepted here.
 
 ### 6.6  kanban_move_card
 | Parameter | Type | Description |
@@ -92,7 +92,7 @@ Token fields (`input_tokens`, `output_tokens`, `model`) report the agent's cost 
 
 These fields are always required on mutating operations. Idempotent retries (same `request_id`) do not re-accumulate tokens — only the first execution counts.
 
-### 6.8  Error Schemas
+### 6.9  Error Schemas
 
 #### 409 Conflict
 | { "error": "conflict",   "message": "Version mismatch: expected 7, found 9",   "your_version": 7, "current_version": 9,   "conflicting_fields": ["status"],   "current_card": { /* full card */ } } |

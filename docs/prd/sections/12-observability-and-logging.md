@@ -52,7 +52,7 @@ Parâmetros opcionais: `from_date` e `to_date` (ISO 8601) para filtrar o períod
 
 O endpoint é somente leitura e não requer parâmetros de token na chamada.
 
-### 12.5  Application Logs
+### 12.4  Application Logs
 - Structured JSON to stdout. Fields: ts, level, request_id, project, card_id, duration_ms.
 - Sensitive data (raw tokens, card body) never logged.
 - Default level: info. LOG_LEVEL=debug for verbose output.

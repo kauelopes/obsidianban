@@ -21,7 +21,7 @@
 
 ## Task Details
 
-### TASK-35: Testes de simulação de sync externo
+### TASK-33: Testes de simulação de sync externo
 
 **Tipo:** `testing`
 
@@ -57,7 +57,7 @@ Simular o comportamento de ferramentas de sync de arquivos (ex: Syncthing, iClou
 
 ---
 
-### TASK-36: Stress test de reconciliação na inicialização (1000+ cards)
+### TASK-34: Stress test de reconciliação na inicialização (1000+ cards)
 
 **Tipo:** `testing`
 
@@ -170,7 +170,16 @@ Documentação técnica para desenvolvedores que precisam integrar um agente de 
 - Token obtido via CLI: `kanban-token create --project <id> --actor agent:<nome>`
 - `project_id` vem do token — não enviar no payload
 
-**3. Padrão recomendado de uso de `request_id`**
+**3. Campos obrigatórios de rastreamento de tokens**
+Todo payload mutante (`create`, `update`, `move`, `reorder`) deve incluir:
+```
+- input_tokens:  integer — tokens de entrada consumidos para produzir esta chamada
+- output_tokens: integer — tokens de saída gerados para produzir esta chamada
+- model:         string  — identificador do modelo (ex: "claude-opus-4-7")
+```
+Esses campos alimentam o `token_log` e os totais acumulados no card. Retries idempotentes não re-acumulam.
+
+**4. Padrão recomendado de uso de `request_id`**
 ```
 1. Antes de qualquer chamada mutante, gerar UUID v4 e armazenar
 2. Enviar request_id em toda chamada mutante
@@ -178,17 +187,17 @@ Documentação técnica para desenvolvedores que precisam integrar um agente de 
 4. Nunca reutilizar request_id para operações diferentes
 ```
 
-**4. Tratamento de conflito (409)**
+**5. Tratamento de conflito (409)**
 ```
 1. Receber 409 com current_card e conflicting_fields
 2. Analisar: os campos que você queria mudar já foram alterados?
 3. Reenviar com version de current_card e payload reconstruído
 ```
 
-**5. Exemplo completo em TypeScript** — create → update → conflict handling
+**6. Exemplo completo em TypeScript** — create → update → conflict handling
 
 **Definition of Done:**
-- Guia cobre os 4 tópicos acima
+- Guia cobre os 5 tópicos acima (incluindo campos de token)
 - Exemplo de código TypeScript funcional e testado
 - Guia revisado por alguém que não participou da implementação
 

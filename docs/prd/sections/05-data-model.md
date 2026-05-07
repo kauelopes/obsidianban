@@ -3,7 +3,7 @@
 
 ### 5.1  Card File Format
 Each card is a single .md file. The YAML frontmatter block contains all structured metadata. The body below the closing --- separator is free-form Markdown editable by humans without restrictions.
-| --- id: card-abc123 project: projeto-x title: Implement authentication module status: doing version: 7 position: 3000 priority: high tags: [backend, auth] due_date: 2025-05-10 assigned_to: agent:codex-1 owner: human:manager created_at: 2025-05-01T10:00:00Z updated_at: 2025-05-03T14:22:00Z created_by: agent:codex-1 updated_by: human:manager agent_notes: JWT strategy complete. Refresh token pending. ---  ## Description  Full Markdown body here. Humans edit this freely. No restrictions. Supports all Obsidian syntax including [[links]]. |
+| --- id: card-abc123 project: projeto-x title: Implement authentication module type: implementation status: doing version: 7 position: 3000 priority: high tags: [backend, auth] due_date: 2025-05-10 assigned_to: agent:codex-1 owner: human:manager created_at: 2025-05-01T10:00:00Z updated_at: 2025-05-03T14:22:00Z created_by: agent:codex-1 updated_by: human:manager agent_notes: JWT strategy complete. Refresh token pending. total_input_tokens: 14820 total_output_tokens: 3210 ---  ## Description  Full Markdown body here. Humans edit this freely. No restrictions. Supports all Obsidian syntax including [[links]]. |
 | --- |
 
 ### 5.2  Canonical Card Schema
@@ -17,6 +17,7 @@ Each card is a single .md file. The YAML frontmatter block contains all structur
 | position | integer | auto-assigned | MCP-managed. See §5.4. Reverted if changed directly. |
 | created_at | ISO 8601 datetime | current UTC | Immutable. Reverted by watcher if changed. |
 | created_by | string | actor identity | Immutable. Reverted by watcher if changed. |
+| type | string | (set at creation) | Immutable after creation. Free text — no enum. Reverted by watcher if changed. Not accepted in kanban_update_card. |
 | updated_at | ISO 8601 datetime | current UTC | MCP-managed. Always set to current UTC on write. |
 | updated_by | string | actor identity | MCP-managed. Set to writing actor on every write. |
 
@@ -25,7 +26,6 @@ Each card is a single .md file. The YAML frontmatter block contains all structur
 | --- | --- | --- | --- |
 | title | string | (none) | Non-empty. Max 200 chars. |
 | status | string | (none) | Must match a value in project's columns array. |
-| type | string | (none) | Free text. Required at creation. Describes the nature of the work (e.g. "implementation", "bug", "research"). Not validated against an enum — each project defines its own taxonomy. |
 
 #### Optional Fields — human and agent writable (unless noted)
 | Field | Type | Default | Rule |
@@ -93,6 +93,7 @@ All fields use Replace semantics. Writers that intend to append must read curren
 | agent_notes | Replace | Max 2000 chars. |
 | body | Replace | Full Markdown body replaced. |
 | position | Via reorder tool only | Not accepted in kanban_update_card. |
+| type | Immutable | Set at creation. Not accepted in kanban_update_card. Watcher reverts direct changes. |
 
 ### 5.6  JSON Schema (Normative)
 | {   "$schema": "http://json-schema.org/draft-07/schema#",   "title": "KanbanCard",  "type": "object",   "required": ["id","project","title","status","type","version","position",                "total_input_tokens","total_output_tokens",                "created_at","updated_at","created_by","updated_by"],   "additionalProperties": true,   "properties": {     "id":                   { "type":"string", "pattern":"^card-[a-zA-Z0-9]{8}$" },     "project":              { "type":"string", "minLength":1 },     "title":                { "type":"string", "minLength":1, "maxLength":200 },     "status":               { "type":"string", "minLength":1 },     "type":                 { "type":"string", "minLength":1 },     "version":              { "type":"integer", "minimum":1 },     "position":             { "type":"integer", "minimum":0 },     "total_input_tokens":   { "type":"integer", "minimum":0 },     "total_output_tokens":  { "type":"integer", "minimum":0 },     "created_at":           { "type":"string", "format":"date-time" },     "updated_at":           { "type":"string", "format":"date-time" },     "created_by":           { "type":"string", "pattern":"^(agent:|human:|external:).+$" },     "updated_by":           { "type":"string", "pattern":"^(agent:|human:|external:).+$" },     "priority":             { "type":"string", "enum":["low","medium","high","critical"] },     "tags":                 { "type":"array", "maxItems":20,                               "items":{"type":"string","maxLength":50} },     "due_date":             { "type":["string","null"],                               "pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },     "owner":                { "type":["string","null"] },     "assigned_to":          { "type":["string","null"] },     "agent_notes":          { "type":["string","null"], "maxLength":2000 }   } } |
