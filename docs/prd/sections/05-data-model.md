@@ -72,10 +72,53 @@ CREATE INDEX idx_token_log_project  ON token_log(project);
 ```
 Cada operação mutante bem-sucedida escreve uma linha. Retries idempotentes (mesmo `request_id`) não escrevem. A tabela nunca é alterada — apenas appended e consultada.
 
+#### Entity Relationship
+
+```mermaid
+erDiagram
+    cards {
+        TEXT id PK "card-nanoid8 — immutable"
+        TEXT project "folder name — immutable"
+        TEXT title "max 200 chars"
+        TEXT status "must match _meta.json column"
+        TEXT type "immutable after creation"
+        INTEGER version "incremented on every write"
+        INTEGER position "unique per project+status"
+        TEXT priority "low|medium|high|critical"
+        TEXT tags "JSON array — max 20 items"
+        TEXT due_date "YYYY-MM-DD or null"
+        TEXT assigned_to "agent: or human: identity"
+        TEXT owner "manager-only write"
+        TEXT agent_notes "max 2000 chars"
+        INTEGER total_input_tokens "accumulated — never decremented"
+        INTEGER total_output_tokens "accumulated — never decremented"
+        TEXT created_at "ISO 8601 — immutable"
+        TEXT updated_at "ISO 8601 — MCP-managed"
+        TEXT created_by "agent:|human:|external: — immutable"
+        TEXT updated_by "agent:|human:|external: — MCP-managed"
+        TEXT file_hash "SHA-256 of .md file for reconciliation"
+    }
+
+    token_log {
+        INTEGER id PK
+        TEXT ts "ISO 8601 timestamp"
+        TEXT op "CREATE|UPDATE|MOVE|REORDER"
+        TEXT card_id FK
+        TEXT card_type "snapshot of type at time of op"
+        TEXT actor "agent: or human: identity"
+        TEXT model "e.g. claude-opus-4-7"
+        INTEGER input_tokens
+        INTEGER output_tokens
+        TEXT project
+    }
+
+    cards ||--o{ token_log : "one card, many token events"
+```
+
 ### 5.4  Card Ordering
 - position is a non-negative integer. Unique per (project, status) pair.
 - On creation: position = MAX(position WHERE project=X AND status=Y) + 1000. Gap-based assignment reduces normalization frequency.
-- On status change: position = MAX(position in destination column) + 1000. Card appended to bottom.
+- On status change: position = MAX(position in destination column) + 1000. Card appended to bottom. This rule applies regardless of which tool triggered the status change — kanban_move_card or kanban_update_card with a status field.
 - On explicit reorder: MCP normalizes all positions in the column to multiples of 1000 post-operation.
 - Tie-break (position collision): secondary sort on updated_at ascending. Normalized on next write to that column.
 

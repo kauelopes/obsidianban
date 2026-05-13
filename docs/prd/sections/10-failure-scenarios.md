@@ -13,4 +13,5 @@
 | Duplicate request_id | Cached response returned. No re-execution. | Transparent to agent. |
 | MCP offline (plugin) | Plugin shows read-only banner. Board still displays from last state. | MCP health polling every 5s. Banner removed on reconnect. |
 | External sync pushes card file | Watcher fires. Processes as human edit path: validates, reconciles, logs EXTERNAL_MUTATION. | Version incremented. Any in-flight agent write → 409. |
+| Manager hard-deletes card `.md` file | Watcher detects `unlink` event. SQLite row removed. `CARD_DELETED` SSE event emitted. Audit log: `CARD_DELETED`. | Card disappears from plugin board via SSE. Any in-flight agent write for that card → 404 on next request. |
 

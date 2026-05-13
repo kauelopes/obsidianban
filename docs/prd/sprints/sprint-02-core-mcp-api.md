@@ -20,6 +20,7 @@
 | TASK-14 | Implementar `kanban_reorder_card` com normalização de posições | `implementation` |
 | TASK-15 | Implementar resposta 409 Conflict completa | `implementation` |
 | TASK-16 | Completar audit log para todos os event types | `implementation` |
+| TASK-16b | Implementar SSE endpoint server-side (`GET /events`) | `implementation` |
 
 ---
 
@@ -173,24 +174,31 @@ Atualiza campos de um card. Usa optimistic concurrency: `version` deve bater com
 | `request_id` | string, opcional | UUID v4 |
 
 **Campos por actor:**
-- Agent: `title, status, priority, tags, due_date, assigned_to, agent_notes, body`
-- Manager: acima + `owner`
+- Agent (`role=agent`): `title, status, priority, tags, due_date, assigned_to, agent_notes, body`
+- Manager (`role=manager`): acima + `owner`
+
+**Comportamento de `status` com position:**
+Se `status` for alterado via `update_card`, MCP aplica a mesma lógica de position do `move_card`: o card é reposicionado para `MAX(position na coluna destino) + 1000` (append to bottom). Isso garante comportamento idêntico independente de qual tool foi usada para a mudança de status (§5.4, §6.5).
 
 **Definition of Done:**
 - Campo proibido no payload → 400 com `disallowed_fields` (verificado antes do version check)
 - `input_tokens`, `output_tokens` ou `model` ausentes → 400
 - `version` incorreta sem campos proibidos → 409 com `current_card` e `conflicting_fields`
 - Semântica Replace: sem append automático em nenhum campo
+- Mudança de `status` via `update_card` → position recalculada (MAX+1000 na coluna destino), idêntico ao `move_card`
 - Audit log: entrada `UPDATE` com `changed_fields`, `input_tokens`, `output_tokens`, `model`
 - `total_input_tokens` e `total_output_tokens` no frontmatter acumulados após update bem-sucedido
+- Manager token (`role=manager`): campo `owner` aceito; agent token: `owner` → 400
 
 **Testes:**
-- Agente envia `owner` → 400 `disallowed_fields: ["owner"]`
+- Agent token envia `owner` → 400 `disallowed_fields: ["owner"]`
+- Manager token envia `owner` → aceito, campo atualizado
 - `version` correta + campos válidos → versão+1, log `UPDATE` com tokens corretos
 - `version` desatualizada → 409 com `current_card`
-- `version` correta + `owner` no payload → 400 (campos proibidos têm prioridade)
+- `version` correta + `owner` com agent token → 400 (campos proibidos têm prioridade sobre version check)
 - Retry com mesmo `request_id` → mesma resposta, version não incrementa, tokens não re-acumulados
 - Após update: `total_input_tokens` no frontmatter = valor anterior + `input_tokens` desta chamada
+- `update_card` com `status` diferente → card aparece no final da coluna destino (posição = MAX+1000)
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -362,6 +370,58 @@ Toda mutação de qualquer origem produz uma entrada no `audit.ndjson`. Arquivo 
 - Inspecionar log → ausência de tokens raw e body de cards
 - Verificar que entradas de watcher e startup não contêm campos de token
 - Retry com mesmo `request_id` → nenhuma linha nova em `token_log`
+
+**Execução** _(preencher ao concluir)_
+- Agente:
+- Input tokens:
+- Output tokens:
+- Observações:
+
+---
+
+### TASK-16b: Implementar SSE endpoint server-side (`GET /events`)
+
+**Tipo:** `implementation`
+
+**Descrição:**
+Endpoint HTTP que mantém conexões SSE abertas e empurra eventos em tempo real para o plugin. Emitido por `SSEEventBus` (via `CardService`) após cada mutação bem-sucedida. Pré-requisito para TASK-23 da Sprint 03.
+
+**Especificação (§6.10):**
+
+| Event type | Emitido quando |
+|---|---|
+| `CARD_CREATED` | `kanban_create_card` completa |
+| `CARD_UPDATED` | `kanban_update_card` completa |
+| `CARD_MOVED` | `kanban_move_card` completa |
+| `CARD_REORDERED` | `kanban_reorder_card` completa |
+| `CARD_HUMAN_EDITED` | file watcher finaliza reconciliação de edição humana |
+| `CARD_DELETED` | file watcher detecta deleção de `.md` por manager |
+
+**Formato de evento:**
+```
+event: CARD_MOVED
+data: {"card_id":"card-abc123","project":"projeto-x","from_status":"todo","to_status":"doing","new_position":3000}
+
+```
+
+**Regras:**
+- Endpoint restrito a localhost (não requer token de agente)
+- Múltiplos clientes SSE suportados simultaneamente
+- Reconexão: implementar `Last-Event-ID` para replay dos últimos 100 eventos
+- Eventos emitidos apenas após escrita e SQLite completos — nunca em falhas ou replays idempotentes
+
+**Definition of Done:**
+- `GET /events` retorna `Content-Type: text/event-stream`
+- Os 6 tipos de evento emitidos com payload correto conforme §6.10 e `docs/design/interfaces.ts`
+- Múltiplos clientes conectados recebem o mesmo evento
+- Cliente desconectado removido do `SSEEventBus` sem leak
+- Eventos não emitidos em retries idempotentes (mesmo `request_id`)
+
+**Testes:**
+- Conectar 2 clientes → criar card → ambos recebem `CARD_CREATED`
+- Derrubar um cliente → criar card → nenhum erro no servidor, cliente ativo recebe evento
+- Retry com mesmo `request_id` → nenhum evento SSE duplicado emitido
+- Edição humana reconciliada pelo watcher → cliente SSE recebe `CARD_HUMAN_EDITED`
 
 **Execução** _(preencher ao concluir)_
 - Agente:

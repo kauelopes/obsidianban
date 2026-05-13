@@ -62,7 +62,9 @@ Reads .md file from disk (not SQLite) to ensure latest state including body text
 | agent_notes | string, optional | Replace. Max 2000 chars. |
 | body | string, optional | Replace entire body. |
 | request_id | string, optional | UUID v4. |
-Agent-writable: title, status, priority, tags, due_date, assigned_to, agent_notes, body. Manager additionally: owner. Any other field → 400. `type` is immutable after creation and is not accepted here.
+Agent-writable: title, status, priority, tags, due_date, assigned_to, agent_notes, body. Manager additionally: owner (enforced via token role claim — see §3.2). Any other field → 400. `type` is immutable after creation and is not accepted here.
+
+**Status change via update_card:** if `status` is included and differs from the current value, MCP applies the same position logic as kanban_move_card — the card is appended to the bottom of the destination column (position = MAX + 1000). This allows combining a status change with other field updates in a single atomic call.
 
 ### 6.6  kanban_move_card
 | Parameter | Type | Description |
@@ -101,4 +103,37 @@ These fields are always required on mutating operations. Idempotent retries (sam
 #### 400 Disallowed Fields
 | { "error": "invalid_fields",   "message": "Request contains fields not writable by this actor",   "disallowed_fields": ["owner","version"],   "allowed_fields": ["title","status","priority","tags","due_date",                       "assigned_to","agent_notes","body","request_id"] } |
 | --- |
+
+### 6.10  SSE Event Stream
+
+The plugin subscribes to `GET /events` (HTTP+SSE). MCP emits one event per successful mutation, enabling real-time board updates without polling.
+
+| Event type | Emitted when | Payload |
+| --- | --- | --- |
+| `CARD_CREATED` | kanban_create_card completes | `{ card_id, project, status, position }` |
+| `CARD_UPDATED` | kanban_update_card completes | `{ card_id, project, changed_fields[] }` |
+| `CARD_MOVED` | kanban_move_card completes | `{ card_id, project, from_status, to_status, new_position }` |
+| `CARD_REORDERED` | kanban_reorder_card completes | `{ project, status, affected_cards[{ id, new_position }] }` |
+| `CARD_HUMAN_EDITED` | file watcher finishes reconciling a human edit | `{ card_id, project, new_version }` |
+| `CARD_DELETED` | manager hard-deletes a card file (watcher detects) | `{ card_id, project }` |
+
+Events are emitted after the atomic write and SQLite update complete — never on failed or idempotent-replay requests.
+
+**Reconnection with `Last-Event-ID`:** the server maintains a ring buffer of the last 100 events, each assigned a sequential numeric `id`. On reconnect, if the client sends a `Last-Event-ID` header, the server replays all buffered events since that ID before resuming the live stream. Clients that reconnect after more than 100 events have been emitted receive no replay — they should re-fetch board state via `kanban_list_cards`.
+
+### 6.11  Health Check
+
+`GET /health` — no authentication required. Bound to `127.0.0.1` only.
+
+**Response (200 OK):**
+```json
+{
+  "status": "ok",
+  "uptime_s": 142,
+  "vault": "/vault",
+  "cards_indexed": 38
+}
+```
+
+Used by the container HEALTHCHECK (every 10s) and by the Obsidian plugin for MCP-offline detection (every 5s — §11.4). Returns 503 if the SQLite index is not yet available (during startup reconciliation).
 

@@ -230,17 +230,31 @@ O plugin subscreve ao SSE endpoint do MCP para receber eventos de mudança em te
 
 **Comportamento:**
 - Board atualiza em até 500ms após qualquer mudança de card via MCP
-- Reconexão automática se SSE cair
+- Reconexão automática se SSE cair; usar `Last-Event-ID` para replay de eventos perdidos
 - Listener registrado via métodos de lifecycle do Obsidian (RULE-02)
+
+**Mapeamento de eventos para ações na UI (§6.10):**
+
+| Evento SSE | Ação no plugin |
+|---|---|
+| `CARD_CREATED` | Inserir card na coluna e posição indicadas |
+| `CARD_UPDATED` | Re-fetch do card via `kanban_get_card` e re-render |
+| `CARD_MOVED` | Mover card de `from_status` para `to_status` na posição indicada |
+| `CARD_REORDERED` | Reordenar `affected_cards` na coluna conforme novas posições |
+| `CARD_HUMAN_EDITED` | Re-fetch do card via `kanban_get_card` e re-render |
+| `CARD_DELETED` | Remover card do board |
 
 **Definition of Done:**
 - Board atualiza em < 500ms após mudança via MCP
-- Reconexão automática em caso de queda do SSE
-- Listener limpo corretamente no `onunload`
+- Todos os 6 tipos de evento tratados com a ação correta na UI
+- Reconexão automática com `Last-Event-ID` em caso de queda do SSE
+- Listener limpo corretamente no `onunload` (RULE-02)
 
 **Testes:**
 - Agente externo cria card → board reflete em < 500ms sem interação do usuário
-- Simular queda do SSE → reconexão automática → board volta a receber eventos
+- Edição humana direta no `.md` → `CARD_HUMAN_EDITED` dispara re-fetch → board atualiza
+- Deleção de card pelo manager → `CARD_DELETED` → card some do board
+- Simular queda do SSE → reconexão automática com `Last-Event-ID` → eventos perdidos processados
 - Recarregar plugin → SSE reconecta, sem listeners duplicados
 
 **Execução** _(preencher ao concluir)_

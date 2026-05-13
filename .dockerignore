@@ -1,0 +1,30 @@
+# Dependencies — rebuilt inside the image
+node_modules/
+
+# Version control
+.git/
+.gitignore
+
+# Secrets — never bake into the image
+.env
+.env.*
+!.env.example
+
+# Documentation (not needed at runtime)
+docs/
+
+# Test vaults and test fixtures
+test-vault/
+tests/
+*.test.js
+*.spec.js
+*.test.ts
+*.spec.ts
+
+# OS artifacts
+.DS_Store
+Thumbs.db
+
+# Editor metadata
+.vscode/
+.idea/

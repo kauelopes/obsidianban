@@ -18,6 +18,7 @@ MCP mutating operations (`CREATE`, `UPDATE`, `MOVE`, `REORDER`) additionally inc
 | MOVE | Status transition via kanban_move_card | All actors | input_tokens, output_tokens, model |
 | REORDER | Position changed via kanban_reorder_card | All actors | input_tokens, output_tokens, model |
 | HUMAN_EDIT | Human direct edit reconciled by watcher | File watcher |
+| CARD_DELETED | Manager deleted card `.md` file — watcher detected `unlink` event | File watcher |
 | FIELD_REVERTED | Immutable or invalid field reverted — includes reverted_fields and reason | File watcher |
 | EXTERNAL_MUTATION | File change from sync tool detected — processed as human edit | File watcher |
 | PARSE_ERROR | Corrupted .md file detected and reverted | File watcher |

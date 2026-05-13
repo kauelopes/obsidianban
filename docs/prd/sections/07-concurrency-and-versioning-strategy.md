@@ -30,6 +30,21 @@ Rapid successive edits to the same file (e.g. auto-save while typing) generate m
 - Append to audit log.
 - On startup: delete any orphaned .tmp files before accepting connections.
 
+```mermaid
+flowchart TD
+    START(["write requested"]) --> FLAG["set MCP-originated flag\nfor card ID"]
+    FLAG --> MEM["compute updated .md content\nin memory"]
+    MEM --> TMP["write .md.tmp\nfsync"]
+    TMP --> REN["rename .tmp → .md\natomic on POSIX"]
+    REN --> SQL["SQLite transaction:\nupdate index row"]
+    SQL --> CLR["clear MCP-originated flag"]
+    CLR --> LOG["append entry to audit.ndjson"]
+    LOG --> DONE(["done"])
+
+    TMP -. "crash before rename?" .-> ORPHAN["orphaned .tmp remains\ndeleted on next MCP startup"]
+    REN -. "crash before SQLite update?" .-> RECON["hash mismatch detected\non startup reconciliation\nSQLite corrected from .md"]
+```
+
 ### 7.5  Idempotency per Operation
 | Operation | Class | Retry Behavior |
 | --- | --- | --- |

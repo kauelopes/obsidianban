@@ -3,10 +3,31 @@
 
 ### 8.1  Authorization (Agent Writes)
 - BR-01: Token authorization validated on every MCP tool call.
-- BR-02: project_id from token cannot be overridden by request payload.
-- BR-03: Cards in other projects return 404 (not 403).
-- BR-04: Manager token is project-unscoped, never shared with agents.
+- BR-02: project_id from agent token cannot be overridden by request payload.
+- BR-03: Agent requests for cards in other projects return 404 (not 403).
+- BR-04: Manager token is project-unscoped (no project_id claim) — grants access to all projects in the vault. Never shared with agents. See §3.2.
 - BR-05: Token revocation takes effect on next call.
+
+### 8.1b  Card Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active : kanban_create_card\n(version = 1)
+
+    state Active {
+        [*] --> InColumn
+        InColumn --> InColumn : status change via move_card or update_card\n(position rule applied — §5.4)
+        InColumn --> InColumn : field update via update_card
+        InColumn --> InColumn : reorder via reorder_card
+        InColumn --> InColumn : human direct edit\n(file watcher reconciles)
+    }
+
+    Active --> Archived : status set to 'archived'\n(agent or manager)
+    Archived --> Active : status changed back\n(manager only)
+    Active --> Deleted : file deleted\n(manager only — hard delete)
+    Archived --> Deleted : file deleted\n(manager only — hard delete)
+    Deleted --> [*]
+```
 
 ### 8.2  Immutable Field Protection (File Watcher)
 - BR-06: Agents write exclusively via MCP. No exceptions.

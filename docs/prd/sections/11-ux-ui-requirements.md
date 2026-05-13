@@ -7,6 +7,45 @@
 - Does NOT manage the file watcher, SQLite, or any direct file writes.
 - Subscribes to MCP's SSE event stream for real-time board updates.
 
+#### Plugin ↔ MCP Communication — SSE Subscription and Optimistic UI
+
+```mermaid
+sequenceDiagram
+    participant Human
+    participant Plugin
+    participant MCP
+    participant SSE as SSE Event Stream
+
+    Plugin->>MCP: GET /events (subscribe)
+    MCP-->>Plugin: 200 text/event-stream — connection open
+
+    Note over Human,Plugin: Human drags card to new column
+    Human->>Plugin: drag card → target column
+    Plugin->>Plugin: optimistic update\n(show card in new column immediately)
+    Plugin->>MCP: kanban_move_card(id, version, to_status)
+
+    alt success
+        MCP-->>Plugin: 200 updated card
+        MCP->>SSE: emit CARD_MOVED
+        SSE-->>Plugin: CARD_MOVED event
+        Note over Plugin: board already correct — event confirms state
+    else 409 Conflict
+        MCP-->>Plugin: 409 (current_card)
+        Plugin->>Plugin: rollback optimistic update
+        Plugin->>Human: conflict overlay\n(keep mine / keep theirs / manual merge)
+    else MCP offline / 5xx
+        Plugin->>Plugin: rollback optimistic update
+        Plugin->>Human: error toast + Retry button
+    end
+
+    Note over Plugin,MCP: SSE also delivers updates from other sources
+    MCP->>SSE: emit CARD_HUMAN_EDITED\n(file watcher reconciled a direct edit)
+    SSE-->>Plugin: CARD_HUMAN_EDITED
+    Plugin->>MCP: kanban_get_card(id)
+    MCP-->>Plugin: updated card
+    Plugin->>Plugin: re-render affected card
+```
+
 ### 11.2  Frontmatter UX in Obsidian Editor
 - When a card file is opened in Obsidian, the plugin detects it (by checking the id field pattern) and injects an advisory banner at the top of the editor view: 'Managed card — edit body and content fields freely. System fields (id, version, etc.) are auto-managed and will be corrected if changed.'
 - The plugin folds (collapses) the frontmatter block by default using Obsidian's native fold API. Human sees only the body immediately.

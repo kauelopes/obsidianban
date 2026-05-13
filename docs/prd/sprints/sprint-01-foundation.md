@@ -2,7 +2,7 @@
 
 **Objetivo:** Estabelecer toda a infraestrutura base do sistema: estrutura de vault, persistência atômica (.md + SQLite), file watcher com proteção de invariantes, reconciliação de startup e scaffold do servidor MCP com autenticação.
 
-**Critério de encerramento:** o servidor MCP inicia, autentica tokens, o file watcher detecta e reverte edições inválidas, e o SQLite é reconstruído do zero a partir dos `.md` sem perda de dados.
+**Critério de encerramento:** o servidor MCP inicia, autentica tokens, o file watcher detecta e reverte edições inválidas, o SQLite é reconstruído do zero a partir dos `.md` sem perda de dados, e o servidor sobe via `./container.sh start` com `/health` respondendo 200.
 
 ---
 
@@ -18,6 +18,9 @@
 | TASK-06 | Implementar CLI de provisionamento de tokens | `implementation` |
 | TASK-07 | Criar scaffold do servidor MCP com auth middleware | `scaffold` |
 | TASK-08 | Implementar idempotency store | `implementation` |
+| TASK-08b | Implementar endpoint `GET /health` | `implementation` |
+| TASK-08c | Criar `Dockerfile` e `.dockerignore` | `scaffold` |
+| TASK-08d | Criar `container.sh` e `.env.example` para Podman 3.4.4 | `scaffold` |
 
 ---
 
@@ -250,25 +253,35 @@ No startup, o MCP compara o SHA-256 de cada `.md` com o `file_hash` armazenado e
 **Tipo:** `implementation`
 
 **Descrição:**
-CLI para gerenciar tokens de acesso de agentes. Apenas o SHA-256 do token é armazenado no `_meta.json` — nunca o token raw. Cada token é vinculado a exatamente um `project_id`.
+CLI para gerenciar os dois tipos de token do sistema. Apenas o SHA-256 do token é armazenado — nunca o raw. Os dois tipos têm estrutura e escopo distintos (§3.2):
 
-**Comandos:**
+**Agent token** — project-scoped. Armazenado em `_meta.json` do projeto.
 ```bash
-kanban-token create --project projeto-x --actor agent:codex-1
+kanban-token create --project projeto-x --role agent --actor agent:codex-1
 kanban-token revoke --project projeto-x --token-id <id>
 kanban-token list --project projeto-x
 ```
 
+**Manager token** — project-unscoped. Armazenado em `.kanban/manager-tokens.json` (vault-level, não por projeto).
+```bash
+kanban-token create --role manager --actor human:manager
+kanban-token revoke --manager --token-id <id>
+kanban-token list --manager
+```
+
 **Definition of Done:**
-- Apenas SHA-256 armazenado em `_meta.json`
+- Agent tokens: apenas SHA-256 em `_meta.json`, vinculados a exatamente um `project_id`
+- Manager tokens: apenas SHA-256 em `.kanban/manager-tokens.json`, sem `project_id`
 - Token revogado tem efeito na próxima chamada MCP (BR-05)
-- `list` exibe apenas metadados (`token-id`, `actor`, `created_at`), nunca o token raw
-- Manager token é project-unscoped e gerado separadamente
+- `list` exibe apenas metadados (`token-id`, `actor`, `created_at`, `role`), nunca o token raw
+- Manager tokens nunca aparecem em `kanban-token list --project`
 
 **Testes:**
-- Criar token → usar em chamada MCP → autenticado com sucesso
-- Revogar token → chamada MCP seguinte → 401
-- Listar tokens → saída não contém o token raw
+- Criar agent token → usar em chamada MCP para o projeto correto → autenticado
+- Usar agent token para projeto diferente → 404 (BR-03)
+- Criar manager token → usar em chamada MCP para qualquer projeto → autenticado com `role=manager`
+- Revogar agent token → chamada MCP seguinte → 401
+- Listar tokens → sem token raw na saída
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -287,20 +300,24 @@ Servidor MCP em Node.js expondo dois transports: `stdio` (agentes locais) e `HTT
 
 **Responsabilidades do middleware:**
 - Extrair token do header `Authorization: Bearer <token>`
-- Computar SHA-256 → comparar com `_meta.json` do projeto
+- Computar SHA-256 → buscar em `_meta.json` (agent) ou `.kanban/manager-tokens.json` (manager)
 - Token inválido ou revogado → 401
-- Extrair `project_id` do token → disponibilizar no contexto da request (imutável — BR-02)
+- Extrair `role` e `project_id` do registro do token → montar `TokenClaims` (§3.2, design/interfaces.ts)
+- Agent: disponibilizar `project_id` no contexto imutável (BR-02); manager: sem filtro de projeto
 
 **Definition of Done:**
 - Servidor inicia em stdio e HTTP na mesma instância
 - Toda chamada sem token válido retorna 401
-- `project_id` do token não pode ser sobrescrito pelo payload de nenhuma request
+- `project_id` do agent token não pode ser sobrescrito pelo payload (BR-02)
+- Manager token: `TokenClaims.role === 'manager'`, sem restrição de projeto
+- Contexto de request carrega `TokenClaims` tipado conforme `docs/design/interfaces.ts`
 - Estrutura pronta para receber implementação das tools (Sprint 02)
 
 **Testes:**
 - Chamada sem token → 401
-- Chamada com token de projeto X acessando card do projeto Y → 404 (não 403, BR-03)
-- Chamada com token válido → passa pelo middleware sem erro
+- Agent token de projeto X acessando card do projeto Y → 404 (BR-03)
+- Manager token acessando card de qualquer projeto → autenticado com `role=manager`
+- Chamada com token válido → passa pelo middleware sem erro, `TokenClaims` disponível no contexto
 
 **Execução** _(preencher ao concluir)_
 - Agente:
@@ -332,6 +349,136 @@ Todas as tools mutantes aceitam `request_id` (UUID v4). Se o mesmo `request_id` 
 - Restart do MCP → retry com mesmo `request_id` → ainda retorna resposta cacheada
 - `request_id` com formato inválido → 400 `invalid_request_id`
 - Entry com > 24h → removida no próximo startup
+
+**Execução** _(preencher ao concluir)_
+- Agente:
+- Input tokens:
+- Output tokens:
+- Observações:
+
+---
+
+### TASK-08b: Implementar endpoint `GET /health`
+
+**Tipo:** `implementation`
+
+**Descrição:**
+Endpoint sem autenticação para health check da instância MCP. Usado pelo container HEALTHCHECK e pelo plugin Obsidian para detecção de MCP offline.
+
+```
+GET /health
+→ 200 { "status": "ok", "uptime_s": N, "vault": "/vault", "cards_indexed": N }
+→ 503 durante reconciliação de startup (SQLite ainda não disponível)
+```
+
+Bound a `127.0.0.1` apenas — nunca exposto externamente.
+
+**Definition of Done:**
+- Retorna 200 com payload JSON correto após startup completo
+- Retorna 503 enquanto reconciliação ainda não concluiu
+- `cards_indexed` reflete o count atual do SQLite
+- Nenhum token requerido na chamada
+
+**Testes:**
+- `curl http://localhost:3000/health` após startup → 200 com `status: ok`
+- Chamar durante reconciliação → 503
+- Confirmar que plugin usa este endpoint para detecção de offline (§11.4)
+
+**Execução** _(preencher ao concluir)_
+- Agente:
+- Input tokens:
+- Output tokens:
+- Observações:
+
+---
+
+### TASK-08c: Criar `Dockerfile` e `.dockerignore`
+
+**Tipo:** `scaffold`
+
+**Descrição:**
+Dockerfile single-stage baseado em `node:22-slim` (Debian 12 glibc). `better-sqlite3` distribui binários pré-compilados para linux/x64 glibc — nenhuma ferramenta de build necessária (`python3`, `make`, `g++`).
+
+```dockerfile
+FROM node:22-slim
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+COPY . .
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s \
+  CMD node -e "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+CMD ["node", "src/index.js"]
+```
+
+`USER node` usa uid 1000, compatível com `--userns=keep-id` do Podman rootless.
+
+`.dockerignore` exclui: `node_modules/`, `.env`, `.env.*` (exceto `.env.example`), `docs/`, arquivos de teste, artefatos de SO.
+
+**Definition of Done:**
+- `./container.sh build` conclui sem erros
+- Imagem final ≤ 130 MB
+- `better-sqlite3` funciona sem etapa de compilação nativa
+- `USER node` (uid 1000) configurado para compatibilidade com Podman rootless
+
+**Testes:**
+- `./container.sh build` → sem erros, imagem criada
+- `podman image ls obsidiankan-mcp` → size ≤ 130 MB
+- `./container.sh start && curl http://localhost:3000/health` → 200 ok
+
+**Execução** _(preencher ao concluir)_
+- Agente:
+- Input tokens:
+- Output tokens:
+- Observações:
+
+---
+
+### TASK-08d: Criar `container.sh` e `.env.example` para Podman 3.4.4
+
+**Tipo:** `scaffold`
+
+**Descrição:**
+Script POSIX sh (`container.sh`) que encapsula todos os comandos `podman run` necessários para operar o MCP server. Podman compose não é usado (requer 4.7+; versão em uso é 3.4.4).
+
+**Comandos suportados:**
+```
+./container.sh build      # podman build -t obsidiankan-mcp:latest .
+./container.sh start      # podman run -d com todas as flags necessárias
+./container.sh stop       # podman stop + podman rm
+./container.sh restart    # stop → start
+./container.sh logs       # podman logs -f
+./container.sh status     # podman inspect (state, pid, started)
+./container.sh exec ...   # podman exec -it (ex: node src/index.js --stdio)
+```
+
+**Flags obrigatórias no `podman run`:**
+- `--userns=keep-id` — mapeia UID do host para uid 1000 (node) dentro do container
+- `-v "${VAULT_PATH}:/vault:z"` — `:z` relabela para SELinux (Fedora/RHEL)
+- `-p "127.0.0.1:${MCP_HTTP_PORT}:3000"` — bound ao loopback apenas
+- `--restart unless-stopped`
+
+**`.env.example`:**
+```
+VAULT_PATH=/home/youruser/Documents/MyVault
+MCP_HTTP_PORT=3000
+LOG_LEVEL=info
+```
+
+O script carrega `.env` automaticamente se presente. `VAULT_PATH` é obrigatório — erro explícito se não definido.
+
+**Definition of Done:**
+- `./container.sh start` inicia o container com as flags corretas
+- `./container.sh exec node src/index.js --stdio` funciona para agentes stdio
+- `.env` carregado automaticamente — sem necessidade de exportar variáveis manualmente
+- `VAULT_PATH` não definido → erro claro antes de tentar subir o container
+
+**Testes:**
+- `./container.sh build && ./container.sh start` → container rodando
+- `./container.sh status` → exibe estado, pid e timestamp de start
+- `./container.sh stop` → container removido, dados no vault preservados no host
+- Sem `.env` e sem `VAULT_PATH` exportado → mensagem de erro legível
 
 **Execução** _(preencher ao concluir)_
 - Agente:

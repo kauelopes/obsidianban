@@ -167,8 +167,11 @@ Documentação técnica para desenvolvedores que precisam integrar um agente de 
 
 **2. Autenticação**
 - Header: `Authorization: Bearer <token>`
-- Token obtido via CLI: `kanban-token create --project <id> --actor agent:<nome>`
-- `project_id` vem do token — não enviar no payload
+- Dois tipos de token (§3.2):
+  - Agent token (project-scoped): `kanban-token create --project <id> --role agent --actor agent:<nome>`
+  - Manager token (vault-wide): `kanban-token create --role manager --actor human:<nome>`
+- `project_id` vem do agent token — não enviar no payload
+- Manager tokens não têm `project_id` — têm acesso a todos os projetos do vault
 
 **3. Campos obrigatórios de rastreamento de tokens**
 Todo payload mutante (`create`, `update`, `move`, `reorder`) deve incluir:

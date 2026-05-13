@@ -6,28 +6,32 @@ Cada sprint é um conjunto de entregáveis coesos que podem ser testados e final
 
 | Sprint | Nome | Entregável central | Pré-requisito |
 |---|---|---|---|
-| [Sprint 01](sprint-01-foundation.md) | Foundation | Infraestrutura base: vault, SQLite, atomic writer, file watcher, tokens, scaffold MCP | — |
-| [Sprint 02](sprint-02-core-mcp-api.md) | Core MCP API | As 6 tools MCP com validação completa, 409/400, audit log | Sprint 01 |
-| [Sprint 03](sprint-03-obsidian-plugin.md) | Obsidian Plugin | Board Kanban, drag-drop, SSE, acessibilidade, erros na UI, painel de métricas | Sprint 02 |
+| [Sprint 00](sprint-00-design.md) | Design & Architecture | Class diagrams (MCP Server, Plugin) e TypeScript interfaces normativas em `docs/design/` | PRD estável |
+| [Sprint 01](sprint-01-foundation.md) | Foundation | Infraestrutura base: vault, SQLite, atomic writer, file watcher, tokens, scaffold MCP | Sprint 00 |
+| [Sprint 02](sprint-02-core-mcp-api.md) | Core MCP API | As 6 tools MCP com validação completa, 409/400, audit log, SSE endpoint server-side | Sprint 01 |
+| [Sprint 03](sprint-03-obsidian-plugin.md) | Obsidian Plugin | Board Kanban, drag-drop, SSE client, acessibilidade, erros na UI, painel de métricas | Sprint 02 |
 | [Sprint 04](sprint-04-hardening.md) | Hardening & Acceptance | E2E acceptance tests, stress test, guia de integração | Sprints 01–03 |
 
 ## Dependências entre sprints
 
 ```
-Sprint 01 ──► Sprint 02 ──► Sprint 03
-                                │
-Sprint 01 ──────────────────────┤
-                                ▼
-                           Sprint 04
+Sprint 00 ──► Sprint 01 ──► Sprint 02 ──► Sprint 03
+                                               │
+              Sprint 01 ─────────────────────── ┤
+                                               ▼
+                                          Sprint 04
 ```
 
-Sprint 03 depende de Sprint 01 (atomic writer, file watcher) e Sprint 02 (tools MCP).  
+Sprint 00 produz os contratos de design que guiam todos os demais sprints.  
+Sprint 03 depende de Sprint 01 (atomic writer, file watcher) e Sprint 02 (tools MCP + SSE endpoint).  
 Sprint 04 depende dos três anteriores.
 
 ## Tipos de atividade
 
 | Tipo | Descrição |
 |---|---|
+| `design` | Modelagem de arquitetura, class diagrams, definição de interfaces |
+| `review` | Revisão e validação de artefatos contra requisitos |
 | `scaffold` | Estrutura inicial, boilerplate, setup de ambiente |
 | `implementation` | Implementar funcionalidade nova |
 | `integration` | Conectar componentes já existentes |
@@ -49,7 +53,8 @@ Ao mover uma task para done, preencher a seção **Execução** no documento da 
 
 ## Critério de encerramento de cada sprint
 
-- **Sprint 01:** MCP inicia, autentica tokens, file watcher reverte invariantes, SQLite reconstrói do zero
-- **Sprint 02:** Suite completa de testes de API passa (sem UI) — todos os 6 tools, conflict, field rejection, audit log
+- **Sprint 00:** `docs/design/` contém mcp-server.md, plugin.md e interfaces.ts; checklist de revisão cruzada com PRD completo
+- **Sprint 01:** MCP inicia, autentica tokens (agent e manager), file watcher reverte invariantes, SQLite reconstrói do zero
+- **Sprint 02:** Suite completa de testes de API passa (sem UI) — todos os 6 tools, conflict, field rejection, audit log, SSE endpoint emitindo os 6 event types
 - **Sprint 03:** Plugin instalado em vault de teste, board funcional, todos os RULE checks passando
 - **Sprint 04:** Todos os 11 E2E acceptance tests (§14.3) com evidência documentada de pass
