@@ -142,11 +142,11 @@ classDiagram
 - Verificar que `FileWatcherService` não escreve arquivos diretamente (delega para `CardService`)
 - Verificar que `SSEEventBus` não é dependência de `FileWatcherService` (eventos SSE vêm só do `CardService`)
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Artefato criado em `docs/design/mcp-server.md` com o class diagram do PRD §4.6, parágrafo de responsabilidade única por classe, lista explícita de invariantes (single writer, MCP-originated owned by AtomicWriter, SSE emitted by CardService only, SQLite is derived) e tabela de verificação V-01..V-04. DAG sem ciclos confirmado via ordem topológica documentada.
 
 ---
 
@@ -245,11 +245,11 @@ classDiagram
 - Confirmar que `ConflictOverlay` não é campo de nenhuma classe — instanciado sob demanda
 - Verificar que `CardEditorBanner` é conectado via `registerEvent` (sem `addEventListener` direto)
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Artefato criado em `docs/design/plugin.md`. Lista de invariantes referencia RULE-01/02/04 explicitamente; tabela de rule cross-reference cobre RULE-01..RULE-10. `KanbanPlugin` documentado apenas com campo `settings`; `ConflictOverlay` documentado como instanciação on-demand pelo `KanbanView`. `SSESubscriber` usa Node `http.request` (justificativa: `fetch` faz buffer e quebra streaming).
 
 ---
 
@@ -495,11 +495,11 @@ export interface Metrics {
 - Verificar que `Card.body` é optional (ausente em list, presente em get)
 - Verificar que `ManagerToken` não tem `project_id` — diferença estrutural de `AgentToken`
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Artefato criado em `docs/design/interfaces.ts`. Compilado com `npx -y -p typescript@5.4 tsc --noEmit --strict docs/design/interfaces.ts` → zero erros. `TokenClaims` é union discriminada por `role`; `Card.body` é optional; `ManagerToken` omite `project_id`; comentário inline em `UpdateCardParams.status` referencia PRD §5.4; os 6 `SSEEventType` mapeiam 1:1 com payloads dedicados.
 
 ---
 
@@ -529,8 +529,23 @@ Verificar que os três artefatos produzidos (TASK-D01, D02, D03) são consistent
 - Todos os 10 itens do checklist verificados com status explícito (pass/fail)
 - Qualquer fail documentado em Observações com a correção aplicada nos artefatos
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Resultados da revisão:**
+
+| # | Verificação | Status | Evidência |
+|---|---|---|---|
+| R-01 | `TokenClaims` union cobre agent (project-scoped) e manager (unscoped) | ✅ pass | `interfaces.ts` — `AgentToken` (com `project_id`) + `ManagerToken` (sem `project_id`) discriminados por `role`. |
+| R-02 | `CardService.move()` e `CardService.update()` aplicam mesma lógica de position em status change | ✅ pass | `interfaces.ts` — comentário em `UpdateCardParams.status` referencia §5.4; `mcp-server.md` documenta a regra no parágrafo de `CardService`. |
+| R-03 | `AtomicWriter.isOriginated()` é o único mecanismo de flag MCP-originated — usado por `FileWatcherService` | ✅ pass | `mcp-server.md` — invariante explícita "MCP-originated is owned by AtomicWriter"; diagrama tem `FileWatcherService --> AtomicWriter` apenas para leitura da flag. |
+| R-04 | `SSEEventBus.emit()` é chamado apenas por `CardService` | ✅ pass | `mcp-server.md` — invariante "SSE is emitted by CardService only"; diagrama não tem arrow `FileWatcherService --> SSEEventBus`. |
+| R-05 | Os 6 `SSEEventType` batem exatamente com os 6 events de §6.10 | ✅ pass | `interfaces.ts` — `CARD_CREATED`, `CARD_UPDATED`, `CARD_MOVED`, `CARD_REORDERED`, `CARD_HUMAN_EDITED`, `CARD_DELETED`, cada um com payload dedicado. |
+| R-06 | `KanbanPlugin.getView()` recupera via workspace — sem campo direto de view | ✅ pass | `plugin.md` — `KanbanPlugin` tem apenas `settings: PluginSettings`; RULE-04 documentada como invariante. |
+| R-07 | `SSESubscriber` usa `http.request` do Node.js — compatível com stdio MCP | ✅ pass | `plugin.md` — responsabilidade da classe documenta uso de `http.request` (não `EventSource`, não `fetch`) com justificativa. |
+| R-08 | `AuditEntry` cobre todos os 11 `AuditOp` types de TASK-16 | ✅ pass | `interfaces.ts` — `AuditOp` lista: `CREATE`, `UPDATE`, `MOVE`, `REORDER`, `HUMAN_EDIT`, `FIELD_REVERTED`, `PARSE_ERROR`, `RECONCILED`, `ORPHAN_REMOVED`, `SQLITE_REBUILT`, `EXTERNAL_MUTATION` — total 11. |
+| R-09 | `UpdateCardParams` não inclui `type`, `position`, `version` como campos editáveis | ✅ pass | `interfaces.ts` — `UpdateCardParams` tem `version` apenas como pré-condição de optimistic locking (não-editável); não há `type` nem `position`. |
+| R-10 | `MetricsFilter` e `Metrics` batem com o schema de `GET /metrics` (TASK-31) | ✅ pass | Schema cruzado com sprint-03 TASK-31: `summary{total_input_tokens, total_output_tokens, total_ops}` + 5 dimensões (`by_type`, `by_day`, `by_model`, `by_agent`, `by_operation`) idênticas. `MetricsFilter` cobre `from_date`/`to_date`. |
+
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: 10/10 itens passam. Nenhuma correção necessária nos artefatos. `tsc --noEmit --strict` em `docs/design/interfaces.ts` retorna zero erros (TypeScript 5.4 via npx).
