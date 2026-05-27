@@ -283,11 +283,11 @@ kanban-token list --manager
 - Revogar agent token → chamada MCP seguinte → 401
 - Listar tokens → sem token raw na saída
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: CLI em `src/auth/cli.ts` (entry `kanban-token` no `package.json`). Token raw = `randomBytes(32).toString('base64url')`; persistido apenas como SHA-256. `token_id` = primeiros 12 hex chars do SHA-256 (curto, único na prática). Agent tokens em `_meta.json.agent_tokens`; manager tokens em `.kanban/manager-tokens.json` — arquivos separados garantem que `list --project` jamais retorna manager tokens. Revogação seta `revoked_at`; tokens nunca são deletados (histórico de auditoria). Smoke (`scripts/smoke-batch3.mjs`) confirma: token raw nunca aparece em `_meta.json` nem em `list`; revoke leva a `401 revoked_token` na próxima request.
 
 ---
 
@@ -319,11 +319,11 @@ Servidor MCP em Node.js expondo dois transports: `stdio` (agentes locais) e `HTT
 - Manager token acessando card de qualquer projeto → autenticado com `role=manager`
 - Chamada com token válido → passa pelo middleware sem erro, `TokenClaims` disponível no contexto
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: HTTP server em `src/server/http.ts` usando o módulo `http` do Node — bound em `127.0.0.1:${MCP_HTTP_PORT}`. Rotas: `GET /health` (público), `POST /mcp/tool/:name` (atrás do middleware). `TokenValidator` (`src/auth/validator.ts`) extrai Bearer, computa SHA-256, busca em `_meta.json` de cada projeto + `manager-tokens.json`; retorna union discriminada `{ok: true, claims}` ou `{ok: false, reason}` com `missing|invalid|revoked` mapeados para `401 missing_token|invalid_token|revoked_token`. `TokenClaims` é montado do registro (não do payload — BR-02 garantido por design: payload é parseado depois e o `project_id` do claims é imutável). Sprint 02 plugará tools via `httpServer.registerTool(name, handler)` — hoje a chamada sem tool registrada retorna `501 not_implemented` após passar pelo middleware. Stdio transport ficou para Sprint 02 (MCP SDK ainda não foi adicionado às deps). Smoke confirma: 401 sem token, 401 com token inválido, 501 com agent/manager token válido (dispatch passa pelo middleware).
 
 ---
 
@@ -350,11 +350,11 @@ Todas as tools mutantes aceitam `request_id` (UUID v4). Se o mesmo `request_id` 
 - `request_id` com formato inválido → 400 `invalid_request_id`
 - Entry com > 24h → removida no próximo startup
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: `IdempotencyStore` em `src/server/idempotency.ts` mantém um `Map<request_id, CachedEntry>` em memória e persiste em `.kanban/idempotency.json` a cada `put`. `load()` no startup descarta entradas com mais de 24h e reescreve o arquivo (cleanup). UUID v4 validado por regex (`isValidRequestId`) — rejeição com `400 invalid_request_id` acontece no HTTP server **antes** de qualquer dispatch ou cache lookup. Para Sprint 01 (sem tools registradas) o cache só armazena respostas 200; chamadas que terminam em 501 não cacheiam, então retry retorna 501 novamente — comportamento correto para retries idempotentes ficará completamente exercitado em Sprint 02 quando houver tools de fato.
 
 ---
 
@@ -384,11 +384,11 @@ Bound a `127.0.0.1` apenas — nunca exposto externamente.
 - Chamar durante reconciliação → 503
 - Confirmar que plugin usa este endpoint para detecção de offline (§11.4)
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Implementado em `src/server/http.ts` (`handleHealth`). State machine: a `ServerState.reconciling` é inicializada `true` no `index.ts`, o HTTP server sobe **antes** de `reconcile()` (para `/health` responder 503 durante essa janela), depois `state.reconciling = false`. Payload: `{ status: 'ok', uptime_s: floor((now-startedAt)/1000), vault: vaultPath, cards_indexed: COUNT(*) FROM cards }`. Bound a `127.0.0.1` (TASK-07). Smoke confirma 200 com todos os campos esperados pós-startup. O caso 503-durante-reconciliação é estrutural (o state é setado antes de listen) e exercitar deterministicamente exige injeção de delay artificial; deixado para Sprint 04 hardening.
 
 ---
 
@@ -427,11 +427,11 @@ CMD ["node", "src/index.js"]
 - `podman image ls obsidiankan-mcp` → size ≤ 130 MB
 - `./container.sh start && curl http://localhost:3000/health` → 200 ok
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: O Dockerfile e `.dockerignore` foram criados em commit anterior (Sprint 00) com base single-stage `node:22-slim`. Em batch 1 do Sprint 01 atualizei para **two-stage build**: stage `builder` compila `src/*.ts` → `dist/*.js`; stage final copia apenas `dist/` + `node_modules` (`--omit=dev`). `CMD ["node", "dist/index.js"]` (antes apontava para `src/index.js`). `USER node` (uid 1000) e HEALTHCHECK contra `/health` mantidos. Build da imagem (`./container.sh build`) não foi exercitado nesta sessão; ficará na verificação de Sprint 04.
 
 ---
 
@@ -480,8 +480,8 @@ O script carrega `.env` automaticamente se presente. `VAULT_PATH` é obrigatóri
 - `./container.sh stop` → container removido, dados no vault preservados no host
 - Sem `.env` e sem `VAULT_PATH` exportado → mensagem de erro legível
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: `container.sh` e `.env.example` foram criados em commit anterior (Sprint 00). Nenhuma mudança nesta sprint — o script já cobre os comandos especificados. Verificação ponta-a-ponta com Podman fica para Sprint 04.
