@@ -1,6 +1,7 @@
 import { Plugin } from 'obsidian'
 import { McpClient } from './mcp/client.js'
 import { DEFAULT_SETTINGS, type KanbanPluginSettings } from './settings.js'
+import { KanbanSettingsTab } from './settings-tab.js'
 import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
 
 export default class KanbanPlugin extends Plugin {
@@ -15,6 +16,8 @@ export default class KanbanPlugin extends Plugin {
     })
 
     this.registerView(VIEW_TYPE_KANBAN_BOARD, (leaf) => new KanbanBoardView(leaf, this))
+
+    this.addSettingTab(new KanbanSettingsTab(this.app, this))
 
     this.addCommand({
       id: 'open-kanban-board',
@@ -49,5 +52,13 @@ export default class KanbanPlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings)
+    this.client = new McpClient({
+      baseUrl: this.settings.baseUrl,
+      token: this.settings.token,
+    })
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
+      const view = leaf.view
+      if (view instanceof KanbanBoardView) void view.refresh()
+    }
   }
 }
