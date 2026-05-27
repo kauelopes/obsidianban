@@ -1,1 +1,155 @@
-/* ObsidianKan MCP — styles. All selectors prefixed .kanban-mcp-*. */
+/* ObsidianKan MCP — board styles. All selectors prefixed .kanban-mcp-*.
+   Colors use Obsidian CSS variables so the board adapts to any theme. */
+
+.kanban-mcp-board {
+  padding: 0.75em;
+  overflow-y: auto;
+}
+
+.kanban-mcp-empty {
+  color: var(--text-muted);
+  padding: 2em;
+  text-align: center;
+}
+
+.kanban-mcp-error {
+  color: var(--text-normal);
+  padding: 0.75em 1em;
+  background: var(--background-modifier-error);
+  border-left: 3px solid var(--text-error);
+  border-radius: 4px;
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+}
+
+.kanban-mcp-project {
+  margin-bottom: 1.5em;
+  padding-bottom: 1em;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kanban-mcp-project:last-child {
+  border-bottom: none;
+}
+
+.kanban-mcp-project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.5em;
+  gap: 1em;
+}
+
+.kanban-mcp-project-title {
+  font-weight: 600;
+  font-size: 1.1em;
+  color: var(--text-normal);
+}
+
+.kanban-mcp-project-counts {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.kanban-mcp-columns {
+  display: flex;
+  gap: 0.75em;
+  overflow-x: auto;
+  align-items: flex-start;
+}
+
+.kanban-mcp-column {
+  background: var(--background-secondary);
+  border-radius: 6px;
+  min-width: 240px;
+  max-width: 320px;
+  flex: 1 0 240px;
+  display: flex;
+  flex-direction: column;
+}
+
+.kanban-mcp-column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5em 0.75em;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kanban-mcp-column-title {
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--text-normal);
+}
+
+.kanban-mcp-column-count {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.kanban-mcp-column-body {
+  padding: 0.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  min-height: 2em;
+}
+
+.kanban-mcp-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 0.5em 0.75em;
+}
+
+.kanban-mcp-card-title {
+  font-weight: 500;
+  color: var(--text-normal);
+  margin-bottom: 0.25em;
+  word-break: break-word;
+}
+
+.kanban-mcp-card-meta {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.78em;
+}
+
+.kanban-mcp-priority {
+  padding: 0.1em 0.45em;
+  border-radius: 3px;
+  color: var(--text-on-accent);
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.kanban-mcp-priority-low {
+  background: var(--text-muted);
+}
+
+.kanban-mcp-priority-medium {
+  background: var(--interactive-accent);
+}
+
+.kanban-mcp-priority-high {
+  background: var(--color-orange);
+}
+
+.kanban-mcp-priority-critical {
+  background: var(--color-red);
+}
+
+.kanban-mcp-due {
+  color: var(--text-muted);
+}
+
+.kanban-mcp-due-overdue {
+  color: var(--color-red);
+  font-weight: 600;
+}
+
+.kanban-mcp-assignee {
+  color: var(--text-muted);
+}

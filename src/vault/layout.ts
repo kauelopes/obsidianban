@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Paths } from '../config.js'
 
-export const DEFAULT_COLUMNS = ['backlog', 'in-progress', 'review', 'done'] as const
+export const DEFAULT_COLUMNS = ['backlog', 'todo', 'in-progress', 'review', 'done'] as const
 
 export interface ProjectMeta {
   project_id: string
