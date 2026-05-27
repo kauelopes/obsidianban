@@ -5,6 +5,9 @@
 .kanban/
 .kanban-data/
 
+# Dev-only test vault (plugin output target)
+test-vault/
+
 # Node
 node_modules/
 dist/
