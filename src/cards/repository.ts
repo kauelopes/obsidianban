@@ -139,6 +139,34 @@ export class CardRepository {
     return this.db.prepare(sql).all(params) as CardRow[]
   }
 
+  logTokens(entry: {
+    ts: string
+    op: 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER'
+    card_id: string
+    card_type: string
+    actor: string
+    model: string
+    input_tokens: number
+    output_tokens: number
+    project: string
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO token_log
+           (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project)
+         VALUES (@ts, @op, @card_id, @card_type, @actor, @model, @input_tokens, @output_tokens, @project)`,
+      )
+      .run(entry)
+  }
+
+  /** Highest position in a (project, status) column, or null if empty. */
+  maxPosition(project: string, status: string): number | null {
+    const row = this.db
+      .prepare('SELECT MAX(position) AS m FROM cards WHERE project = ? AND status = ?')
+      .get(project, status) as { m: number | null }
+    return row.m
+  }
+
   toCard(row: CardRow): Omit<Card, 'body'> {
     return {
       id: row.id,

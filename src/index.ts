@@ -35,10 +35,12 @@ async function main(): Promise<void> {
   await idempotency.load()
 
   const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency })
-  const cards = new CardService(config.paths, repo)
+  const cards = new CardService(config.paths, repo, writer, audit)
   const queries = new QueryService(repo)
   httpServer.registerTool('kanban_list_cards', async (p, c) => queries.list(p as Record<string, unknown>, c))
   httpServer.registerTool('kanban_get_card', async (p, c) => cards.get(p as Record<string, unknown>, c))
+  httpServer.registerTool('kanban_create_card', async (p, c) => cards.create(p as Record<string, unknown>, c))
+  httpServer.registerTool('kanban_update_card', async (p, c) => cards.update(p as Record<string, unknown>, c))
   await httpServer.start()
   console.log(`[startup] http listening on 127.0.0.1:${config.httpPort}`)
 

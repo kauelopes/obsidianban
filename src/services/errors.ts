@@ -16,3 +16,6 @@ export const notFound = (): HttpError => new HttpError(404, { error: 'not_found'
 
 export const badRequest = (error: string, extras: Record<string, unknown> = {}): HttpError =>
   new HttpError(400, { error, ...extras })
+
+export const conflict = (body: Record<string, unknown>): HttpError =>
+  new HttpError(409, { error: 'conflict', ...body })
