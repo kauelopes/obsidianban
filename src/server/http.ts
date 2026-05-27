@@ -7,6 +7,7 @@ import { isValidRequestId } from './idempotency.js'
 import type { SSEEventBus } from './sse.js'
 import type { TokenClaims } from '../types.js'
 import { HttpError } from '../services/errors.js'
+import type { MetricsService } from '../services/metrics.js'
 
 export interface ServerState {
   startedAt: number
@@ -22,6 +23,7 @@ export interface HttpServerDeps {
   validator: TokenValidator
   idempotency: IdempotencyStore
   sse: SSEEventBus
+  metrics: MetricsService
 }
 
 interface ToolHandler {
@@ -68,6 +70,9 @@ export class HttpServer {
     if (req.method === 'GET' && url === '/events') {
       return this.handleEvents(req, res)
     }
+    if (req.method === 'GET' && url.split('?')[0] === '/metrics') {
+      return this.handleMetrics(req, res, url)
+    }
 
     const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(url.split('?')[0] ?? '')
     if (toolMatch && req.method === 'POST') {
@@ -106,6 +111,30 @@ export class HttpServer {
       vault: state.vaultPath,
       cards_indexed: row.n,
     })
+  }
+
+  private handleMetrics(req: IncomingMessage, res: ServerResponse, url: string): void {
+    // Defense in depth: server already binds to 127.0.0.1, but reject anything
+    // not coming from loopback in case the bind ever changes.
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isLoopback(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    try {
+      const metrics = this.deps.metrics.collect({
+        from_date: params.get('from_date') ?? undefined,
+        to_date: params.get('to_date') ?? undefined,
+      })
+      sendJson(res, 200, metrics)
+    } catch (err) {
+      if (err instanceof HttpError) {
+        sendJson(res, err.status, err.body)
+        return
+      }
+      throw err
+    }
   }
 
   private async handleToolCall(
@@ -178,6 +207,10 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
   res.end(JSON.stringify(body))
+}
+
+function isLoopback(addr: string): boolean {
+  return addr === '::1' || addr.startsWith('127.') || addr.startsWith('::ffff:127.')
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {

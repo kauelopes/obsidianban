@@ -1,7 +1,5 @@
-# Obsidian
-.obsidian/workspace.json
-.obsidian/workspace-mobile.json
-.obsidian/cache
+# Obsidian (local vault state — kept out of repo)
+.obsidian/
 
 # MCP runtime data
 .kanban/

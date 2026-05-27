@@ -13,6 +13,7 @@ import { SSEEventBus } from './server/sse.js'
 import { StdioMcpServer } from './server/stdio.js'
 import { CardService } from './services/card.js'
 import { QueryService } from './services/query.js'
+import { MetricsService } from './services/metrics.js'
 import type { TokenClaims } from './types.js'
 
 async function main(): Promise<void> {
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
   const sse = new SSEEventBus()
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const queries = new QueryService(repo)
+  const metrics = new MetricsService(db)
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   const tools: Array<{ name: string; description: string; handler: ToolFn }> = [
@@ -86,7 +88,7 @@ async function main(): Promise<void> {
     db,
   }
 
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse })
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }
