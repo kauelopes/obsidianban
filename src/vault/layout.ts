@@ -1,0 +1,87 @@
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
+import type { Paths } from '../config.js'
+
+export const DEFAULT_COLUMNS = ['backlog', 'in-progress', 'review', 'done'] as const
+
+export interface ProjectMeta {
+  project_id: string
+  columns: string[]
+  agent_tokens: TokenRecord[]
+  created_at: string
+}
+
+export interface TokenRecord {
+  token_id: string
+  sha256: string
+  actor: string
+  created_at: string
+  revoked_at: string | null
+}
+
+export async function ensureLayout(paths: Paths): Promise<void> {
+  await fs.mkdir(paths.kanbanData, { recursive: true })
+  await fs.mkdir(paths.kanbanInternal, { recursive: true })
+}
+
+export async function listProjects(paths: Paths): Promise<string[]> {
+  const entries = await fs.readdir(paths.kanbanData, { withFileTypes: true })
+  return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort()
+}
+
+export function projectDir(paths: Paths, project: string): string {
+  return path.join(paths.kanbanData, project)
+}
+
+export function metaPath(paths: Paths, project: string): string {
+  return path.join(projectDir(paths, project), '_meta.json')
+}
+
+export async function ensureProject(paths: Paths, project: string): Promise<ProjectMeta> {
+  const dir = projectDir(paths, project)
+  await fs.mkdir(dir, { recursive: true })
+  const file = metaPath(paths, project)
+  try {
+    const raw = await fs.readFile(file, 'utf8')
+    return JSON.parse(raw) as ProjectMeta
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    const meta: ProjectMeta = {
+      project_id: project,
+      columns: [...DEFAULT_COLUMNS],
+      agent_tokens: [],
+      created_at: new Date().toISOString(),
+    }
+    await fs.writeFile(file, JSON.stringify(meta, null, 2) + '\n', 'utf8')
+    return meta
+  }
+}
+
+export async function loadProjectMeta(paths: Paths, project: string): Promise<ProjectMeta> {
+  const raw = await fs.readFile(metaPath(paths, project), 'utf8')
+  return JSON.parse(raw) as ProjectMeta
+}
+
+export async function saveProjectMeta(
+  paths: Paths,
+  project: string,
+  meta: ProjectMeta,
+): Promise<void> {
+  await fs.writeFile(metaPath(paths, project), JSON.stringify(meta, null, 2) + '\n', 'utf8')
+}
+
+export async function cleanupOrphanTmpFiles(paths: Paths): Promise<number> {
+  let removed = 0
+  const projects = await listProjects(paths).catch(() => [])
+  for (const project of projects) {
+    const dir = projectDir(paths, project)
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.tmp')) {
+        await fs.unlink(path.join(dir, entry.name))
+        removed++
+      }
+    }
+  }
+  return removed
+}

@@ -1,0 +1,32 @@
+{
+  "name": "obsidiankan-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ObsidianKanban MCP — kanban board for Obsidian backed by an MCP server",
+  "main": "dist/index.js",
+  "bin": {
+    "kanban-token": "dist/auth/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx dist/**/*.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "chokidar": "^4.0.1",
+    "gray-matter": "^4.0.3",
+    "nanoid": "^5.0.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

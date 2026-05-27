@@ -54,11 +54,11 @@ vault/
 - Deletar `.kanban/` e `.kanban-data/` → reiniciar MCP → ambas as pastas recriadas corretamente
 - Confirmar que `.kanban-data/` não aparece no explorador do Obsidian
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Implementado em `src/vault/layout.ts` (`ensureLayout`, `ensureProject`, `cleanupOrphanTmpFiles`) e wired no `src/index.ts`. Smoke test: `VAULT_PATH=/tmp/kanban-test-vault npx tsx src/index.ts` recriou `.kanban/` e `.kanban-data/` do zero. `_meta.json` gerado on-demand por `ensureProject` com `project_id`, `columns` (default `[backlog, in-progress, review, done]`) e `agent_tokens: []`. Cleanup de `.tmp` órfãos confirmado.
 
 ---
 
@@ -113,11 +113,11 @@ CREATE INDEX idx_assigned_to      ON cards(assigned_to);
 - Verificar índices de `token_log` com `PRAGMA index_list('token_log')`
 - Inserir card sem `total_input_tokens` → valor default `0` aplicado automaticamente
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Schema declarado em `src/db/schema.ts` como lista de `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` — idempotente. `src/db/database.ts` abre o DB com `journal_mode=WAL` e aplica o schema em transação. Verificação via `PRAGMA index_list`: `cards` tem `idx_project_status`, `idx_project_position`, `idx_project_type`, `idx_due_date`, `idx_assigned_to` (mais o autoindex do PK); `token_log` tem os 4 índices (`ts`, `card_type`, `model`, `project`). Re-startup com cards existentes preserva linhas (insert de row de teste sobreviveu ao restart).
 
 ---
 
