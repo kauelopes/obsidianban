@@ -33,6 +33,26 @@ const PLACEHOLDERS = COLUMNS.split(', ')
   .map((c) => '@' + c)
   .join(', ')
 
+const PRIORITY_RANK = `CASE priority
+  WHEN 'critical' THEN 0
+  WHEN 'high' THEN 1
+  WHEN 'medium' THEN 2
+  WHEN 'low' THEN 3
+  ELSE 4 END`
+
+function orderByClause(o: 'position' | 'updated_at' | 'priority' | 'due_date'): string {
+  switch (o) {
+    case 'position':
+      return 'position ASC'
+    case 'updated_at':
+      return 'updated_at DESC'
+    case 'priority':
+      return PRIORITY_RANK + ' ASC, position ASC'
+    case 'due_date':
+      return 'due_date IS NULL, due_date ASC'
+  }
+}
+
 export class CardRepository {
   constructor(private readonly db: Database.Database) {}
 
@@ -76,6 +96,47 @@ export class CardRepository {
     return (this.db.prepare('SELECT id FROM cards').all() as Array<{ id: string }>).map(
       (r) => r.id,
     )
+  }
+
+  query(opts: {
+    project?: string
+    status?: string
+    assignedTo?: string
+    tags?: string[]
+    orderBy: 'position' | 'updated_at' | 'priority' | 'due_date'
+    limit: number
+    offset: number
+  }): CardRow[] {
+    const where: string[] = []
+    const params: Record<string, unknown> = {}
+    if (opts.project) {
+      where.push('project = @project')
+      params['project'] = opts.project
+    }
+    if (opts.status) {
+      where.push('status = @status')
+      params['status'] = opts.status
+    }
+    if (opts.assignedTo) {
+      where.push('assigned_to = @assignedTo')
+      params['assignedTo'] = opts.assignedTo
+    }
+    // tag AND filter: tags column stores JSON like ["a","b"]; LIKE with the
+    // JSON-encoded value matches exact tag entries (quotes guard against
+    // substring collisions between "auth" and "authorized").
+    if (opts.tags && opts.tags.length > 0) {
+      opts.tags.forEach((t, i) => {
+        where.push(`tags LIKE @tag${i}`)
+        params[`tag${i}`] = '%' + JSON.stringify(t) + '%'
+      })
+    }
+    const sql =
+      `SELECT * FROM cards` +
+      (where.length ? ' WHERE ' + where.join(' AND ') : '') +
+      ` ORDER BY ${orderByClause(opts.orderBy)} LIMIT @limit OFFSET @offset`
+    params['limit'] = opts.limit
+    params['offset'] = opts.offset
+    return this.db.prepare(sql).all(params) as CardRow[]
   }
 
   toCard(row: CardRow): Omit<Card, 'body'> {

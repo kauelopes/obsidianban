@@ -21,6 +21,7 @@
 | TASK-15 | Implementar resposta 409 Conflict completa | `implementation` |
 | TASK-16 | Completar audit log para todos os event types | `implementation` |
 | TASK-16b | Implementar SSE endpoint server-side (`GET /events`) | `implementation` |
+| TASK-17 | Implementar stdio transport via `@modelcontextprotocol/sdk` | `implementation` |
 
 ---
 
@@ -422,6 +423,48 @@ data: {"card_id":"card-abc123","project":"projeto-x","from_status":"todo","to_st
 - Derrubar um cliente → criar card → nenhum erro no servidor, cliente ativo recebe evento
 - Retry com mesmo `request_id` → nenhum evento SSE duplicado emitido
 - Edição humana reconciliada pelo watcher → cliente SSE recebe `CARD_HUMAN_EDITED`
+
+**Execução** _(preencher ao concluir)_
+- Agente:
+- Input tokens:
+- Output tokens:
+- Observações:
+
+---
+
+### TASK-17: Implementar stdio transport via `@modelcontextprotocol/sdk`
+
+**Tipo:** `implementation`
+
+**Descrição:**
+Expor as 6 tools MCP também via transporte stdio, usando `@modelcontextprotocol/sdk`. Fecha a dívida do Sprint 01 TASK-08 (DoD original previa "stdio e HTTP na mesma instância" — adiada por falta da dep). Os handlers são exatamente os mesmos da camada HTTP; muda apenas o transporte e a forma de autenticação.
+
+**Autenticação stdio:**
+- Stdio é processo filho do agente local. Sem header `Authorization`.
+- Token é lido da env var `KANBAN_MCP_TOKEN` na inicialização do processo (uma vez), validado pelo `TokenValidator` e produz um `TokenClaims` reutilizado em todas as chamadas dessa sessão.
+- Falha de validação → processo termina com exit code não-zero e mensagem em stderr.
+
+**Modos de execução:**
+- `node dist/index.js` → HTTP only (padrão atual)
+- `node dist/index.js --stdio` → stdio only (sem HTTP listener; file watcher e reconciliação continuam ativos — invariantes do sistema)
+
+**Registro de tools:**
+- Mesma camada `CardService`/`QueryService` usada pelo HTTP. Um adaptador converte chamadas do SDK em `(params, claims) => handler(params, claims)`.
+
+**Definition of Done:**
+- `node dist/index.js --stdio` inicia, valida `KANBAN_MCP_TOKEN`, expõe as 6 tools via stdio
+- `KANBAN_MCP_TOKEN` ausente ou inválido → exit code ≠ 0 e mensagem em stderr
+- Mesmos handlers das chamadas HTTP — sem duplicação de lógica
+- File watcher e reconciliação rodam em ambos os modos
+- HTTP server **não** sobe no modo stdio (evita porta presa em agente local)
+- Audit log e SSE bus funcionam normalmente (SSE bus pode estar sem assinantes em modo stdio — não é erro)
+- Idempotência: mesmo `request_id` retorna a resposta cacheada (mesmo store do HTTP)
+
+**Testes:**
+- `KANBAN_MCP_TOKEN=<valid> node dist/index.js --stdio` + chamada `kanban_create_card` via stdio → card criado, audit log idêntico ao caminho HTTP
+- Sem `KANBAN_MCP_TOKEN` → exit code 1
+- `KANBAN_MCP_TOKEN=invalid` → exit code 1
+- Instâncias HTTP e stdio do mesmo vault em paralelo: verificar tolerância (SQLite WAL + watcher) e, se houver limitação, documentar
 
 **Execução** _(preencher ao concluir)_
 - Agente:

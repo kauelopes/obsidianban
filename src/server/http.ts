@@ -5,6 +5,7 @@ import { extractBearer } from '../auth/validator.js'
 import type { IdempotencyStore } from './idempotency.js'
 import { isValidRequestId } from './idempotency.js'
 import type { TokenClaims } from '../types.js'
+import { HttpError } from '../services/errors.js'
 
 export interface ServerState {
   startedAt: number
@@ -38,6 +39,10 @@ export class HttpServer {
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
       this.dispatch(req, res).catch((err) => {
+        if (err instanceof HttpError) {
+          sendJson(res, err.status, err.body)
+          return
+        }
         sendJson(res, 500, { error: 'internal_error', message: (err as Error).message })
       })
     })
@@ -116,9 +121,17 @@ export class HttpServer {
       return
     }
 
-    const response = await handler(params, claims)
-    if (requestId) await this.deps.idempotency.put(requestId, response)
-    sendJson(res, 200, response)
+    try {
+      const response = await handler(params, claims)
+      if (requestId) await this.deps.idempotency.put(requestId, response)
+      sendJson(res, 200, response)
+    } catch (err) {
+      if (err instanceof HttpError) {
+        sendJson(res, err.status, err.body)
+        return
+      }
+      throw err
+    }
   }
 
   private async authenticate(

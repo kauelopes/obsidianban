@@ -9,6 +9,8 @@ import { reconcile } from './startup/reconcile.js'
 import { TokenValidator } from './auth/validator.js'
 import { IdempotencyStore } from './server/idempotency.js'
 import { HttpServer, type ServerState } from './server/http.js'
+import { CardService } from './services/card.js'
+import { QueryService } from './services/query.js'
 
 async function main(): Promise<void> {
   const config = loadConfig()
@@ -33,6 +35,10 @@ async function main(): Promise<void> {
   await idempotency.load()
 
   const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency })
+  const cards = new CardService(config.paths, repo)
+  const queries = new QueryService(repo)
+  httpServer.registerTool('kanban_list_cards', async (p, c) => queries.list(p as Record<string, unknown>, c))
+  httpServer.registerTool('kanban_get_card', async (p, c) => cards.get(p as Record<string, unknown>, c))
   await httpServer.start()
   console.log(`[startup] http listening on 127.0.0.1:${config.httpPort}`)
 
