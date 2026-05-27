@@ -150,11 +150,11 @@ Toda escrita de card deve ser atômica: arquivo `.md` e SQLite atualizados junto
 - Após qualquer escrita bem-sucedida: SHA-256 do `.md` == `file_hash` no SQLite
 - Executar 3 operações mutantes no mesmo card com tokens distintos → `total_input_tokens` no frontmatter = soma dos três `input_tokens` reportados
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Implementado em `src/writer/atomic.ts` + `src/cards/serialize.ts` + `src/cards/repository.ts`. Sequência: write `.tmp` com `fsync` → `rename` atômico POSIX → upsert SQLite com `file_hash` = SHA-256 do conteúdo serializado. `cleanupOrphanTmpFiles` no startup remove `.tmp` órfãos. **Decisão de design (desvio do PRD §7.4):** a flag in-memory `MCP-originated` proposta no PRD foi substituída por discriminação por hash — o `file_hash` no SQLite IS o discriminador. Eventos do watcher cujo hash do arquivo bate com SQLite são sempre no-op (write nosso ou touch sem mudança). Motivo: a versão com timer entrava em loop quando o evento do chokidar pelo rename chegava após a janela do timer; hash é uma invariante sem race. Smoke test (`scripts/smoke-batch2.mjs`) confirma `sha256(file) === row.file_hash` após cada write.
 
 ---
 
@@ -204,11 +204,11 @@ Evento detectado
 - Setar `status: coluna-inexistente` → aguardar 600ms → status revertido, title e body preservados
 - Salvar 10x em 1s → apenas 1 incremento de versão no SQLite
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Implementado em `src/watcher/file-watcher.ts` usando chokidar v4 com `depth: 2` sobre `.kanban-data/`. Debounce de 500ms por arquivo (`Map<string, Timeout>`); processamento serializado por arquivo via `Map<string, Promise>` para evitar reentrância. **Discriminação MCP-originated por hash:** ao receber evento, compara `sha256(content)` com `row.file_hash`; se igual, skip. Caso contrário processa segundo o pipeline do PRD: parse → comparar campos imutáveis (`id`, `project`, `version`, `position`, `created_at`, `created_by`) → validar mutáveis (`status` ∈ columns, `due_date` formato `YYYY-MM-DD`) → reverter campos inválidos → incrementar `version`, `updated_at`, `updated_by='human:manager'` → write atômico → `HUMAN_EDIT` no audit. **Lifecycle fix:** `start()` é async e aguarda evento `'ready'` do chokidar — sem isso, writes durante a initial scan se perdem. Smoke confirma: edição de `id` no frontmatter é revertida em <2s; `FIELD_REVERTED` + `HUMAN_EDIT` no audit log.
 
 ---
 
@@ -240,11 +240,11 @@ No startup, o MCP compara o SHA-256 de cada `.md` com o `file_hash` armazenado e
 - Editar `.md` com MCP offline → reiniciar → card reflete edição, log `RECONCILED`
 - Remover `.md` manualmente → startup remove orphan do SQLite, log `ORPHAN_REMOVED`
 
-**Execução** _(preencher ao concluir)_
-- Agente:
-- Input tokens:
-- Output tokens:
-- Observações:
+**Execução**
+- Agente: Claude Opus 4.7 (claude-opus-4-7)
+- Input tokens: —
+- Output tokens: —
+- Observações: Implementado em `src/startup/reconcile.ts`. Sequência: scan recursivo de `.kanban-data/*/card-*.md` → para cada arquivo, compara `sha256(content)` com `row.file_hash` → se diferente ou row ausente, parse + upsert + log `RECONCILED`. Após scan, IDs em SQLite não vistos no filesystem são deletados com log `ORPHAN_REMOVED`. Se `openDatabase` reportou `createdFromScratch=true`, emite `SQLITE_REBUILT` no final com `card_count`. Smoke confirma os 3 cenários: deletar `db.sqlite` → rebuild com `SQLITE_REBUILT`; editar `.md` offline → `RECONCILED`; deletar `.md` enquanto SQLite tinha a row → `ORPHAN_REMOVED`. Robustez extra em `openDatabase`: se o arquivo `.sqlite` não existe mas WAL/SHM órfãos sobraram, eles são removidos antes de abrir (evita `SQLITE_IOERR_SHORT_READ`).
 
 ---
 
