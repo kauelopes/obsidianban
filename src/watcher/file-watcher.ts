@@ -5,6 +5,7 @@ import type { Paths } from '../config.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { CardRepository } from '../cards/repository.js'
 import type { AtomicWriter } from '../writer/atomic.js'
+import type { SSEEventBus } from '../server/sse.js'
 import { parseCardFile, cardFromFrontmatter } from '../cards/serialize.js'
 import { loadProjectMeta } from '../vault/layout.js'
 import { sha256 } from '../writer/atomic.js'
@@ -34,6 +35,7 @@ export class FileWatcher {
     private readonly repo: CardRepository,
     private readonly writer: AtomicWriter,
     private readonly audit: AuditLogger,
+    private readonly sse: SSEEventBus,
   ) {}
 
   async start(): Promise<void> {
@@ -160,6 +162,10 @@ export class FileWatcher {
       version: merged.version,
       actor: 'human:manager',
       changed_fields: diffFields(sqliteCard, merged),
+    })
+    this.sse.emit({
+      type: 'CARD_HUMAN_EDITED',
+      payload: { card_id: id, project, new_version: merged.version },
     })
   }
 

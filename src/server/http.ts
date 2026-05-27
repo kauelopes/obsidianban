@@ -4,6 +4,7 @@ import type { TokenValidator } from '../auth/validator.js'
 import { extractBearer } from '../auth/validator.js'
 import type { IdempotencyStore } from './idempotency.js'
 import { isValidRequestId } from './idempotency.js'
+import type { SSEEventBus } from './sse.js'
 import type { TokenClaims } from '../types.js'
 import { HttpError } from '../services/errors.js'
 
@@ -20,6 +21,7 @@ export interface HttpServerDeps {
   state: ServerState
   validator: TokenValidator
   idempotency: IdempotencyStore
+  sse: SSEEventBus
 }
 
 interface ToolHandler {
@@ -63,6 +65,9 @@ export class HttpServer {
     if (req.method === 'GET' && url === '/health') {
       return this.handleHealth(res)
     }
+    if (req.method === 'GET' && url === '/events') {
+      return this.handleEvents(req, res)
+    }
 
     const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(url.split('?')[0] ?? '')
     if (toolMatch && req.method === 'POST') {
@@ -70,6 +75,22 @@ export class HttpServer {
     }
 
     sendJson(res, 404, { error: 'not_found' })
+  }
+
+  private handleEvents(req: IncomingMessage, res: ServerResponse): void {
+    const lastIdHeader = req.headers['last-event-id']
+    const lastId =
+      typeof lastIdHeader === 'string' && /^\d+$/.test(lastIdHeader) ? Number(lastIdHeader) : null
+
+    res.statusCode = 200
+    res.setHeader('content-type', 'text/event-stream')
+    res.setHeader('cache-control', 'no-cache')
+    res.setHeader('connection', 'keep-alive')
+    res.flushHeaders?.()
+    res.write(': open\n\n')
+
+    const unsubscribe = this.deps.sse.subscribe(res, lastId)
+    req.on('close', () => unsubscribe())
   }
 
   private handleHealth(res: ServerResponse): void {

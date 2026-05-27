@@ -159,6 +159,15 @@ export class CardRepository {
       .run(entry)
   }
 
+  /** Cards in a column ordered by position. */
+  findByColumn(project: string, status: string): CardRow[] {
+    return this.db
+      .prepare(
+        'SELECT * FROM cards WHERE project = ? AND status = ? ORDER BY position ASC',
+      )
+      .all(project, status) as CardRow[]
+  }
+
   /** Highest position in a (project, status) column, or null if empty. */
   maxPosition(project: string, status: string): number | null {
     const row = this.db
