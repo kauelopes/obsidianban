@@ -70,6 +70,9 @@ const REORDER_ALLOWED = [
 const DELETE_ALLOWED = [
   'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
 ] as const
+const ARCHIVE_ALLOWED = [
+  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+] as const
 
 /**
  * Mutation entry point for cards. Read isolation:
@@ -164,6 +167,7 @@ export class CardService {
       agent_notes: agentNotes,
       total_input_tokens: inputTokens,
       total_output_tokens: outputTokens,
+      archived: false,
       created_at: now,
       updated_at: now,
       created_by: claims.actor,
@@ -585,5 +589,76 @@ export class CardService {
     })
 
     return { deleted: true, id }
+  }
+
+  async archive(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    return this.setArchived(params, claims, true)
+  }
+
+  async unarchive(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    return this.setArchived(params, claims, false)
+  }
+
+  private async setArchived(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+    target: boolean,
+  ): Promise<Card> {
+    rejectDisallowed(params, ARCHIVE_ALLOWED)
+    const id = requireString(params, 'id')
+    const claimedVersion = requireInt(params, 'version', 1)
+    const inputTokens = requireInt(params, 'input_tokens')
+    const outputTokens = requireInt(params, 'output_tokens')
+    const model = requireString(params, 'model')
+
+    const row = this.repo.findById(id)
+    if (!row) throw notFound()
+    if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
+    const current = this.repo.toCard(row)
+
+    const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
+    const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
+
+    if (claimedVersion !== current.version) {
+      throw conflict({
+        message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
+        your_version: claimedVersion,
+        current_version: current.version,
+        conflicting_fields: [],
+        current_card: { ...current, body },
+      })
+    }
+
+    // No-op short circuit: re-archiving an archived card (or vice versa)
+    // returns the current card without bumping version or charging tokens.
+    if (current.archived === target) return { ...current, body }
+
+    const now = new Date().toISOString()
+    const next: Omit<Card, 'body'> = {
+      ...current,
+      archived: target,
+      version: current.version + 1,
+      total_input_tokens: current.total_input_tokens + inputTokens,
+      total_output_tokens: current.total_output_tokens + outputTokens,
+      updated_at: now,
+      updated_by: claims.actor,
+    }
+
+    await this.writer.write(next, body, row.file_basename)
+    const op: 'ARCHIVE' | 'UNARCHIVE' = target ? 'ARCHIVE' : 'UNARCHIVE'
+    this.repo.logTokens({
+      ts: now, op: 'UPDATE', card_id: id, card_type: row.type,
+      actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
+      project: row.project,
+    })
+    await this.audit.log({
+      ts: now, op, project: row.project, card_id: id, version: next.version,
+      actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
+    })
+    this.sse.emit({
+      type: target ? 'CARD_ARCHIVED' : 'CARD_UNARCHIVED',
+      payload: { card_id: id, project: row.project },
+    })
+    return { ...next, body }
   }
 }

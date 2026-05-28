@@ -23,12 +23,13 @@ export interface CardRow {
   updated_by: string
   file_hash: string
   file_basename: string
+  archived: number  // SQLite stores 0/1; toCard converts to boolean
 }
 
 const COLUMNS =
   'id, project, title, status, type, version, position, priority, tags, ' +
   'due_date, assigned_to, owner, agent_notes, total_input_tokens, total_output_tokens, ' +
-  'created_at, updated_at, created_by, updated_by, file_hash, file_basename'
+  'created_at, updated_at, created_by, updated_by, file_hash, file_basename, archived'
 
 const PLACEHOLDERS = COLUMNS.split(', ')
   .map((c) => '@' + c)
@@ -65,6 +66,7 @@ export class CardRepository {
         tags: JSON.stringify(card.tags),
         file_hash: fileHash,
         file_basename: fileBasename,
+        archived: card.archived ? 1 : 0,
       })
   }
 
@@ -83,7 +85,8 @@ export class CardRepository {
            due_date=@due_date, assigned_to=@assigned_to, owner=@owner,
            agent_notes=@agent_notes, total_input_tokens=@total_input_tokens,
            total_output_tokens=@total_output_tokens, updated_at=@updated_at,
-           updated_by=@updated_by, file_hash=@file_hash, file_basename=@file_basename
+           updated_by=@updated_by, file_hash=@file_hash, file_basename=@file_basename,
+           archived=@archived
          WHERE id=@id`,
       )
       .run({
@@ -91,6 +94,7 @@ export class CardRepository {
         tags: JSON.stringify(card.tags),
         file_hash: fileHash,
         file_basename: fileBasename,
+        archived: card.archived ? 1 : 0,
       })
   }
 
@@ -121,12 +125,20 @@ export class CardRepository {
     status?: string
     assignedTo?: string
     tags?: string[]
+    includeArchived?: boolean
+    archivedOnly?: boolean
     orderBy: 'position' | 'updated_at' | 'priority' | 'due_date'
     limit: number
     offset: number
   }): CardRow[] {
     const where: string[] = []
     const params: Record<string, unknown> = {}
+    // archivedOnly takes precedence; otherwise hide archived unless opted-in
+    if (opts.archivedOnly) {
+      where.push('archived = 1')
+    } else if (!opts.includeArchived) {
+      where.push('archived = 0')
+    }
     if (opts.project) {
       where.push('project = @project')
       params['project'] = opts.project
@@ -216,6 +228,7 @@ export class CardRepository {
       created_by: row.created_by,
       updated_by: row.updated_by,
       file_basename: row.file_basename,
+      archived: row.archived === 1,
     }
   }
 }

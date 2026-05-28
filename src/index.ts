@@ -46,6 +46,8 @@ async function main(): Promise<void> {
     { name: 'kanban_move_card', description: 'Move a card to another column', handler: async (p, c) => cards.move(p, c) },
     { name: 'kanban_reorder_card', description: 'Reorder a card within its column', handler: async (p, c) => cards.reorder(p, c) },
     { name: 'kanban_delete_card', description: 'Delete a card (optimistic locking)', handler: async (p, c) => cards.delete(p, c) },
+    { name: 'kanban_archive_card', description: 'Archive a card so it stops appearing in default listings', handler: async (p, c) => cards.archive(p, c) },
+    { name: 'kanban_unarchive_card', description: 'Restore an archived card to the default listing', handler: async (p, c) => cards.unarchive(p, c) },
   ]
 
   if (stdioMode) {

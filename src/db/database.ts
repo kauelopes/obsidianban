@@ -28,6 +28,7 @@ function applySchema(db: Database.Database): void {
   const tx = db.transaction(() => {
     for (const stmt of SCHEMA_STATEMENTS) db.exec(stmt)
     migrateAddFileBasename(db)
+    migrateAddArchived(db)
   })
   tx()
 }
@@ -45,6 +46,19 @@ function migrateAddFileBasename(db: Database.Database): void {
   db.exec(`UPDATE cards SET file_basename = id WHERE file_basename = ''`)
   // Index must come after the column exists on legacy DBs.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_project_basename ON cards(project, file_basename)`)
+}
+
+/**
+ * Add `archived` to pre-Sprint-04+1 vaults (idempotent). Existing rows
+ * default to 0 (not archived) — historical cards remain visible until
+ * explicitly archived via the new tool.
+ */
+function migrateAddArchived(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(cards)`).all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'archived')) {
+    db.exec(`ALTER TABLE cards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_project_archived ON cards(project, archived)`)
 }
 
 function isFreshlyCreated(db: Database.Database): boolean {

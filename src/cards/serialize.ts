@@ -17,6 +17,7 @@ const FRONTMATTER_KEYS: ReadonlyArray<keyof Omit<Card, 'body'>> = [
   'agent_notes',
   'total_input_tokens',
   'total_output_tokens',
+  'archived',
   'created_at',
   'updated_at',
   'created_by',
@@ -56,6 +57,7 @@ export function cardFromFrontmatter(data: Record<string, unknown>): Card {
     agent_notes: optStr(data, 'agent_notes'),
     total_input_tokens: numOr(data, 'total_input_tokens', 0),
     total_output_tokens: numOr(data, 'total_output_tokens', 0),
+    archived: boolOr(data, 'archived', false),
     created_at: requireStr(data, 'created_at'),
     updated_at: requireStr(data, 'updated_at'),
     created_by: requireStr(data, 'created_by'),
@@ -79,6 +81,12 @@ function requireNum(d: Record<string, unknown>, k: string): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) {
     throw new Error(`frontmatter field '${k}' must be number`)
   }
+  return v
+}
+function boolOr(d: Record<string, unknown>, k: string, fallback: boolean): boolean {
+  const v = d[k]
+  if (v == null) return fallback
+  if (typeof v !== 'boolean') throw new Error(`frontmatter field '${k}' must be boolean`)
   return v
 }
 function numOr(d: Record<string, unknown>, k: string, fallback: number): number {

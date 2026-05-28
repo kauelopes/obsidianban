@@ -32,6 +32,7 @@ export interface Card {
   updated_at: string           // ISO 8601 — MCP-managed
   created_by: string           // agent:|human:|external:
   updated_by: string           // agent:|human:|external:
+  archived: boolean            // hidden from default listings; reversible
   body?: string                // present only in kanban_get_card
   file_basename?: string       // current .md basename (no extension); populated in API responses
 }
@@ -134,6 +135,8 @@ export type SSEEventType =
   | 'CARD_REORDERED'
   | 'CARD_HUMAN_EDITED'
   | 'CARD_DELETED'
+  | 'CARD_ARCHIVED'
+  | 'CARD_UNARCHIVED'
 
 export interface CardCreatedPayload     { card_id: string; project: string; status: string; position: number }
 export interface CardUpdatedPayload     { card_id: string; project: string; changed_fields: string[] }
@@ -141,6 +144,8 @@ export interface CardMovedPayload       { card_id: string; project: string; from
 export interface CardReorderedPayload   { project: string; status: string; affected_cards: Array<{ id: string; new_position: number }> }
 export interface CardHumanEditedPayload { card_id: string; project: string; new_version: number }
 export interface CardDeletedPayload     { card_id: string; project: string }
+export interface CardArchivedPayload    { card_id: string; project: string }
+export interface CardUnarchivedPayload  { card_id: string; project: string }
 
 export type SSEEventPayload =
   | CardCreatedPayload
@@ -149,6 +154,8 @@ export type SSEEventPayload =
   | CardReorderedPayload
   | CardHumanEditedPayload
   | CardDeletedPayload
+  | CardArchivedPayload
+  | CardUnarchivedPayload
 
 export interface SSEEvent {
   type: SSEEventType
@@ -161,6 +168,7 @@ export type SSEHandler<T extends SSEEventPayload = SSEEventPayload> = (payload: 
 
 export type AuditOp =
   | 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER' | 'DELETE'
+  | 'ARCHIVE' | 'UNARCHIVE'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
 

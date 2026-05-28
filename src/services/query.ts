@@ -19,6 +19,8 @@ export class QueryService {
     const limit = clampInt(params['limit'], 50, 1, 200, 'limit')
     const offset = clampInt(params['offset'], 0, 0, Number.MAX_SAFE_INTEGER, 'offset')
     const orderBy = optEnum(params, 'order_by', VALID_ORDER, 'position')
+    const includeArchived = optBool(params, 'include_archived', false)
+    const archivedOnly = optBool(params, 'archived_only', false)
 
     const project = claims.role === 'agent' ? claims.project_id : optString(params, 'project')
 
@@ -27,12 +29,21 @@ export class QueryService {
       status: status ?? undefined,
       assignedTo: assignedTo ?? undefined,
       tags: tags ?? undefined,
+      includeArchived,
+      archivedOnly,
       orderBy: orderBy as OrderBy,
       limit,
       offset,
     })
     return { cards: rows.map((r) => this.repo.toCard(r)) }
   }
+}
+
+function optBool(p: Record<string, unknown>, key: string, def: boolean): boolean {
+  const v = p[key]
+  if (v == null) return def
+  if (typeof v !== 'boolean') throw badRequest('invalid_field', { field: key, expected: 'boolean' })
+  return v
 }
 
 function optString(p: Record<string, unknown>, key: string): string | null {

@@ -20,7 +20,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_by           TEXT NOT NULL,
     updated_by           TEXT NOT NULL,
     file_hash            TEXT NOT NULL,
-    file_basename        TEXT NOT NULL DEFAULT ''
+    file_basename        TEXT NOT NULL DEFAULT '',
+    archived             INTEGER NOT NULL DEFAULT 0
   )`,
   // idx_project_basename is created by the file_basename migration in
   // database.ts — must run after ALTER TABLE on legacy DBs.
