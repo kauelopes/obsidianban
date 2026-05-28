@@ -158,6 +158,17 @@ Recommended resolution loop:
 **List pagination.** `kanban_list_cards` defaults to `limit: 50`, max `200`.
 Paginate with `offset` until a page returns fewer rows than `limit`.
 
+**Archived cards.** Cards with `archived: true` are hidden from
+`kanban_list_cards` by default. Pass `include_archived: true` to fold them
+back into the result, or `archived_only: true` to see only archived cards
+(takes precedence over `include_archived`). Use `kanban_archive_card` and
+`kanban_unarchive_card` (both take `{ id, version, ...tokens }`) to flip
+the flag — they obey the same optimistic-locking rules as updates, bump the
+version, log `ARCHIVE` / `UNARCHIVE` in the audit log, and emit
+`CARD_ARCHIVED` / `CARD_UNARCHIVED` SSE events. Archiving an
+already-archived card (or unarchiving an unarchived one) is a no-op: the
+server returns the card unchanged without bumping the version.
+
 **SSE events.** `GET /events` is a long-lived stream emitting frames like:
 
 ```
@@ -167,8 +178,9 @@ data: {"type":"CARD_UPDATED","payload":{"card_id":"card-abc","project":"marketin
 ```
 
 Event types: `CARD_CREATED`, `CARD_UPDATED`, `CARD_MOVED`, `CARD_REORDERED`,
-`CARD_HUMAN_EDITED`, `CARD_DELETED`. Pass `Last-Event-ID` on reconnect to
-replay missed frames (100-event rolling buffer).
+`CARD_HUMAN_EDITED`, `CARD_DELETED`, `CARD_ARCHIVED`, `CARD_UNARCHIVED`.
+Pass `Last-Event-ID` on reconnect to replay missed frames (100-event
+rolling buffer).
 
 **Card filenames.** Each card lives at
 `<vault>/kanban-data/<project>/<file_basename>.md`. The basename derives from
