@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, type KanbanPluginSettings } from './settings.js'
 import { KanbanSettingsTab } from './settings-tab.js'
 import { registerCardBanner } from './editor/card-banner.js'
 import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
+import { KanbanMetricsView, VIEW_TYPE_KANBAN_METRICS } from './view/metrics-view.js'
 
 export default class KanbanPlugin extends Plugin {
   settings: KanbanPluginSettings = DEFAULT_SETTINGS
@@ -21,6 +22,7 @@ export default class KanbanPlugin extends Plugin {
     })
 
     this.registerView(VIEW_TYPE_KANBAN_BOARD, (leaf) => new KanbanBoardView(leaf, this))
+    this.registerView(VIEW_TYPE_KANBAN_METRICS, (leaf) => new KanbanMetricsView(leaf, this))
 
     this.addSettingTab(new KanbanSettingsTab(this.app, this))
 
@@ -29,6 +31,14 @@ export default class KanbanPlugin extends Plugin {
       name: 'Open kanban board',
       callback: () => {
         void this.activateBoard()
+      },
+    })
+
+    this.addCommand({
+      id: 'show-metrics-panel',
+      name: 'Show metrics panel',
+      callback: () => {
+        void this.activateMetrics()
       },
     })
 
@@ -82,6 +92,19 @@ export default class KanbanPlugin extends Plugin {
     }
     const leaf = workspace.getLeaf('tab')
     await leaf.setViewState({ type: VIEW_TYPE_KANBAN_BOARD, active: true })
+    workspace.revealLeaf(leaf)
+  }
+
+  async activateMetrics(): Promise<void> {
+    const { workspace } = this.app
+    const existing = workspace.getLeavesOfType(VIEW_TYPE_KANBAN_METRICS)
+    if (existing.length > 0) {
+      workspace.revealLeaf(existing[0]!)
+      return
+    }
+    const leaf = workspace.getRightLeaf(false)
+    if (!leaf) return
+    await leaf.setViewState({ type: VIEW_TYPE_KANBAN_METRICS, active: true })
     workspace.revealLeaf(leaf)
   }
 

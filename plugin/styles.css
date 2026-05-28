@@ -214,6 +214,110 @@
   margin-left: 0.5em;
 }
 
+/* Metrics panel (sidebar view). */
+.kanban-mcp-metrics {
+  padding: 0.75em;
+  overflow-y: auto;
+}
+
+.kanban-mcp-metrics-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  align-items: end;
+  margin-bottom: 1em;
+}
+
+.kanban-mcp-metrics-control {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75em;
+  color: var(--text-muted);
+  gap: 0.15em;
+}
+
+.kanban-mcp-metrics-control input {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 0.25em 0.4em;
+  font-size: 1em;
+}
+
+.kanban-mcp-metrics-refresh {
+  margin-left: auto;
+}
+
+.kanban-mcp-metrics-section {
+  margin-bottom: 1.25em;
+}
+
+.kanban-mcp-metrics-title {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--text-normal);
+  margin: 0 0 0.4em 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 0.25em;
+}
+
+.kanban-mcp-metrics-stats {
+  display: flex;
+  gap: 0.75em;
+  flex-wrap: wrap;
+}
+
+.kanban-mcp-metrics-stat {
+  background: var(--background-secondary);
+  border-radius: 4px;
+  padding: 0.5em 0.75em;
+  flex: 1 0 auto;
+  min-width: 100px;
+}
+
+.kanban-mcp-metrics-stat-value {
+  font-size: 1.2em;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.kanban-mcp-metrics-stat-label {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  margin-top: 0.1em;
+}
+
+.kanban-mcp-metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+
+.kanban-mcp-metrics-table th,
+.kanban-mcp-metrics-table td {
+  text-align: left;
+  padding: 0.3em 0.5em;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kanban-mcp-metrics-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.kanban-mcp-metrics-table td:not(:first-child),
+.kanban-mcp-metrics-table th:not(:first-child) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.kanban-mcp-metrics-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 0.5em 0;
+}
+
 .kanban-mcp-card-title {
   font-weight: 500;
   color: var(--text-normal);
