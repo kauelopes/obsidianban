@@ -104,6 +104,12 @@ export interface ReorderCardParams extends TokenFields {
   request_id?: string
 }
 
+export interface DeleteCardParams extends TokenFields {
+  id: string
+  version: number
+  request_id?: string
+}
+
 export interface ListCardsParams {
   status?: string
   tags?: string[]
@@ -153,7 +159,7 @@ export type SSEHandler<T extends SSEEventPayload = SSEEventPayload> = (payload: 
 // ─── Audit ───────────────────────────────────────────────────────────────────
 
 export type AuditOp =
-  | 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER'
+  | 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER' | 'DELETE'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
 

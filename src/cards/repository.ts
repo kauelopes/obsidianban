@@ -141,7 +141,7 @@ export class CardRepository {
 
   logTokens(entry: {
     ts: string
-    op: 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER'
+    op: 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER' | 'DELETE'
     card_id: string
     card_type: string
     actor: string

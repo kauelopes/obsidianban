@@ -1,6 +1,15 @@
 import { ItemView, Modal, Notice, type App, type WorkspaceLeaf } from 'obsidian'
 import type KanbanPlugin from '../main.js'
-import type { CardSummary } from '../../../src/types.js'
+import type {
+  CardSummary,
+  CardCreatedPayload,
+  CardDeletedPayload,
+  CardMovedPayload,
+  CardReorderedPayload,
+  CardUpdatedPayload,
+  CardHumanEditedPayload,
+} from '../../../src/types.js'
+import type { SSEFrame } from '../mcp/sse-subscriber.js'
 import { appendCard, patchCard, removeCard, replaceCard } from './state.js'
 import { renderBoard, todayString } from './render.js'
 
@@ -115,6 +124,55 @@ export class KanbanBoardView extends ItemView {
     const targetStatus = colEl.dataset['status']
     if (!targetProject || !targetStatus) return
     void this.attemptMove(cardId, targetProject, targetStatus)
+  }
+
+  // ── SSE event mapping ──────────────────────────────────────────────────
+
+  async handleSseEvent(frame: SSEFrame): Promise<void> {
+    switch (frame.type) {
+      case 'CARD_CREATED':
+      case 'CARD_UPDATED':
+      case 'CARD_HUMAN_EDITED':
+        await this.refetchCard(
+          (frame.data as CardCreatedPayload | CardUpdatedPayload | CardHumanEditedPayload).card_id,
+        )
+        return
+      case 'CARD_MOVED': {
+        const p = frame.data as CardMovedPayload
+        this.cards = patchCard(this.cards, p.card_id, {
+          status: p.to_status,
+          position: p.new_position,
+        })
+        this.render()
+        return
+      }
+      case 'CARD_REORDERED': {
+        const p = frame.data as CardReorderedPayload
+        let next = this.cards
+        for (const a of p.affected_cards) {
+          next = patchCard(next, a.id, { position: a.new_position })
+        }
+        this.cards = next
+        this.render()
+        return
+      }
+      case 'CARD_DELETED': {
+        const p = frame.data as CardDeletedPayload
+        this.cards = removeCard(this.cards, p.card_id)
+        this.render()
+        return
+      }
+    }
+  }
+
+  private async refetchCard(cardId: string): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    const res = await client.getCard(cardId)
+    if (!res.ok) return
+    const exists = this.cards.some((c) => c.id === cardId)
+    this.cards = exists ? replaceCard(this.cards, res.data) : appendCard(this.cards, res.data)
+    this.render()
   }
 
   private readonly onClick = (e: MouseEvent): void => {

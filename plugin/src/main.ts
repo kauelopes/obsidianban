@@ -1,5 +1,6 @@
 import { Plugin } from 'obsidian'
 import { McpClient } from './mcp/client.js'
+import { SSESubscriber, type SSEFrame } from './mcp/sse-subscriber.js'
 import { DEFAULT_SETTINGS, type KanbanPluginSettings } from './settings.js'
 import { KanbanSettingsTab } from './settings-tab.js'
 import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
@@ -7,6 +8,7 @@ import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
 export default class KanbanPlugin extends Plugin {
   settings: KanbanPluginSettings = DEFAULT_SETTINGS
   client: McpClient | null = null
+  private subscriber: SSESubscriber | null = null
 
   override async onload(): Promise<void> {
     await this.loadSettings()
@@ -26,11 +28,31 @@ export default class KanbanPlugin extends Plugin {
         void this.activateBoard()
       },
     })
+
+    this.startSubscriber()
+    this.register(() => this.subscriber?.stop())
   }
 
   override onunload(): void {
     // RULE-05: never detachLeavesOfType here — Obsidian restores leaves on
     // reload and detaching here would erase the user's workspace.
+    // Subscriber cleanup is handled by the register() callback above.
+  }
+
+  private startSubscriber(): void {
+    this.subscriber?.stop()
+    this.subscriber = new SSESubscriber({
+      baseUrl: this.settings.baseUrl,
+      onEvent: (frame) => this.dispatchSseEvent(frame),
+    })
+    this.subscriber.start()
+  }
+
+  private dispatchSseEvent(frame: SSEFrame): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
+      const view = leaf.view
+      if (view instanceof KanbanBoardView) void view.handleSseEvent(frame)
+    }
   }
 
   async activateBoard(): Promise<void> {
@@ -56,6 +78,7 @@ export default class KanbanPlugin extends Plugin {
       baseUrl: this.settings.baseUrl,
       token: this.settings.token,
     })
+    this.startSubscriber()
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
       const view = leaf.view
       if (view instanceof KanbanBoardView) void view.refresh()

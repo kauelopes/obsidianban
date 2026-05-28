@@ -45,6 +45,7 @@ async function main(): Promise<void> {
     { name: 'kanban_update_card', description: 'Update fields of an existing card (optimistic locking)', handler: async (p, c) => cards.update(p, c) },
     { name: 'kanban_move_card', description: 'Move a card to another column', handler: async (p, c) => cards.move(p, c) },
     { name: 'kanban_reorder_card', description: 'Reorder a card within its column', handler: async (p, c) => cards.reorder(p, c) },
+    { name: 'kanban_delete_card', description: 'Delete a card (optimistic locking)', handler: async (p, c) => cards.delete(p, c) },
   ]
 
   if (stdioMode) {

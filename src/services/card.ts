@@ -66,6 +66,9 @@ const MOVE_ALLOWED = [
 const REORDER_ALLOWED = [
   'id', 'version', 'after_card_id', 'input_tokens', 'output_tokens', 'model', 'request_id',
 ] as const
+const DELETE_ALLOWED = [
+  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+] as const
 
 /**
  * Mutation entry point for cards. Read isolation:
@@ -519,5 +522,54 @@ export class CardService {
     })
 
     return { card: { ...targetCard, body }, affected_cards: affectedCards }
+  }
+
+  async delete(params: Record<string, unknown>, claims: TokenClaims): Promise<{ deleted: true; id: string }> {
+    rejectDisallowed(params, DELETE_ALLOWED)
+    const id = requireString(params, 'id')
+    const claimedVersion = requireInt(params, 'version', 1)
+    const inputTokens = requireInt(params, 'input_tokens')
+    const outputTokens = requireInt(params, 'output_tokens')
+    const model = requireString(params, 'model')
+
+    const row = this.repo.findById(id)
+    if (!row) throw notFound()
+    if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
+
+    if (claimedVersion !== row.version) {
+      const current = this.repo.toCard(row)
+      const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+      const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
+      throw conflict({
+        message: `Version mismatch: expected ${claimedVersion}, found ${row.version}`,
+        your_version: claimedVersion,
+        current_version: row.version,
+        conflicting_fields: [],
+        current_card: { ...current, body },
+      })
+    }
+
+    const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+    await fs.unlink(filePath).catch((err) => {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    })
+    this.repo.delete(id)
+
+    const now = new Date().toISOString()
+    this.repo.logTokens({
+      ts: now, op: 'DELETE', card_id: id, card_type: row.type,
+      actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
+      project: row.project,
+    })
+    await this.audit.log({
+      ts: now, op: 'DELETE', project: row.project, card_id: id, version: row.version,
+      actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
+    })
+    this.sse.emit({
+      type: 'CARD_DELETED',
+      payload: { card_id: id, project: row.project },
+    })
+
+    return { deleted: true, id }
   }
 }

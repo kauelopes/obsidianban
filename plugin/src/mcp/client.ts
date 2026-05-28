@@ -3,6 +3,7 @@ import type {
   Card,
   CardSummary,
   CreateCardParams,
+  DeleteCardParams,
   ListCardsParams,
   MoveCardParams,
   Metrics,
@@ -98,6 +99,10 @@ export class McpClient {
 
   reorderCard(params: ReorderCardParams): Promise<McpResult<ReorderResult>> {
     return this.call('kanban_reorder_card', params)
+  }
+
+  deleteCard(params: DeleteCardParams): Promise<McpResult<{ deleted: true; id: string }>> {
+    return this.call('kanban_delete_card', params)
   }
 
   async getMetrics(filter: MetricsFilter = {}): Promise<McpResult<Metrics>> {
