@@ -114,6 +114,16 @@ export class McpClient {
     return this.call('kanban_unarchive_card', params)
   }
 
+  createProject(params: { project: string; actor: string }): Promise<McpResult<{
+    project: string
+    token: string
+    token_id: string
+    actor: string
+    created_at: string
+  }>> {
+    return this.call('kanban_create_project', params)
+  }
+
   async getMetrics(filter: MetricsFilter = {}): Promise<McpResult<Metrics>> {
     const search = new URLSearchParams()
     if (filter.from_date != null) search.set('from_date', filter.from_date)

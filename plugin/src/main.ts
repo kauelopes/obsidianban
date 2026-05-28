@@ -1,9 +1,11 @@
-import { Plugin } from 'obsidian'
+import { Notice, Plugin } from 'obsidian'
 import { McpClient } from './mcp/client.js'
 import { SSESubscriber, type SSEFrame, type SseStatus } from './mcp/sse-subscriber.js'
 import { DEFAULT_SETTINGS, type KanbanPluginSettings } from './settings.js'
 import { KanbanSettingsTab } from './settings-tab.js'
 import { registerCardBanner } from './editor/card-banner.js'
+import { CreateProjectModal } from './ui/create-project-modal.js'
+import { ProjectTokenModal } from './ui/project-token-modal.js'
 import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
 import { KanbanMetricsView, VIEW_TYPE_KANBAN_METRICS } from './view/metrics-view.js'
 
@@ -39,6 +41,14 @@ export default class KanbanPlugin extends Plugin {
       name: 'Show metrics panel',
       callback: () => {
         void this.activateMetrics()
+      },
+    })
+
+    this.addCommand({
+      id: 'create-kanban-project',
+      name: 'Create kanban project',
+      callback: () => {
+        this.promptCreateProject()
       },
     })
 
@@ -106,6 +116,64 @@ export default class KanbanPlugin extends Plugin {
     if (!leaf) return
     await leaf.setViewState({ type: VIEW_TYPE_KANBAN_METRICS, active: true })
     workspace.revealLeaf(leaf)
+  }
+
+  private promptCreateProject(): void {
+    if (!this.client) {
+      new Notice('Plugin not initialized')
+      return
+    }
+    new CreateProjectModal(this.app, async ({ project, actor }) => {
+      const client = this.client
+      if (!client) return
+      const res = await client.createProject({ project, actor })
+      if (!res.ok) {
+        const err = res.error
+        const detail =
+          err.kind === 'server' && err.status === 403
+            ? 'Manager token required — set it in plugin settings.'
+            : `${err.kind}: ${err.message}`
+        new Notice(`Create project failed — ${detail}`, 8000)
+        return
+      }
+      const secretNotePath = `_kanban-secrets/${res.data.project}.md`
+      await this.writeSecretNote(secretNotePath, res.data)
+      new ProjectTokenModal(this.app, {
+        ...res.data,
+        secretNotePath,
+      }).open()
+    }).open()
+  }
+
+  private async writeSecretNote(
+    relativePath: string,
+    info: { project: string; token: string; token_id: string; actor: string; created_at: string },
+  ): Promise<void> {
+    const folder = relativePath.slice(0, relativePath.lastIndexOf('/'))
+    // adapter.exists/mkdir handle the case where _kanban-secrets/ already
+    // exists from a previous project — the agent re-mint flow.
+    if (!(await this.app.vault.adapter.exists(folder))) {
+      await this.app.vault.adapter.mkdir(folder)
+    }
+    const body = [
+      `# Kanban agent token — ${info.project}`,
+      '',
+      '> Stored in your vault by the kanban plugin. The server only keeps a',
+      "> hash of this token; if you lose it, mint a new one and revoke the old.",
+      '',
+      `- **Project:** ${info.project}`,
+      `- **Actor:** ${info.actor}`,
+      `- **Token id:** ${info.token_id}`,
+      `- **Created:** ${info.created_at}`,
+      '',
+      '## Token',
+      '',
+      '```',
+      info.token,
+      '```',
+      '',
+    ].join('\n')
+    await this.app.vault.adapter.write(relativePath, body)
   }
 
   async loadSettings(): Promise<void> {
