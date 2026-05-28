@@ -40,8 +40,10 @@ const UPDATE_ALLOWED_AGENT = [
 ] as const
 const UPDATE_ALLOWED_MANAGER = [...UPDATE_ALLOWED_AGENT, 'owner'] as const
 
-/** Fields the agent is allowed to send in create_card. */
-const CREATE_ALLOWED_AGENT = [
+/** Fields allowed in create_card. `project` semantics differ by role: for
+ *  managers it's mandatory; for agents it's optional but, if sent, must
+ *  match claims.project_id (validated below). Lets UI clients use one shape. */
+const CREATE_ALLOWED = [
   'title',
   'type',
   'input_tokens',
@@ -55,9 +57,8 @@ const CREATE_ALLOWED_AGENT = [
   'body',
   'agent_notes',
   'request_id',
+  'project',
 ] as const
-/** Manager additionally must specify the project (no claims.project_id). */
-const CREATE_ALLOWED_MANAGER = [...CREATE_ALLOWED_AGENT, 'project'] as const
 
 const MOVE_ALLOWED = [
   'id', 'version', 'to_status', 'input_tokens', 'output_tokens', 'model', 'request_id',
@@ -99,7 +100,7 @@ export class CardService {
   }
 
   async create(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
-    rejectDisallowed(params, claims.role === 'manager' ? CREATE_ALLOWED_MANAGER : CREATE_ALLOWED_AGENT)
+    rejectDisallowed(params, CREATE_ALLOWED)
 
     const title = requireString(params, 'title', 200)
     const type = requireString(params, 'type')
@@ -113,7 +114,19 @@ export class CardService {
     const body = optString(params, 'body') ?? ''
     const agentNotes = optString(params, 'agent_notes', 2000)
 
-    const project = claims.role === 'agent' ? claims.project_id : requireString(params, 'project')
+    let project: string
+    if (claims.role === 'agent') {
+      project = claims.project_id
+      const sent = params['project']
+      if (sent !== undefined && sent !== project) {
+        throw badRequest('invalid_field', {
+          field: 'project',
+          reason: 'agent token can only create cards in its own project',
+        })
+      }
+    } else {
+      project = requireString(params, 'project')
+    }
 
     const meta = await loadProjectMeta(this.paths, project).catch(() => {
       throw badRequest('invalid_project', { project })

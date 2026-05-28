@@ -20,7 +20,10 @@ export interface ProjectGroup {
  * in insertion order. Cards within a column are sorted by position ascending.
  * Projects sorted alphabetically.
  */
-export function groupBoard(cards: readonly CardSummary[]): ProjectGroup[] {
+export function groupBoard(
+  cards: readonly CardSummary[],
+  forceProjects: readonly string[] = [],
+): ProjectGroup[] {
   const byProject = new Map<string, Map<string, CardSummary[]>>()
   for (const c of cards) {
     let proj = byProject.get(c.project)
@@ -34,6 +37,11 @@ export function groupBoard(cards: readonly CardSummary[]): ProjectGroup[] {
       proj.set(c.status, col)
     }
     col.push(c)
+  }
+  // Ensure forceProjects appear even with zero cards so the UI shows their
+  // default columns (and "+ Add card" buttons).
+  for (const p of forceProjects) {
+    if (!byProject.has(p)) byProject.set(p, new Map())
   }
   const out: ProjectGroup[] = []
   const projectNames = [...byProject.keys()].sort((a, b) => a.localeCompare(b))
@@ -76,11 +84,14 @@ export function renderBoard(
   container: HTMLElement,
   cards: readonly CardSummary[],
   today: string,
+  forceProjects: readonly string[] = [],
 ): void {
-  const groups = groupBoard(cards)
+  const groups = groupBoard(cards, forceProjects)
   if (groups.length === 0) {
     const empty = container.createDiv({ cls: 'kanban-mcp-empty' })
-    empty.setText('No cards yet')
+    empty.setText(
+      'No cards yet. Set a "Project" in the plugin settings to start.',
+    )
     return
   }
   for (const g of groups) renderProject(container, g, today)
@@ -101,28 +112,40 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string):
 
   const cols = wrap.createDiv({ cls: 'kanban-mcp-columns' })
   for (const st of group.columns) {
-    renderColumn(cols, st, group.cards[st] ?? [], today)
+    renderColumn(cols, group.project, st, group.cards[st] ?? [], today)
   }
 }
 
 function renderColumn(
   parent: HTMLElement,
+  project: string,
   status: string,
   cards: readonly CardSummary[],
   today: string,
 ): void {
   const col = parent.createDiv({ cls: 'kanban-mcp-column' })
+  col.dataset['project'] = project
   col.dataset['status'] = status
   const head = col.createDiv({ cls: 'kanban-mcp-column-header' })
   head.createSpan({ cls: 'kanban-mcp-column-title', text: status })
   head.createSpan({ cls: 'kanban-mcp-column-count', text: String(cards.length) })
+  const addBtn = head.createEl('button', {
+    cls: 'kanban-mcp-column-add',
+    text: '+',
+    attr: { 'aria-label': `Add card to ${status}`, 'type': 'button' },
+  })
+  addBtn.dataset['project'] = project
+  addBtn.dataset['status'] = status
   const body = col.createDiv({ cls: 'kanban-mcp-column-body' })
+  body.dataset['project'] = project
+  body.dataset['status'] = status
   for (const c of cards) renderCard(body, c, today)
 }
 
 function renderCard(parent: HTMLElement, card: CardSummary, today: string): void {
   const el = parent.createDiv({ cls: 'kanban-mcp-card' })
   el.dataset['cardId'] = card.id
+  el.setAttr('draggable', 'true')
   el.createDiv({ cls: 'kanban-mcp-card-title', text: card.title })
 
   const meta = el.createDiv({ cls: 'kanban-mcp-card-meta' })

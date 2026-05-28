@@ -64,6 +64,7 @@ export interface TokenFields {
 export interface CreateCardParams extends TokenFields {
   title: string
   type: string
+  project?: string          // required for manager, optional for agent (must match claims if sent)
   status?: string
   priority?: Priority
   tags?: string[]
