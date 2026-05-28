@@ -58,6 +58,16 @@ The `--actor` string ends up in every audit row and SSE event the agent
 generates. Make it specific (`agent:claude-marketing`, not `agent:1`) so
 the audit log is meaningful months later.
 
+### Mint from inside Obsidian
+
+If the plugin is configured with a **manager** token, the command palette
+exposes **"Create kanban project"**. It prompts for a project name + actor,
+calls `kanban_create_project`, writes a copy of the token to
+`_kanban-secrets/<project>.md` inside the vault, and surfaces the raw token
+in a one-shot modal with a Copy button. Use this when you don't want to
+shell into the server to issue tokens. Agent tokens calling the same tool
+get `403 forbidden { reason: "manager_required" }`.
+
 ### List / revoke later
 
 ```bash
@@ -75,10 +85,11 @@ the next request with that token returns `401 token_revoked`.
 
 ## 3. Pick the transport
 
-Both transports expose the **same nine tools** (`kanban_list_cards`,
+Both transports expose the **same ten tools** (`kanban_list_cards`,
 `kanban_get_card`, `kanban_create_card`, `kanban_update_card`,
 `kanban_move_card`, `kanban_reorder_card`, `kanban_delete_card`,
-`kanban_archive_card`, `kanban_unarchive_card`). Pick
+`kanban_archive_card`, `kanban_unarchive_card`, `kanban_create_project`).
+The last one is manager-only — agent tokens get a 403. Pick
 based on where the agent runs.
 
 | Transport | Best for                                                                                                          | Notes                                                                                  |

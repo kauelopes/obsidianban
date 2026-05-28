@@ -158,6 +158,18 @@ Recommended resolution loop:
 **List pagination.** `kanban_list_cards` defaults to `limit: 50`, max `200`.
 Paginate with `offset` until a page returns fewer rows than `limit`.
 
+**Creating new projects.** A manager token can call
+`kanban_create_project` with `{ project, actor }` to ensure the project
+folder exists under `kanban-data/` *and* mint a fresh agent token in one
+round trip. The response is `{ project, token, token_id, actor, created_at }`
+and the raw `token` is only returned this once — the server keeps a SHA-256
+hash. Re-calling with the same project name is allowed and additive: the
+folder is reused, a new token is appended, prior tokens stay valid until
+explicitly revoked via the CLI. Agent tokens calling this tool get `403
+forbidden { reason: "manager_required" }`. Project and actor names are
+validated against `[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}` (actors also allow
+`:` for the conventional `agent:foo` / `human:bar` prefixes).
+
 **Archived cards.** Cards with `archived: true` are hidden from
 `kanban_list_cards` by default. Pass `include_archived: true` to fold them
 back into the result, or `archived_only: true` to see only archived cards
