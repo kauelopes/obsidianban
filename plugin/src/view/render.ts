@@ -14,15 +14,22 @@ export interface ProjectGroup {
   cards: Record<string, CardSummary[]>
 }
 
+export interface ProjectShape {
+  project: string
+  columns: readonly string[]
+}
+
 /**
  * Pure aggregation from a flat card list into per-project, per-column groups.
- * Column order = DEFAULT_COLUMN_ORDER first, then any extra statuses observed
- * in insertion order. Cards within a column are sorted by position ascending.
- * Projects sorted alphabetically.
+ * `forceProjects` carries the authoritative column order per project (sourced
+ * from the server's _meta.json); projects in that list always render — even
+ * with zero cards — so columns and "+ Add card" affordances stay visible.
+ * Cards in unknown statuses are appended to the end. Projects sorted
+ * alphabetically.
  */
 export function groupBoard(
   cards: readonly CardSummary[],
-  forceProjects: readonly string[] = [],
+  forceProjects: readonly ProjectShape[] = [],
 ): ProjectGroup[] {
   const byProject = new Map<string, Map<string, CardSummary[]>>()
   for (const c of cards) {
@@ -38,18 +45,19 @@ export function groupBoard(
     }
     col.push(c)
   }
-  // Ensure forceProjects appear even with zero cards so the UI shows their
-  // default columns (and "+ Add card" buttons).
-  for (const p of forceProjects) {
-    if (!byProject.has(p)) byProject.set(p, new Map())
+  const shapes = new Map<string, readonly string[]>()
+  for (const f of forceProjects) {
+    shapes.set(f.project, f.columns)
+    if (!byProject.has(f.project)) byProject.set(f.project, new Map())
   }
   const out: ProjectGroup[] = []
   const projectNames = [...byProject.keys()].sort((a, b) => a.localeCompare(b))
   for (const project of projectNames) {
     const statusMap = byProject.get(project)!
+    const baseColumns = shapes.get(project) ?? DEFAULT_COLUMN_ORDER
     const seen = new Set<string>()
     const columns: string[] = []
-    for (const def of DEFAULT_COLUMN_ORDER) {
+    for (const def of baseColumns) {
       columns.push(def)
       seen.add(def)
     }
@@ -84,13 +92,13 @@ export function renderBoard(
   container: HTMLElement,
   cards: readonly CardSummary[],
   today: string,
-  forceProjects: readonly string[] = [],
+  forceProjects: readonly ProjectShape[] = [],
 ): void {
   const groups = groupBoard(cards, forceProjects)
   if (groups.length === 0) {
     const empty = container.createDiv({ cls: 'kanban-mcp-empty' })
     empty.setText(
-      'No cards yet. Set a "Project" in the plugin settings to start.',
+      'No projects yet. Run "Create kanban project" from the command palette.',
     )
     return
   }

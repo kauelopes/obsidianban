@@ -174,6 +174,13 @@ Agent tokens calling this tool get `403 forbidden { reason:
 `[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}` (actors also allow `:` for the
 conventional `agent:foo` / `human:bar` prefixes).
 
+**Listing projects.** `kanban_list_projects` returns `{ projects:
+[{ project, columns }] }`. Agent tokens see only their own project (so a
+freshly-minted agent can still render its column layout before any card
+exists); manager tokens see every project under `kanban-data/`. Use this
+to render an always-visible column scaffold even when the board has no
+cards yet.
+
 **Archived cards.** Cards with `archived: true` are hidden from
 `kanban_list_cards` by default. Pass `include_archived: true` to fold them
 back into the result, or `archived_only: true` to see only archived cards

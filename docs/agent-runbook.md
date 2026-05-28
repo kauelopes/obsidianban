@@ -85,11 +85,13 @@ the next request with that token returns `401 token_revoked`.
 
 ## 3. Pick the transport
 
-Both transports expose the **same ten tools** (`kanban_list_cards`,
+Both transports expose the **same eleven tools** (`kanban_list_cards`,
 `kanban_get_card`, `kanban_create_card`, `kanban_update_card`,
 `kanban_move_card`, `kanban_reorder_card`, `kanban_delete_card`,
-`kanban_archive_card`, `kanban_unarchive_card`, `kanban_create_project`).
-The last one is manager-only — agent tokens get a 403. Pick
+`kanban_archive_card`, `kanban_unarchive_card`, `kanban_create_project`,
+`kanban_list_projects`). `kanban_create_project` is manager-only;
+`kanban_list_projects` is scoped to the caller's project for agents and
+unscoped for managers. Pick
 based on where the agent runs.
 
 | Transport | Best for                                                                                                          | Notes                                                                                  |

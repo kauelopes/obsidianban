@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     { name: 'kanban_archive_card', description: 'Archive a card so it stops appearing in default listings', handler: async (p, c) => cards.archive(p, c) },
     { name: 'kanban_unarchive_card', description: 'Restore an archived card to the default listing', handler: async (p, c) => cards.unarchive(p, c) },
     { name: 'kanban_create_project', description: 'Manager-only — create a project folder and mint an agent token for it', handler: async (p, c) => admin.createProject(p, c) },
+    { name: 'kanban_list_projects', description: 'List projects visible to the caller with their column shape', handler: async (_p, c) => admin.listProjects(c) },
   ]
 
   if (stdioMode) {

@@ -124,6 +124,12 @@ export class McpClient {
     return this.call('kanban_create_project', params)
   }
 
+  listProjects(): Promise<McpResult<{
+    projects: Array<{ project: string; columns: string[] }>
+  }>> {
+    return this.call('kanban_list_projects', {})
+  }
+
   async getMetrics(filter: MetricsFilter = {}): Promise<McpResult<Metrics>> {
     const search = new URLSearchParams()
     if (filter.from_date != null) search.set('from_date', filter.from_date)

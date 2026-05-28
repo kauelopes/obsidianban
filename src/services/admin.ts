@@ -1,7 +1,7 @@
 import type { Paths } from '../config.js'
 import type { TokenClaims } from '../types.js'
 import { createAgentToken, type IssuedToken } from '../auth/tokens.js'
-import { loadProjectMeta } from '../vault/layout.js'
+import { listProjects as listProjectDirs, loadProjectMeta } from '../vault/layout.js'
 import type { CardService } from './card.js'
 import { badRequest, HttpError } from './errors.js'
 
@@ -12,6 +12,11 @@ const SAFE_PROJECT = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/
 // Actor names are shown in audit logs and prefixed by role convention
 // (agent:foo, human:bar), so `:` is allowed but slashes and dots-only are not.
 const SAFE_ACTOR = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/
+
+export interface ProjectInfo {
+  project: string
+  columns: string[]
+}
 
 export interface CreateProjectResult {
   project: string
@@ -27,6 +32,27 @@ export class AdminService {
     private readonly paths: Paths,
     private readonly cards: CardService,
   ) {}
+
+  /**
+   * List visible projects with their column shape. Agents only see their own
+   * scoped project (so the plugin can render its columns even when there are
+   * no cards yet); managers see every project in the vault. Projects with a
+   * missing or unreadable _meta.json are silently skipped.
+   */
+  async listProjects(claims: TokenClaims): Promise<{ projects: ProjectInfo[] }> {
+    if (claims.role === 'agent') {
+      const meta = await loadProjectMeta(this.paths, claims.project_id).catch(() => null)
+      if (!meta) return { projects: [] }
+      return { projects: [{ project: claims.project_id, columns: meta.columns }] }
+    }
+    const dirs = await listProjectDirs(this.paths)
+    const projects: ProjectInfo[] = []
+    for (const project of dirs) {
+      const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+      if (meta) projects.push({ project, columns: meta.columns })
+    }
+    return { projects }
+  }
 
   async createProject(
     params: Record<string, unknown>,

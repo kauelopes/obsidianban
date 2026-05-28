@@ -171,6 +171,27 @@ async function main() {
     check('minted token authenticates create_card',
       r6.status === 200 && r6.body.project === 'first-proj',
       `status=${r6.status} project=${r6.body?.project}`)
+
+    // 9. Manager lists all projects (including the unrelated 'preexisting'
+    //    one we minted via the CLI at the start).
+    const lpMgr = await call('kanban_list_projects', {}, mgrTok)
+    check('manager list_projects → 200', lpMgr.status === 200, `status=${lpMgr.status}`)
+    const mgrProjectNames = (lpMgr.body.projects ?? []).map((p) => p.project).sort()
+    check('manager sees both projects',
+      JSON.stringify(mgrProjectNames) === JSON.stringify(['first-proj', 'preexisting']),
+      `projects=${mgrProjectNames.join(',')}`)
+    const firstShape = (lpMgr.body.projects ?? []).find((p) => p.project === 'first-proj')
+    check('manager sees columns on first-proj',
+      Array.isArray(firstShape?.columns) && firstShape.columns.includes('backlog'),
+      `cols=${firstShape?.columns?.join(',')}`)
+
+    // 10. Agent only sees their own project.
+    const lpAgent = await call('kanban_list_projects', {}, r1.body.token)
+    check('agent list_projects → 200', lpAgent.status === 200, `status=${lpAgent.status}`)
+    check('agent sees only their own project',
+      lpAgent.body.projects?.length === 1
+        && lpAgent.body.projects[0].project === 'first-proj',
+      `projects=${(lpAgent.body.projects ?? []).map((p) => p.project).join(',')}`)
   } finally {
     await stopMcp(mcp)
   }

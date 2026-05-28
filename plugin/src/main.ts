@@ -142,6 +142,12 @@ export default class KanbanPlugin extends Plugin {
         ...res.data,
         secretNotePath,
       }).open()
+      // Pull the new project's columns into the board right away so the
+      // user doesn't have to wait for an SSE-triggered re-render.
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
+        const view = leaf.view
+        if (view instanceof KanbanBoardView) void view.refresh()
+      }
     }).open()
   }
 

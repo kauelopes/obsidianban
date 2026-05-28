@@ -15,7 +15,7 @@ import { ConflictModal } from '../ui/conflict-modal.js'
 import { CreateCardModal } from '../ui/create-card-modal.js'
 import { showErrorToast, showRetryToast } from '../ui/toast.js'
 import { appendCard, patchCard, removeCard, replaceCard } from './state.js'
-import { renderBoard, todayString } from './render.js'
+import { DEFAULT_COLUMN_ORDER, renderBoard, todayString } from './render.js'
 
 export const VIEW_TYPE_KANBAN_BOARD = 'kanban-mcp-board'
 
@@ -26,6 +26,7 @@ const OPTIMISTIC_POSITION = Number.MAX_SAFE_INTEGER
 
 export class KanbanBoardView extends ItemView {
   private cards: CardSummary[] = []
+  private projectShapes: Array<{ project: string; columns: readonly string[] }> = []
 
   constructor(leaf: WorkspaceLeaf, private readonly plugin: KanbanPlugin) {
     super(leaf)
@@ -64,14 +65,20 @@ export class KanbanBoardView extends ItemView {
       this.renderError('Plugin not initialized')
       return
     }
-    const result = await client.listCards({
-      include_archived: this.plugin.settings.showArchived,
-    })
-    if (!result.ok) {
-      this.renderError(`MCP ${result.error.kind}: ${result.error.message}`)
+    // Fetch cards and projects in parallel; the project list is what keeps
+    // empty boards visible (with columns + "+ Add card"), so we render even
+    // if it returns zero — the empty-state message tells the user how to
+    // create one.
+    const [cardsResult, projectsResult] = await Promise.all([
+      client.listCards({ include_archived: this.plugin.settings.showArchived }),
+      client.listProjects(),
+    ])
+    if (!cardsResult.ok) {
+      this.renderError(`MCP ${cardsResult.error.kind}: ${cardsResult.error.message}`)
       return
     }
-    this.cards = [...result.data.cards]
+    this.cards = [...cardsResult.data.cards]
+    this.projectShapes = projectsResult.ok ? [...projectsResult.data.projects] : []
     this.render()
   }
 
@@ -80,10 +87,15 @@ export class KanbanBoardView extends ItemView {
     if (this.plugin.connectionStatus !== 'connected') {
       this.renderOfflineBanner(this.plugin.connectionStatus)
     }
-    const force = this.plugin.settings.projectName
-      ? [this.plugin.settings.projectName]
-      : []
-    renderBoard(this.contentEl, this.cards, todayString(), force)
+    const shapes = [...this.projectShapes]
+    // Surface the settings.projectName as a pseudo-project too so users can
+    // see a placeholder column layout before any first card is created and
+    // before the server learns about the project.
+    const settingsProject = this.plugin.settings.projectName
+    if (settingsProject && !shapes.some((s) => s.project === settingsProject)) {
+      shapes.push({ project: settingsProject, columns: DEFAULT_COLUMN_ORDER })
+    }
+    renderBoard(this.contentEl, this.cards, todayString(), shapes)
   }
 
   private renderOfflineBanner(status: SseStatus): void {
