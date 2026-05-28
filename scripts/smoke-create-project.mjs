@@ -132,12 +132,30 @@ async function main() {
       r4.status === 400 && r4.body.field === 'actor',
       `status=${r4.status} field=${r4.body.field}`)
 
-    // 6. Re-mint on existing project: folder reused, second token added.
+    // 6. First-mint side effect: a starter card was seeded in backlog.
+    check('first mint returns starter_card_id',
+      typeof r1.body.starter_card_id === 'string',
+      `starter_card_id=${r1.body.starter_card_id}`)
+    const listAfterFirst = await call('kanban_list_cards',
+      { include_archived: false }, r1.body.token)
+    const starter = listAfterFirst.body.cards.find((c) => c.id === r1.body.starter_card_id)
+    check('starter card is in backlog',
+      starter?.status === 'backlog',
+      `status=${starter?.status}`)
+    check('starter card title is the onboarding card',
+      starter?.title?.startsWith('Agent setup'),
+      `title=${starter?.title}`)
+
+    // 7. Re-mint on existing project: folder reused, second token added,
+    //    no second starter card.
     const r5 = await call('kanban_create_project',
       { project: 'first-proj', actor: 'agent:charlie' }, mgrTok)
     check('re-mint same project → 200', r5.status === 200, `status=${r5.status}`)
     check('re-mint returns a different token',
       r5.body.token !== r1.body.token, `eq=${r5.body.token === r1.body.token}`)
+    check('re-mint does NOT seed another starter card',
+      r5.body.starter_card_id === null,
+      `starter_card_id=${r5.body.starter_card_id}`)
     const meta2 = JSON.parse(await readFile(projMeta, 'utf8'))
     check('agent_tokens now has two entries',
       meta2.agent_tokens?.length === 2,
@@ -146,7 +164,7 @@ async function main() {
       meta2.agent_tokens.some((t) => t.token_id === r1.body.token_id),
       `ids=${meta2.agent_tokens.map((t) => t.token_id).join(',')}`)
 
-    // 7. The freshly-minted token actually authenticates an agent call.
+    // 8. The freshly-minted token actually authenticates an agent call.
     const r6 = await call('kanban_create_card',
       { title: 'first card', type: 'task',
         input_tokens: 0, output_tokens: 0, model: 'smoke' }, r1.body.token)

@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const queries = new QueryService(repo)
   const metrics = new MetricsService(db)
-  const admin = new AdminService(config.paths)
+  const admin = new AdminService(config.paths, cards)
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   const tools: Array<{ name: string; description: string; handler: ToolFn }> = [

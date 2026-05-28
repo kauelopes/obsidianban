@@ -161,14 +161,18 @@ Paginate with `offset` until a page returns fewer rows than `limit`.
 **Creating new projects.** A manager token can call
 `kanban_create_project` with `{ project, actor }` to ensure the project
 folder exists under `kanban-data/` *and* mint a fresh agent token in one
-round trip. The response is `{ project, token, token_id, actor, created_at }`
-and the raw `token` is only returned this once — the server keeps a SHA-256
-hash. Re-calling with the same project name is allowed and additive: the
-folder is reused, a new token is appended, prior tokens stay valid until
-explicitly revoked via the CLI. Agent tokens calling this tool get `403
-forbidden { reason: "manager_required" }`. Project and actor names are
-validated against `[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}` (actors also allow
-`:` for the conventional `agent:foo` / `human:bar` prefixes).
+round trip. The response is `{ project, token, token_id, actor, created_at,
+starter_card_id }`; the raw `token` is only returned this once (the server
+keeps a SHA-256 hash). On the **first** call for a given project the server
+also seeds an onboarding card in `backlog` titled "Agent setup — read this
+first" — its id is returned as `starter_card_id` so the caller can link or
+move it. Re-calling with the same project name is additive: the folder is
+reused, a new token is appended, prior tokens stay valid until explicitly
+revoked, and `starter_card_id` comes back as `null` (no duplicate seed).
+Agent tokens calling this tool get `403 forbidden { reason:
+"manager_required" }`. Project and actor names are validated against
+`[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}` (actors also allow `:` for the
+conventional `agent:foo` / `human:bar` prefixes).
 
 **Archived cards.** Cards with `archived: true` are hidden from
 `kanban_list_cards` by default. Pass `include_archived: true` to fold them
