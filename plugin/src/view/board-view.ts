@@ -215,7 +215,10 @@ export class KanbanBoardView extends ItemView {
   private async openCardFile(cardId: string): Promise<void> {
     const card = this.cards.find((c) => c.id === cardId)
     if (!card) return
-    const path = `kanban-data/${card.project}/${cardId}.md`
+    // Filenames are title-derived since batch 6b; fall back to id for
+    // older API responses that don't populate file_basename.
+    const basename = card.file_basename ?? cardId
+    const path = `kanban-data/${card.project}/${basename}.md`
     const file = this.app.vault.getAbstractFileByPath(path)
     if (file instanceof TFile) {
       await this.app.workspace.getLeaf(false).openFile(file)

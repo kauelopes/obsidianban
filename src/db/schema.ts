@@ -19,8 +19,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     updated_at           TEXT NOT NULL,
     created_by           TEXT NOT NULL,
     updated_by           TEXT NOT NULL,
-    file_hash            TEXT NOT NULL
+    file_hash            TEXT NOT NULL,
+    file_basename        TEXT NOT NULL DEFAULT ''
   )`,
+  // idx_project_basename is created by the file_basename migration in
+  // database.ts — must run after ALTER TABLE on legacy DBs.
   `CREATE INDEX IF NOT EXISTS idx_project_status   ON cards(project, status)`,
   `CREATE INDEX IF NOT EXISTS idx_project_position ON cards(project, status, position)`,
   `CREATE INDEX IF NOT EXISTS idx_project_type     ON cards(project, type)`,

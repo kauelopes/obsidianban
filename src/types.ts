@@ -33,6 +33,7 @@ export interface Card {
   created_by: string           // agent:|human:|external:
   updated_by: string           // agent:|human:|external:
   body?: string                // present only in kanban_get_card
+  file_basename?: string       // current .md basename (no extension); populated in API responses
 }
 
 export type CardSummary = Omit<Card, 'body'>

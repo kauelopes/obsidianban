@@ -36,9 +36,10 @@ export async function reconcile(
     const dir = path.join(paths.kanbanData, project)
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+      if (!entry.isFile() || !entry.name.endsWith('.md') || entry.name.startsWith('_')) continue
       report.scanned++
       const filePath = path.join(dir, entry.name)
+      const basename = path.basename(entry.name, '.md')
       const content = await fs.readFile(filePath, 'utf8')
       const hash = sha256(content)
 
@@ -57,8 +58,8 @@ export async function reconcile(
         }
         seen.add(card.id)
         const existing = repo.findById(card.id)
-        if (!existing || existing.file_hash !== hash) {
-          repo.upsert(card, hash)
+        if (!existing || existing.file_hash !== hash || existing.file_basename !== basename) {
+          repo.upsert(card, hash, basename)
           await audit.log({
             op: 'RECONCILED',
             project,

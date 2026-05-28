@@ -27,8 +27,24 @@ export async function openDatabase(sqlitePath: string): Promise<OpenResult> {
 function applySchema(db: Database.Database): void {
   const tx = db.transaction(() => {
     for (const stmt of SCHEMA_STATEMENTS) db.exec(stmt)
+    migrateAddFileBasename(db)
   })
   tx()
+}
+
+/**
+ * Add `file_basename` to pre-batch-6b vaults (idempotent — checked via
+ * PRAGMA). Back-fills existing rows with the legacy filename `<id>` so
+ * the corresponding .md files still resolve.
+ */
+function migrateAddFileBasename(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(cards)`).all() as Array<{ name: string }>
+  if (!cols.some((c) => c.name === 'file_basename')) {
+    db.exec(`ALTER TABLE cards ADD COLUMN file_basename TEXT NOT NULL DEFAULT ''`)
+  }
+  db.exec(`UPDATE cards SET file_basename = id WHERE file_basename = ''`)
+  // Index must come after the column exists on legacy DBs.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_project_basename ON cards(project, file_basename)`)
 }
 
 function isFreshlyCreated(db: Database.Database): boolean {

@@ -23,7 +23,10 @@ const IMMUTABLE_FIELDS: ReadonlyArray<keyof Omit<Card, 'body'>> = [
 
 function isCardFile(p: string): boolean {
   const base = path.basename(p)
-  return base.startsWith('card-') && base.endsWith('.md')
+  if (!base.endsWith('.md')) return false
+  // Skip the project metadata file (which is .json today, but guard anyway).
+  if (base === '_meta.md' || base.startsWith('_')) return false
+  return true
 }
 
 export class FileWatcher {
@@ -77,7 +80,7 @@ export class FileWatcher {
 
   private async process(filePath: string): Promise<void> {
     const project = path.basename(path.dirname(filePath))
-    const id = path.basename(filePath, '.md')
+    const basename = path.basename(filePath, '.md')
 
     let content: string
     try {
@@ -87,28 +90,49 @@ export class FileWatcher {
       throw err
     }
 
+    // Parse first so we can resolve the card by its frontmatter id, not
+    // the filename (post-batch-6b the filename is derived from the title).
+    let parsed
+    try {
+      parsed = parseCardFile(content)
+    } catch {
+      return  // not a card .md (user note, etc.)
+    }
+    const frontmatterId = parsed.data['id']
+    if (typeof frontmatterId !== 'string' || !frontmatterId) {
+      // Not a managed card. Could be a user-created note placed inside
+      // kanban-data/. Ignore — reconciliation has no business with it.
+      return
+    }
+    const id = frontmatterId
+
     const row = this.repo.findById(id)
     if (!row) {
-      // .md present without a SQLite row. Creation via markdown isn't a
-      // supported flow at runtime — reconciliation at next startup will
-      // import it if it's still there.
       await this.audit.log({ op: 'EXTERNAL_MUTATION', project, card_id: id })
       return
     }
 
-    // Hash discriminator (PRD §7.4): file matches SQLite → our own write
-    // (or a no-op touch). Skip.
-    if (row.file_hash === sha256(content)) return
+    const basenameChanged = basename !== row.file_basename
+    const contentMatches = row.file_hash === sha256(content)
 
-    const sqliteCard = this.repo.toCard(row)
-
-    let parsed
-    try {
-      parsed = parseCardFile(content)
-    } catch (err) {
-      await this.revertWholeFile(sqliteCard, (err as Error).message)
+    // Pure user-rename (no content change): record the new basename in
+    // SQLite and remove the orphan if any. No audit/SSE — neither field
+    // visible to other actors changed.
+    if (contentMatches && basenameChanged) {
+      const card = this.repo.toCard(row)
+      this.repo.update(card, row.file_hash, basename)
+      const oldPath = path.join(this.paths.kanbanData, project, `${row.file_basename}.md`)
+      await fs.unlink(oldPath).catch((err) => {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      })
       return
     }
+
+    // Hash discriminator (PRD §7.4): file matches SQLite and basename
+    // unchanged → our own write (or a no-op touch). Skip.
+    if (contentMatches) return
+
+    const sqliteCard = this.repo.toCard(row)
 
     let humanCard: Omit<Card, 'body'>
     try {
@@ -116,6 +140,13 @@ export class FileWatcher {
     } catch (err) {
       await this.revertWholeFile(sqliteCard, (err as Error).message)
       return
+    }
+    // Detect user-driven rename within the same project folder. We accept
+    // it: update the basename in SQLite, keep the rest of the human-edit
+    // flow. Renames across projects are treated as external mutations.
+    let newBasename = row.file_basename
+    if (basename !== row.file_basename) {
+      newBasename = basename
     }
 
     const revertedFields: string[] = []
@@ -154,7 +185,9 @@ export class FileWatcher {
     merged.updated_at = new Date().toISOString()
     merged.updated_by = 'human:manager'
 
-    await this.writer.write(merged, parsed.body)
+    await this.writer.write(merged, parsed.body, newBasename, {
+      previousBasename: row.file_basename,
+    })
     await this.audit.log({
       op: 'HUMAN_EDIT',
       project,
@@ -170,7 +203,9 @@ export class FileWatcher {
   }
 
   private async revertWholeFile(card: Omit<Card, 'body'>, reason: string): Promise<void> {
-    await this.writer.write(card, '')
+    // file_basename always populated for cards loaded from the repo.
+    const basename = card.file_basename ?? card.id
+    await this.writer.write(card, '', basename)
     await this.audit.log({
       op: 'PARSE_ERROR',
       project: card.project,

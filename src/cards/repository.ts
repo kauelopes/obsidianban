@@ -22,12 +22,13 @@ export interface CardRow {
   created_by: string
   updated_by: string
   file_hash: string
+  file_basename: string
 }
 
 const COLUMNS =
   'id, project, title, status, type, version, position, priority, tags, ' +
   'due_date, assigned_to, owner, agent_notes, total_input_tokens, total_output_tokens, ' +
-  'created_at, updated_at, created_by, updated_by, file_hash'
+  'created_at, updated_at, created_by, updated_by, file_hash, file_basename'
 
 const PLACEHOLDERS = COLUMNS.split(', ')
   .map((c) => '@' + c)
@@ -56,19 +57,24 @@ function orderByClause(o: 'position' | 'updated_at' | 'priority' | 'due_date'): 
 export class CardRepository {
   constructor(private readonly db: Database.Database) {}
 
-  insert(card: Omit<Card, 'body'>, fileHash: string): void {
+  insert(card: Omit<Card, 'body'>, fileHash: string, fileBasename: string): void {
     this.db
       .prepare(`INSERT INTO cards (${COLUMNS}) VALUES (${PLACEHOLDERS})`)
-      .run({ ...card, tags: JSON.stringify(card.tags), file_hash: fileHash })
+      .run({
+        ...card,
+        tags: JSON.stringify(card.tags),
+        file_hash: fileHash,
+        file_basename: fileBasename,
+      })
   }
 
-  upsert(card: Omit<Card, 'body'>, fileHash: string): void {
+  upsert(card: Omit<Card, 'body'>, fileHash: string, fileBasename: string): void {
     const existing = this.findById(card.id)
-    if (existing) this.update(card, fileHash)
-    else this.insert(card, fileHash)
+    if (existing) this.update(card, fileHash, fileBasename)
+    else this.insert(card, fileHash, fileBasename)
   }
 
-  update(card: Omit<Card, 'body'>, fileHash: string): void {
+  update(card: Omit<Card, 'body'>, fileHash: string, fileBasename: string): void {
     this.db
       .prepare(
         `UPDATE cards SET
@@ -77,10 +83,22 @@ export class CardRepository {
            due_date=@due_date, assigned_to=@assigned_to, owner=@owner,
            agent_notes=@agent_notes, total_input_tokens=@total_input_tokens,
            total_output_tokens=@total_output_tokens, updated_at=@updated_at,
-           updated_by=@updated_by, file_hash=@file_hash
+           updated_by=@updated_by, file_hash=@file_hash, file_basename=@file_basename
          WHERE id=@id`,
       )
-      .run({ ...card, tags: JSON.stringify(card.tags), file_hash: fileHash })
+      .run({
+        ...card,
+        tags: JSON.stringify(card.tags),
+        file_hash: fileHash,
+        file_basename: fileBasename,
+      })
+  }
+
+  findByBasename(project: string, basename: string): CardRow | null {
+    const row = this.db
+      .prepare('SELECT * FROM cards WHERE project = ? AND file_basename = ?')
+      .get(project, basename)
+    return (row as CardRow | undefined) ?? null
   }
 
   delete(id: string): void {
@@ -197,6 +215,7 @@ export class CardRepository {
       updated_at: row.updated_at,
       created_by: row.created_by,
       updated_by: row.updated_by,
+      file_basename: row.file_basename,
     }
   }
 }

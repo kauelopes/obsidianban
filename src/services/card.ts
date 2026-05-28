@@ -8,6 +8,7 @@ import type { SSEEventBus } from '../server/sse.js'
 import { loadProjectMeta } from '../vault/layout.js'
 import type { Card, ReorderResult, TokenClaims } from '../types.js'
 import { cardFromFrontmatter, parseCardFile } from '../cards/serialize.js'
+import { slugifyTitle, uniqueBasename } from '../cards/slug.js'
 import { badRequest, conflict, notFound } from './errors.js'
 import {
   generateCardId,
@@ -91,7 +92,7 @@ export class CardService {
     if (!row) throw notFound()
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
 
-    const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+    const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const content = await fs.readFile(filePath, 'utf8').catch((err) => {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw notFound()
       throw err
@@ -99,6 +100,7 @@ export class CardService {
     const parsed = parseCardFile(content)
     const card = cardFromFrontmatter(parsed.data)
     card.body = parsed.body
+    card.file_basename = row.file_basename
     return card
   }
 
@@ -145,6 +147,7 @@ export class CardService {
     const maxPos = this.repo.maxPosition(project, status)
     const position = (maxPos ?? 0) + 1000
     const now = new Date().toISOString()
+    const fileBasename = uniqueBasename(this.repo, project, slugifyTitle(title))
     const card: Omit<Card, 'body'> = {
       id,
       project,
@@ -167,7 +170,7 @@ export class CardService {
       updated_by: claims.actor,
     }
 
-    await this.writer.write(card, body)
+    await this.writer.write(card, body, fileBasename)
     this.repo.logTokens({
       ts: now,
       op: 'CREATE',
@@ -195,7 +198,7 @@ export class CardService {
       payload: { card_id: id, project, status, position },
     })
 
-    return { ...card, body }
+    return { ...card, body, file_basename: fileBasename }
   }
 
   async update(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
@@ -215,7 +218,7 @@ export class CardService {
 
     // Read body from disk so we have it both for conflict responses and for
     // the no-body update path (preserve existing body).
-    const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+    const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const fileContent = await fs.readFile(filePath, 'utf8').catch((err) => {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw notFound()
       throw err
@@ -305,7 +308,15 @@ export class CardService {
     merged.total_input_tokens = current.total_input_tokens + inputTokens
     merged.total_output_tokens = current.total_output_tokens + outputTokens
 
-    await this.writer.write(merged, newBody)
+    // Recompute filename when the title changed; keep existing on no-op or
+    // when the slug collides with what we already have.
+    let newBasename = row.file_basename
+    if (merged.title !== current.title) {
+      newBasename = uniqueBasename(this.repo, row.project, slugifyTitle(merged.title), id)
+    }
+    await this.writer.write(merged, newBody, newBasename, {
+      previousBasename: row.file_basename,
+    })
     this.repo.logTokens({
       ts: now,
       op: 'UPDATE',
@@ -333,7 +344,7 @@ export class CardService {
       type: 'CARD_UPDATED',
       payload: { card_id: id, project: row.project, changed_fields: changedFields },
     })
-    return { ...merged, body: newBody }
+    return { ...merged, body: newBody, file_basename: newBasename }
   }
 
   async move(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
@@ -355,7 +366,7 @@ export class CardService {
     }
 
     const current = this.repo.toCard(row)
-    const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+    const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const parsedFile = parseCardFile(await fs.readFile(filePath, 'utf8'))
     const body = parsedFile.body
 
@@ -385,7 +396,7 @@ export class CardService {
       total_output_tokens: current.total_output_tokens + outputTokens,
     }
 
-    await this.writer.write(merged, body)
+    await this.writer.write(merged, body, row.file_basename)
     this.repo.logTokens({
       ts: now, op: 'MOVE', card_id: id, card_type: current.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
@@ -401,7 +412,7 @@ export class CardService {
       payload: { card_id: id, project: row.project, from_status: fromStatus, to_status: toStatus, new_position: newPosition },
     })
 
-    return { ...merged, body }
+    return { ...merged, body, file_basename: row.file_basename }
   }
 
   async reorder(params: Record<string, unknown>, claims: TokenClaims): Promise<ReorderResult> {
@@ -427,7 +438,7 @@ export class CardService {
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
     const current = this.repo.toCard(row)
 
-    const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+    const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const parsedFile = parseCardFile(await fs.readFile(filePath, 'utf8'))
     const body = parsedFile.body
 
@@ -495,10 +506,10 @@ export class CardService {
       if (isTarget) {
         cardBody = body
       } else {
-        const fp = path.join(this.paths.kanbanData, row.project, `${r.id}.md`)
+        const fp = path.join(this.paths.kanbanData, row.project, `${r.file_basename}.md`)
         cardBody = parseCardFile(await fs.readFile(fp, 'utf8')).body
       }
-      await this.writer.write(updated, cardBody)
+      await this.writer.write(updated, cardBody, r.file_basename)
       affectedCards.push({ id: r.id, new_version: updated.version, new_position: newPos })
     }
 
@@ -521,7 +532,10 @@ export class CardService {
       },
     })
 
-    return { card: { ...targetCard, body }, affected_cards: affectedCards }
+    return {
+      card: { ...targetCard, body, file_basename: row.file_basename },
+      affected_cards: affectedCards,
+    }
   }
 
   async delete(params: Record<string, unknown>, claims: TokenClaims): Promise<{ deleted: true; id: string }> {
@@ -538,7 +552,7 @@ export class CardService {
 
     if (claimedVersion !== row.version) {
       const current = this.repo.toCard(row)
-      const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+      const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
       const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${row.version}`,
@@ -549,7 +563,7 @@ export class CardService {
       })
     }
 
-    const filePath = path.join(this.paths.kanbanData, row.project, `${id}.md`)
+    const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     await fs.unlink(filePath).catch((err) => {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
     })

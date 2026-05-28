@@ -318,7 +318,7 @@ async function main() {
 
   sendJsonRpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
   const listRes = await nextResponse(2)
-  assert(listRes.result.tools.length === 6, 'stdio: tools/list returns 6 tools')
+  assert(listRes.result.tools.length === 7, 'stdio: tools/list returns 7 tools')
 
   // call kanban_list_cards via stdio
   sendJsonRpc({
