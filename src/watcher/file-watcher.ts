@@ -92,25 +92,60 @@ export class FileWatcher {
 
     // Parse first so we can resolve the card by its frontmatter id, not
     // the filename (post-batch-6b the filename is derived from the title).
-    let parsed
+    let parsed: ReturnType<typeof parseCardFile> | null = null
+    let parseFailure: string | null = null
     try {
       parsed = parseCardFile(content)
-    } catch {
-      return  // not a card .md (user note, etc.)
+    } catch (err) {
+      parseFailure = (err as Error).message
     }
-    const frontmatterId = parsed.data['id']
-    if (typeof frontmatterId !== 'string' || !frontmatterId) {
-      // Not a managed card. Could be a user-created note placed inside
-      // kanban-data/. Ignore — reconciliation has no business with it.
-      return
-    }
-    const id = frontmatterId
+    const frontmatterId = parsed?.data['id']
+    const idFromFile =
+      typeof frontmatterId === 'string' && frontmatterId ? frontmatterId : null
 
-    const row = this.repo.findById(id)
+    // Resolve which SQLite card this file represents. Happy path: the file's
+    // frontmatter id matches a known row. Tamper-resistant fallback: the
+    // file_basename is stable (only changes via MCP-mediated rename) and
+    // indexed, so we can recover the canonical id even if the human edited
+    // it to garbage or removed the frontmatter entirely.
+    let row = idFromFile ? this.repo.findById(idFromFile) : null
     if (!row) {
-      await this.audit.log({ op: 'EXTERNAL_MUTATION', project, card_id: id })
+      const byBasename = this.repo.findByBasename(project, basename)
+      if (byBasename) {
+        const canonical = this.repo.toCard(byBasename)
+        await this.revertToCanonical(canonical)
+        if (parsed && idFromFile && idFromFile !== canonical.id) {
+          // Human tampered with the immutable id field.
+          await this.audit.log({
+            op: 'FIELD_REVERTED',
+            project,
+            card_id: canonical.id,
+            version: canonical.version,
+            field: 'id',
+            reason: `human edit replaced id with ${idFromFile}`,
+          })
+        } else {
+          // Frontmatter missing the id field or YAML failed to parse.
+          await this.audit.log({
+            op: 'PARSE_ERROR',
+            project,
+            card_id: canonical.id,
+            version: canonical.version,
+            reason: parseFailure ?? 'frontmatter missing id field',
+          })
+        }
+        return
+      }
+      // Truly unknown — not a tracked card; log only if file looked like one.
+      if (idFromFile) {
+        await this.audit.log({ op: 'EXTERNAL_MUTATION', project, card_id: idFromFile })
+      }
       return
     }
+    const id = row.id
+    // From here, parsed is guaranteed non-null since findById hit on the id
+    // we read out of the frontmatter.
+    if (!parsed) return
 
     const basenameChanged = basename !== row.file_basename
     const contentMatches = row.file_hash === sha256(content)
@@ -202,10 +237,14 @@ export class FileWatcher {
     })
   }
 
-  private async revertWholeFile(card: Omit<Card, 'body'>, reason: string): Promise<void> {
+  private async revertToCanonical(card: Omit<Card, 'body'>): Promise<void> {
     // file_basename always populated for cards loaded from the repo.
     const basename = card.file_basename ?? card.id
     await this.writer.write(card, '', basename)
+  }
+
+  private async revertWholeFile(card: Omit<Card, 'body'>, reason: string): Promise<void> {
+    await this.revertToCanonical(card)
     await this.audit.log({
       op: 'PARSE_ERROR',
       project: card.project,

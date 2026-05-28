@@ -1,4 +1,4 @@
-import { ItemView, Modal, Notice, TFile, type App, type WorkspaceLeaf } from 'obsidian'
+import { ItemView, Notice, TFile, type WorkspaceLeaf } from 'obsidian'
 import type KanbanPlugin from '../main.js'
 import type {
   CardSummary,
@@ -12,6 +12,7 @@ import type {
 import type { McpError } from '../mcp/client.js'
 import type { SSEFrame, SseStatus } from '../mcp/sse-subscriber.js'
 import { ConflictModal } from '../ui/conflict-modal.js'
+import { CreateCardModal } from '../ui/create-card-modal.js'
 import { showErrorToast, showRetryToast } from '../ui/toast.js'
 import { appendCard, patchCard, removeCard, replaceCard } from './state.js'
 import { renderBoard, todayString } from './render.js'
@@ -405,38 +406,6 @@ export class KanbanBoardView extends ItemView {
   }
 }
 
-class CreateCardModal extends Modal {
-  constructor(app: App, private readonly onSubmit: (title: string) => void | Promise<void>) {
-    super(app)
-  }
-
-  override onOpen(): void {
-    this.titleEl.setText('New card')
-    const input = this.contentEl.createEl('input', {
-      type: 'text',
-      cls: 'kanban-mcp-modal-input',
-      attr: { placeholder: 'Card title' },
-    })
-    input.focus()
-
-    const submit = async (): Promise<void> => {
-      const title = input.value.trim()
-      if (!title) return
-      this.close()
-      await this.onSubmit(title)
-    }
-
-    // Modal does not extend Component — no registerDomEvent here. Listeners
-    // attached to children of contentEl die with the DOM on close().
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') void submit()
-    })
-
-    const row = this.contentEl.createDiv({ cls: 'kanban-mcp-modal-buttons' })
-    const btn = row.createEl('button', { text: 'Create', cls: 'mod-cta' })
-    btn.addEventListener('click', () => void submit())
-  }
-}
 
 function closestEl(target: EventTarget | null, selector: string): HTMLElement | null {
   if (!(target instanceof HTMLElement)) return null
