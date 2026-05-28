@@ -175,11 +175,30 @@ Agent tokens calling this tool get `403 forbidden { reason:
 conventional `agent:foo` / `human:bar` prefixes).
 
 **Listing projects.** `kanban_list_projects` returns `{ projects:
-[{ project, columns }] }`. Agent tokens see only their own project (so a
-freshly-minted agent can still render its column layout before any card
-exists); manager tokens see every project under `kanban-data/`. Use this
-to render an always-visible column scaffold even when the board has no
-cards yet.
+[{ project, columns, archived }] }`. Agent tokens see only their own
+project (so a freshly-minted agent can still render its column layout
+before any card exists); manager tokens see every project under
+`kanban-data/`. Archived projects are hidden unless `include_archived:
+true` is passed, and `archived_only: true` flips it to "only archived".
+
+**Archiving and deleting projects.** Three manager-only tools manage
+project lifecycle:
+
+- `kanban_archive_project { project }` — sets `archived: true` in the
+  project's `_meta.json`. The project disappears from default
+  `kanban_list_projects` listings, and a cascade in `kanban_list_cards`
+  also hides cards in archived projects *for manager full-board reads*
+  (no `project` filter, no `include_archived_projects: true`). Agent
+  tokens continue seeing their own cards regardless. SSE:
+  `PROJECT_ARCHIVED`.
+- `kanban_unarchive_project { project }` — reverses it. SSE:
+  `PROJECT_UNARCHIVED`. Both archive ops are no-op short-circuits if
+  the project is already in the target state (no audit row, no SSE).
+- `kanban_delete_project { project, confirm }` — hard delete. Removes
+  the project folder (folder + card `.md` files + `_meta.json` with all
+  tokens) and purges matching SQLite rows. `confirm` must equal the
+  project name as a typo guard; mismatched or missing `confirm` returns
+  400. Returns `{ project, cards_deleted }`. SSE: `PROJECT_DELETED`.
 
 **Archived cards.** Cards with `archived: true` are hidden from
 `kanban_list_cards` by default. Pass `include_archived: true` to fold them
@@ -201,9 +220,10 @@ data: {"type":"CARD_UPDATED","payload":{"card_id":"card-abc","project":"marketin
 ```
 
 Event types: `CARD_CREATED`, `CARD_UPDATED`, `CARD_MOVED`, `CARD_REORDERED`,
-`CARD_HUMAN_EDITED`, `CARD_DELETED`, `CARD_ARCHIVED`, `CARD_UNARCHIVED`.
-Pass `Last-Event-ID` on reconnect to replay missed frames (100-event
-rolling buffer).
+`CARD_HUMAN_EDITED`, `CARD_DELETED`, `CARD_ARCHIVED`, `CARD_UNARCHIVED`,
+`PROJECT_ARCHIVED`, `PROJECT_UNARCHIVED`, `PROJECT_DELETED`. Pass
+`Last-Event-ID` on reconnect to replay missed frames (100-event rolling
+buffer).
 
 **Card filenames.** Each card lives at
 `<vault>/kanban-data/<project>/<file_basename>.md`. The basename derives from
