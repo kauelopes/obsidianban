@@ -49,6 +49,7 @@ export class KanbanBoardView extends ItemView {
     this.registerDomEvent(this.contentEl, 'dragleave', this.onDragLeave)
     this.registerDomEvent(this.contentEl, 'drop', this.onDrop)
     this.registerDomEvent(this.contentEl, 'click', this.onClick)
+    this.registerDomEvent(this.contentEl, 'keydown', this.onKeyDown)
     await this.refresh()
   }
 
@@ -210,6 +211,18 @@ export class KanbanBoardView extends ItemView {
       if (cardId) void this.openCardFile(cardId)
       return
     }
+  }
+
+  /** Enter/Space on a focused card → open the .md (keyboard equivalent of
+   *  the click handler). Drag uses pointer events; no keyboard alternative
+   *  for moving cards in this batch. */
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    const cardEl = closestEl(e.target, '.kanban-mcp-card')
+    if (!cardEl) return
+    e.preventDefault()
+    const cardId = cardEl.dataset['cardId']
+    if (cardId) void this.openCardFile(cardId)
   }
 
   private async openCardFile(cardId: string): Promise<void> {

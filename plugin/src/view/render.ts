@@ -99,6 +99,8 @@ export function renderBoard(
 
 function renderProject(parent: HTMLElement, group: ProjectGroup, today: string): void {
   const wrap = parent.createDiv({ cls: 'kanban-mcp-project' })
+  wrap.setAttr('role', 'region')
+  wrap.setAttr('aria-label', `Project ${group.project}`)
   const header = wrap.createDiv({ cls: 'kanban-mcp-project-header' })
   header.createSpan({ cls: 'kanban-mcp-project-title', text: group.project })
   const total = group.columns.reduce((n, st) => n + (group.cards[st]?.length ?? 0), 0)
@@ -126,6 +128,8 @@ function renderColumn(
   const col = parent.createDiv({ cls: 'kanban-mcp-column' })
   col.dataset['project'] = project
   col.dataset['status'] = status
+  col.setAttr('role', 'list')
+  col.setAttr('aria-label', `${status} (${cards.length} cards)`)
   const head = col.createDiv({ cls: 'kanban-mcp-column-header' })
   head.createSpan({ cls: 'kanban-mcp-column-title', text: status })
   head.createSpan({ cls: 'kanban-mcp-column-count', text: String(cards.length) })
@@ -146,6 +150,12 @@ function renderCard(parent: HTMLElement, card: CardSummary, today: string): void
   const el = parent.createDiv({ cls: 'kanban-mcp-card' })
   el.dataset['cardId'] = card.id
   el.setAttr('draggable', 'true')
+  el.setAttr('role', 'listitem')
+  el.setAttr('tabindex', '0')
+  const parts = [card.title, `priority ${card.priority}`]
+  if (card.due_date) parts.push(`due ${card.due_date}`)
+  if (card.assigned_to) parts.push(`assigned to ${card.assigned_to}`)
+  el.setAttr('aria-label', parts.join(', '))
   el.createDiv({ cls: 'kanban-mcp-card-title', text: card.title })
 
   const meta = el.createDiv({ cls: 'kanban-mcp-card-meta' })

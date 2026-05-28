@@ -131,6 +131,17 @@
   cursor: grabbing;
 }
 
+.kanban-mcp-card:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.kanban-mcp-conflict-buttons button:focus-visible,
+.kanban-mcp-modal-buttons button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
 .kanban-mcp-card-dragging {
   opacity: 0.5;
 }
