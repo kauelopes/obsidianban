@@ -145,6 +145,9 @@ export type SSEEventType =
   | 'CARD_DELETED'
   | 'CARD_ARCHIVED'
   | 'CARD_UNARCHIVED'
+  | 'PROJECT_ARCHIVED'
+  | 'PROJECT_UNARCHIVED'
+  | 'PROJECT_DELETED'
 
 export interface CardCreatedPayload     { card_id: string; project: string; status: string; position: number }
 export interface CardUpdatedPayload     { card_id: string; project: string; changed_fields: string[] }
@@ -154,6 +157,9 @@ export interface CardHumanEditedPayload { card_id: string; project: string; new_
 export interface CardDeletedPayload     { card_id: string; project: string }
 export interface CardArchivedPayload    { card_id: string; project: string }
 export interface CardUnarchivedPayload  { card_id: string; project: string }
+export interface ProjectArchivedPayload   { project: string }
+export interface ProjectUnarchivedPayload { project: string }
+export interface ProjectDeletedPayload    { project: string }
 
 export type SSEEventPayload =
   | CardCreatedPayload
@@ -164,6 +170,9 @@ export type SSEEventPayload =
   | CardDeletedPayload
   | CardArchivedPayload
   | CardUnarchivedPayload
+  | ProjectArchivedPayload
+  | ProjectUnarchivedPayload
+  | ProjectDeletedPayload
 
 export interface SSEEvent {
   type: SSEEventType
@@ -177,6 +186,7 @@ export type SSEHandler<T extends SSEEventPayload = SSEEventPayload> = (payload: 
 export type AuditOp =
   | 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER' | 'DELETE'
   | 'ARCHIVE' | 'UNARCHIVE'
+  | 'PROJECT_ARCHIVED' | 'PROJECT_UNARCHIVED' | 'PROJECT_DELETED'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
 

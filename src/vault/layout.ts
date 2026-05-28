@@ -9,6 +9,8 @@ export interface ProjectMeta {
   columns: string[]
   agent_tokens: TokenRecord[]
   created_at: string
+  /** Optional — absent on legacy metas means the project is active. */
+  archived?: boolean
 }
 
 export interface TokenRecord {

@@ -6,13 +6,20 @@ const VALID_ORDER = ['position', 'updated_at', 'priority', 'due_date'] as const
 type OrderBy = (typeof VALID_ORDER)[number]
 
 /**
- * Read-only queries against SQLite. Never touches `.md` files — `list_cards`
- * is contractually disk-free (PRD §6 TASK-09 DoD).
+ * Read-only queries against SQLite. Pulls archived-project state via the
+ * injected callback so that — for managers fetching the whole board — cards
+ * in archived projects disappear cleanly alongside their headers.
  */
 export class QueryService {
-  constructor(private readonly repo: CardRepository) {}
+  constructor(
+    private readonly repo: CardRepository,
+    private readonly getArchivedProjects: () => Promise<Set<string>>,
+  ) {}
 
-  list(params: Record<string, unknown>, claims: TokenClaims): { cards: CardSummary[] } {
+  async list(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<{ cards: CardSummary[] }> {
     const status = optString(params, 'status')
     const assignedTo = optString(params, 'assigned_to')
     const tags = optStringArray(params, 'tags')
@@ -21,6 +28,7 @@ export class QueryService {
     const orderBy = optEnum(params, 'order_by', VALID_ORDER, 'position')
     const includeArchived = optBool(params, 'include_archived', false)
     const archivedOnly = optBool(params, 'archived_only', false)
+    const includeArchivedProjects = optBool(params, 'include_archived_projects', false)
 
     const project = claims.role === 'agent' ? claims.project_id : optString(params, 'project')
 
@@ -35,7 +43,26 @@ export class QueryService {
       limit,
       offset,
     })
-    return { cards: rows.map((r) => this.repo.toCard(r)) }
+
+    // Cascade hide: only for managers fetching the whole board without an
+    // explicit project filter. Agents continue to see their own cards even
+    // if the project was archived (their auth still works); a manager
+    // querying a single project explicitly also gets every card back —
+    // they asked for it specifically. The plugin opts back in to archived
+    // projects via include_archived_projects when its showArchived toggle
+    // is on.
+    let cards = rows.map((r) => this.repo.toCard(r))
+    if (
+      claims.role === 'manager' &&
+      project == null &&
+      !includeArchivedProjects
+    ) {
+      const archived = await this.getArchivedProjects()
+      if (archived.size > 0) {
+        cards = cards.filter((c) => !archived.has(c.project))
+      }
+    }
+    return { cards }
   }
 }
 

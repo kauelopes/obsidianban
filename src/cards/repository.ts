@@ -109,6 +109,12 @@ export class CardRepository {
     this.db.prepare('DELETE FROM cards WHERE id=?').run(id)
   }
 
+  /** Returns the number of rows deleted — used by project hard-delete. */
+  deleteByProject(project: string): number {
+    const r = this.db.prepare('DELETE FROM cards WHERE project=?').run(project)
+    return r.changes
+  }
+
   findById(id: string): CardRow | null {
     const row = this.db.prepare('SELECT * FROM cards WHERE id=?').get(id)
     return (row as CardRow | undefined) ?? null

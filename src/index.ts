@@ -35,9 +35,9 @@ async function main(): Promise<void> {
 
   const sse = new SSEEventBus()
   const cards = new CardService(config.paths, repo, writer, audit, sse)
-  const queries = new QueryService(repo)
   const metrics = new MetricsService(db)
-  const admin = new AdminService(config.paths, cards)
+  const admin = new AdminService(config.paths, cards, repo, audit, sse)
+  const queries = new QueryService(repo, () => admin.getArchivedProjects())
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   const tools: Array<{ name: string; description: string; handler: ToolFn }> = [
@@ -51,7 +51,10 @@ async function main(): Promise<void> {
     { name: 'kanban_archive_card', description: 'Archive a card so it stops appearing in default listings', handler: async (p, c) => cards.archive(p, c) },
     { name: 'kanban_unarchive_card', description: 'Restore an archived card to the default listing', handler: async (p, c) => cards.unarchive(p, c) },
     { name: 'kanban_create_project', description: 'Manager-only — create a project folder and mint an agent token for it', handler: async (p, c) => admin.createProject(p, c) },
-    { name: 'kanban_list_projects', description: 'List projects visible to the caller with their column shape', handler: async (_p, c) => admin.listProjects(c) },
+    { name: 'kanban_list_projects', description: 'List projects visible to the caller; supports include_archived / archived_only filters', handler: async (p, c) => admin.listProjects(p, c) },
+    { name: 'kanban_archive_project', description: 'Manager-only — hide a project (and its cards) from default listings', handler: async (p, c) => admin.archiveProject(p, c) },
+    { name: 'kanban_unarchive_project', description: 'Manager-only — restore a previously archived project', handler: async (p, c) => admin.unarchiveProject(p, c) },
+    { name: 'kanban_delete_project', description: 'Manager-only — permanently delete a project, its cards, and its tokens (requires confirm=<project>)', handler: async (p, c) => admin.deleteProject(p, c) },
   ]
 
   if (stdioMode) {
