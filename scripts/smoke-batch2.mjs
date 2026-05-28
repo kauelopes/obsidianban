@@ -57,9 +57,9 @@ function assert(cond, msg) {
 
 async function main() {
   await rm(VAULT, { recursive: true, force: true })
-  await mkdir(path.join(VAULT, '.kanban-data', 'demo'), { recursive: true })
+  await mkdir(path.join(VAULT, 'kanban-data', 'demo'), { recursive: true })
   await writeFile(
-    path.join(VAULT, '.kanban-data', 'demo', '_meta.json'),
+    path.join(VAULT, 'kanban-data', 'demo', '_meta.json'),
     JSON.stringify({
       project_id: 'demo',
       columns: ['backlog', 'in-progress', 'done'],
@@ -104,7 +104,7 @@ async function main() {
     updated_by: 'agent:t',
   }
   const { fileHash } = await writer.write(card, 'body text\n')
-  const mdPath = path.join(VAULT, '.kanban-data', 'demo', 'card-abcd1234.md')
+  const mdPath = path.join(VAULT, 'kanban-data', 'demo', 'card-abcd1234.md')
   const content = await readFile(mdPath, 'utf8')
   assert(content.startsWith('---'), 'frontmatter present')
   assert(content.includes('id: card-abcd1234'), 'id in frontmatter')

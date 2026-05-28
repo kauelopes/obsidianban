@@ -1,4 +1,4 @@
-import { ItemView, Modal, Notice, type App, type WorkspaceLeaf } from 'obsidian'
+import { ItemView, Modal, Notice, TFile, type App, type WorkspaceLeaf } from 'obsidian'
 import type KanbanPlugin from '../main.js'
 import type {
   CardSummary,
@@ -9,7 +9,10 @@ import type {
   CardUpdatedPayload,
   CardHumanEditedPayload,
 } from '../../../src/types.js'
-import type { SSEFrame } from '../mcp/sse-subscriber.js'
+import type { McpError } from '../mcp/client.js'
+import type { SSEFrame, SseStatus } from '../mcp/sse-subscriber.js'
+import { ConflictModal } from '../ui/conflict-modal.js'
+import { showErrorToast, showRetryToast } from '../ui/toast.js'
 import { appendCard, patchCard, removeCard, replaceCard } from './state.js'
 import { renderBoard, todayString } from './render.js'
 
@@ -70,10 +73,28 @@ export class KanbanBoardView extends ItemView {
 
   private render(): void {
     this.contentEl.empty()
+    if (this.plugin.connectionStatus !== 'connected') {
+      this.renderOfflineBanner(this.plugin.connectionStatus)
+    }
     const force = this.plugin.settings.projectName
       ? [this.plugin.settings.projectName]
       : []
     renderBoard(this.contentEl, this.cards, todayString(), force)
+  }
+
+  private renderOfflineBanner(status: SseStatus): void {
+    const banner = this.contentEl.createDiv({ cls: 'kanban-mcp-offline-banner' })
+    banner.setText(
+      status === 'connecting'
+        ? 'Connecting to MCP…'
+        : 'MCP is unreachable. The board is read-only until the connection is restored.',
+    )
+  }
+
+  onConnectionStatusChange(_status: SseStatus): void {
+    // Repaint to show/hide the offline banner. Don't re-fetch — that would
+    // hammer the server while it's still down.
+    this.render()
   }
 
   private renderError(msg: string): void {
@@ -177,11 +198,30 @@ export class KanbanBoardView extends ItemView {
 
   private readonly onClick = (e: MouseEvent): void => {
     const addBtn = closestEl(e.target, '.kanban-mcp-column-add')
-    if (!addBtn) return
-    const project = addBtn.dataset['project']
-    const status = addBtn.dataset['status']
-    if (!project || !status) return
-    this.promptCreate(project, status)
+    if (addBtn) {
+      const project = addBtn.dataset['project']
+      const status = addBtn.dataset['status']
+      if (project && status) this.promptCreate(project, status)
+      return
+    }
+    const cardEl = closestEl(e.target, '.kanban-mcp-card')
+    if (cardEl) {
+      const cardId = cardEl.dataset['cardId']
+      if (cardId) void this.openCardFile(cardId)
+      return
+    }
+  }
+
+  private async openCardFile(cardId: string): Promise<void> {
+    const card = this.cards.find((c) => c.id === cardId)
+    if (!card) return
+    const path = `kanban-data/${card.project}/${cardId}.md`
+    const file = this.app.vault.getAbstractFileByPath(path)
+    if (file instanceof TFile) {
+      await this.app.workspace.getLeaf(false).openFile(file)
+      return
+    }
+    showErrorToast(`Card file not found: ${path}`)
   }
 
   // ── Mutations ──────────────────────────────────────────────────────────
@@ -215,10 +255,43 @@ export class KanbanBoardView extends ItemView {
     if (result.ok) {
       this.cards = replaceCard(this.cards, result.data)
       this.render()
-    } else {
-      this.cards = [...snapshot]
+      return
+    }
+    this.cards = [...snapshot]
+    this.render()
+    this.handleMutationError(result.error, 'Move failed', () =>
+      this.retryMove(cardId, targetProject, targetStatus, result.error),
+    )
+  }
+
+  /** Re-issue a move using the server's current_version (from 409 payload). */
+  private async retryMove(
+    cardId: string,
+    targetProject: string,
+    targetStatus: string,
+    error: McpError,
+  ): Promise<void> {
+    if (error.kind !== 'conflict') {
+      void this.attemptMove(cardId, targetProject, targetStatus)
+      return
+    }
+    const client = this.plugin.client
+    if (!client) return
+    const result = await client.moveCard({
+      id: cardId,
+      version: error.currentVersion,
+      to_status: targetStatus,
+      input_tokens: 0,
+      output_tokens: 0,
+      model: 'plugin',
+    })
+    if (result.ok) {
+      this.cards = replaceCard(this.cards, result.data)
       this.render()
-      new Notice(`Move failed — ${result.error.kind}: ${result.error.message}`)
+    } else {
+      this.handleMutationError(result.error, 'Move retry failed', () =>
+        this.retryMove(cardId, targetProject, targetStatus, result.error),
+      )
     }
   }
 
@@ -271,10 +344,47 @@ export class KanbanBoardView extends ItemView {
     if (result.ok) {
       this.cards = replaceCard(removeCard(this.cards, tempId), result.data)
       this.render()
-    } else {
-      this.cards = [...snapshot]
-      this.render()
-      new Notice(`Create failed — ${result.error.kind}: ${result.error.message}`)
+      return
+    }
+    this.cards = [...snapshot]
+    this.render()
+    this.handleMutationError(result.error, 'Create failed', () =>
+      this.attemptCreate(project, status, title),
+    )
+  }
+
+  /**
+   * Route a mutation error to the appropriate UI surface:
+   *   conflict    → ConflictModal with Keep mine / Use server
+   *   validation  → 5s Notice listing disallowed fields
+   *   server      → retryable Notice
+   *   offline     → silent (banner already communicates the state)
+   */
+  private handleMutationError(
+    error: McpError,
+    contextLabel: string,
+    retry: () => void | Promise<void>,
+  ): void {
+    switch (error.kind) {
+      case 'conflict':
+        new ConflictModal(this.app, error, {
+          keepMine: retry,
+          keepTheirs: () => this.refresh(),
+        }).open()
+        return
+      case 'validation': {
+        const fields = error.disallowedFields.length > 0
+          ? ` (${error.disallowedFields.join(', ')})`
+          : ''
+        showErrorToast(`${contextLabel}: ${error.message}${fields}`)
+        return
+      }
+      case 'offline':
+        // Offline banner already in view; suppress redundant toast.
+        return
+      case 'server':
+        showRetryToast(`${contextLabel}: ${error.message}`, retry)
+        return
     }
   }
 }

@@ -145,6 +145,64 @@
   text-align: right;
 }
 
+/* Hide the Properties widget on card files — the banner already tells the
+   user the frontmatter is auto-managed. Switch to source mode (Ctrl+E) to
+   inspect the raw YAML. */
+.kanban-mcp-card-view .metadata-container,
+.kanban-mcp-card-view .metadata-properties {
+  display: none;
+}
+
+/* Advisory banner injected at the top of every card markdown file. */
+.kanban-mcp-card-banner {
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  border-left: 3px solid var(--interactive-accent);
+  padding: 0.5em 0.75em;
+  margin: 0.5em 0;
+  font-size: 0.85em;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Offline / connecting indicator above the board content. */
+.kanban-mcp-offline-banner {
+  background: var(--background-modifier-error);
+  color: var(--text-normal);
+  border-left: 3px solid var(--text-error);
+  padding: 0.5em 0.75em;
+  margin-bottom: 0.75em;
+  font-size: 0.9em;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Conflict resolution modal. */
+.kanban-mcp-conflict-info {
+  margin-bottom: 0.5em;
+  font-family: var(--font-monospace);
+}
+
+.kanban-mcp-conflict-fields {
+  color: var(--text-muted);
+  margin-bottom: 0.5em;
+}
+
+.kanban-mcp-conflict-msg {
+  color: var(--text-muted);
+  font-style: italic;
+  margin-bottom: 0.75em;
+}
+
+.kanban-mcp-conflict-buttons {
+  display: flex;
+  gap: 0.5em;
+  justify-content: flex-end;
+  margin-top: 0.75em;
+}
+
+.kanban-mcp-toast-retry {
+  margin-left: 0.5em;
+}
+
 .kanban-mcp-card-title {
   font-weight: 500;
   color: var(--text-normal);

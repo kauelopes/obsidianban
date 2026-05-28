@@ -111,32 +111,32 @@ function seedCard({ project, id, title, status, position, tags = [], assignedTo 
 
 async function main() {
   await rm(VAULT, { recursive: true, force: true })
-  await mkdir(path.join(VAULT, '.kanban-data', 'projA'), { recursive: true })
-  await mkdir(path.join(VAULT, '.kanban-data', 'projB'), { recursive: true })
+  await mkdir(path.join(VAULT, 'kanban-data', 'projA'), { recursive: true })
+  await mkdir(path.join(VAULT, 'kanban-data', 'projB'), { recursive: true })
 
   // Seed _meta.json for both projects (otherwise reconciliation has no project list)
-  // ensureLayout creates .kanban-data but the project dirs exist via the writes above.
+  // ensureLayout creates kanban-data but the project dirs exist via the writes above.
   // _meta.json gets auto-created by ensureProject when the CLI creates a token for the project.
 
   // Seed cards: projA backlog (3) + projA in-progress (1) + projB backlog (1)
   await writeFile(
-    path.join(VAULT, '.kanban-data', 'projA', 'card-a1.md'),
+    path.join(VAULT, 'kanban-data', 'projA', 'card-a1.md'),
     seedCard({ project: 'projA', id: 'card-a1', title: 'A1 backlog first', status: 'backlog', position: 1000, tags: ['backend', 'auth'], body: 'BODY A1' }),
   )
   await writeFile(
-    path.join(VAULT, '.kanban-data', 'projA', 'card-a2.md'),
+    path.join(VAULT, 'kanban-data', 'projA', 'card-a2.md'),
     seedCard({ project: 'projA', id: 'card-a2', title: 'A2 backlog second', status: 'backlog', position: 2000, tags: ['backend'], assignedTo: 'alice' }),
   )
   await writeFile(
-    path.join(VAULT, '.kanban-data', 'projA', 'card-a3.md'),
+    path.join(VAULT, 'kanban-data', 'projA', 'card-a3.md'),
     seedCard({ project: 'projA', id: 'card-a3', title: 'A3 backlog third', status: 'backlog', position: 3000, tags: ['backend', 'auth'] }),
   )
   await writeFile(
-    path.join(VAULT, '.kanban-data', 'projA', 'card-a4.md'),
+    path.join(VAULT, 'kanban-data', 'projA', 'card-a4.md'),
     seedCard({ project: 'projA', id: 'card-a4', title: 'A4 in progress', status: 'in-progress', position: 1000 }),
   )
   await writeFile(
-    path.join(VAULT, '.kanban-data', 'projB', 'card-b1.md'),
+    path.join(VAULT, 'kanban-data', 'projB', 'card-b1.md'),
     seedCard({ project: 'projB', id: 'card-b1', title: 'B1 backlog', status: 'backlog', position: 1000, tags: ['backend'] }),
   )
 

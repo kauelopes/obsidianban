@@ -6,9 +6,9 @@
 | --- | --- |
 | MCP Server | Node.js daemon. Exclusive write path for agents. Owns the SQLite index. Runs the file watcher. Handles audit logging. Exposes stdio (local agents) and HTTP+SSE (remote agents and plugin Kanban board mutations). |
 | SQLite Database | Persistent index stored at vault/.kanban/db.sqlite. Mirrors card frontmatter for fast queries. Source of truth remains the .md files — SQLite is a cache. Managed exclusively by MCP. |
-| File Watcher | chokidar instance inside MCP. Monitors vault/.kanban-data/**/*.md. On any change: parses frontmatter, validates invariants, reconciles SQLite, reverts illegal field changes, writes audit log. |
+| File Watcher | chokidar instance inside MCP. Monitors vault/kanban-data/**/*.md. On any change: parses frontmatter, validates invariants, reconciles SQLite, reverts illegal field changes, writes audit log. |
 | Obsidian Plugin | TypeScript plugin inside Obsidian Desktop. Renders the Kanban board by querying MCP (list/get). Translates board interactions (drag, create) into MCP HTTP calls over localhost. Uses Node.js HTTP APIs — therefore manifest.json must declare isDesktopOnly: true. All Obsidian API interactions follow the binding implementation standards defined in §11.6. |
-| Vault (Filesystem) | .kanban-data/ folder hidden from Obsidian file explorer (dot-prefix). .md files are the source of truth. SQLite is derived from them and always reconcilable. |
+| Vault (Filesystem) | kanban-data/ holds the project folders and card .md files — visible in the Obsidian file explorer so the plugin can open cards in the editor. .kanban/ (hidden, dot-prefix) holds MCP internals that the user shouldn't touch. .md files in kanban-data/ are the source of truth; SQLite is derived from them and always reconcilable. |
 | Audit Log | Append-only NDJSON at vault/.kanban/audit.ndjson. Written by MCP for every mutation of any origin. |
 
 ```mermaid
@@ -29,7 +29,7 @@ graph LR
     end
 
     subgraph VAULT["Vault (filesystem)"]
-        MD[".kanban-data/\n*.md  ← source of truth"]
+        MD["kanban-data/\n*.md  ← source of truth"]
         SQLITE[(".kanban/db.sqlite\ncache / index")]
         AUDIT[".kanban/audit.ndjson"]
         IDEM[".kanban/idempotency.json"]
@@ -128,7 +128,7 @@ flowchart TD
 | --- |
 
 ### 4.5  Vault Directory Structure
-| vault/   .kanban-data/                    ← Hidden from Obsidian explorer (dot-prefix)     projeto-x/       _meta.json                   ← Project metadata, agent token hashes, column config       card-abc123.md       card-def456.md     projeto-y/       _meta.json       card-ghi789.md   .kanban/                         ← MCP internal data (hidden)     db.sqlite                      ← SQLite index     audit.ndjson                   ← Append-only audit log     idempotency.json               ← request_id deduplication store     manager-tokens.json            ← Vault-level manager token hashes (no project_id)   (normal Obsidian notes here...)  ← User's vault, unaffected |
+| vault/   kanban-data/                    ← Visible in Obsidian explorer (no dot-prefix)     projeto-x/       _meta.json                   ← Project metadata, agent token hashes, column config       card-abc123.md       card-def456.md     projeto-y/       _meta.json       card-ghi789.md   .kanban/                         ← MCP internal data (hidden)     db.sqlite                      ← SQLite index     audit.ndjson                   ← Append-only audit log     idempotency.json               ← request_id deduplication store     manager-tokens.json            ← Vault-level manager token hashes (no project_id)   (normal Obsidian notes here...)  ← User's vault, unaffected |
 | --- |
 
 ### 4.6  MCP Server Internal Module Architecture

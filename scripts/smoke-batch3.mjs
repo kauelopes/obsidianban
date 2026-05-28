@@ -105,7 +105,7 @@ async function main() {
   const listMgrRes = await runCli(['list', '--manager'])
   assert(!listMgrRes.stdout.includes(mgrToken), 'list never prints raw manager token')
 
-  const meta = JSON.parse(await readFile(path.join(VAULT, '.kanban-data', 'projA', '_meta.json'), 'utf8'))
+  const meta = JSON.parse(await readFile(path.join(VAULT, 'kanban-data', 'projA', '_meta.json'), 'utf8'))
   assert(meta.agent_tokens.length === 1, '_meta.json has 1 agent token record')
   assert(!JSON.stringify(meta).includes(agentToken), 'raw token never persisted to _meta.json')
 

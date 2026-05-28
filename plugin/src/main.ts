@@ -1,13 +1,16 @@
 import { Plugin } from 'obsidian'
 import { McpClient } from './mcp/client.js'
-import { SSESubscriber, type SSEFrame } from './mcp/sse-subscriber.js'
+import { SSESubscriber, type SSEFrame, type SseStatus } from './mcp/sse-subscriber.js'
 import { DEFAULT_SETTINGS, type KanbanPluginSettings } from './settings.js'
 import { KanbanSettingsTab } from './settings-tab.js'
+import { registerCardBanner } from './editor/card-banner.js'
 import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
 
 export default class KanbanPlugin extends Plugin {
   settings: KanbanPluginSettings = DEFAULT_SETTINGS
   client: McpClient | null = null
+  /** Last status reported by the SSE subscriber; drives the offline banner. */
+  connectionStatus: SseStatus = 'connecting'
   private subscriber: SSESubscriber | null = null
 
   override async onload(): Promise<void> {
@@ -29,6 +32,8 @@ export default class KanbanPlugin extends Plugin {
       },
     })
 
+    registerCardBanner(this)
+
     this.startSubscriber()
     this.register(() => this.subscriber?.stop())
   }
@@ -41,11 +46,24 @@ export default class KanbanPlugin extends Plugin {
 
   private startSubscriber(): void {
     this.subscriber?.stop()
+    // Cap reconnect backoff at 5s so the offline banner clears quickly
+    // once the MCP is reachable again (PRD §11.4 health polling).
     this.subscriber = new SSESubscriber({
       baseUrl: this.settings.baseUrl,
       onEvent: (frame) => this.dispatchSseEvent(frame),
+      onStatusChange: (status) => this.handleStatusChange(status),
+      backoffMaxMs: 5000,
     })
     this.subscriber.start()
+  }
+
+  private handleStatusChange(status: SseStatus): void {
+    if (this.connectionStatus === status) return
+    this.connectionStatus = status
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
+      const view = leaf.view
+      if (view instanceof KanbanBoardView) view.onConnectionStatusChange(status)
+    }
   }
 
   private dispatchSseEvent(frame: SSEFrame): void {

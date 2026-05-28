@@ -140,7 +140,7 @@ async function main() {
 
     // Verify only one file exists for the idempotent card
     const { readdirSync } = await import('node:fs')
-    const files = readdirSync(path.join(VAULT, '.kanban-data', 'projA')).filter((f) => f.endsWith('.md'))
+    const files = readdirSync(path.join(VAULT, 'kanban-data', 'projA')).filter((f) => f.endsWith('.md'))
     assert(files.length === 3, 'exactly 3 .md files (c1, c2, idempotent — no duplicates)')
 
     console.log('=== Test 4: update_card validation ===')
