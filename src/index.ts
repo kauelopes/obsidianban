@@ -14,6 +14,7 @@ import { StdioMcpServer } from './server/stdio.js'
 import { CardService } from './services/card.js'
 import { QueryService } from './services/query.js'
 import { MetricsService } from './services/metrics.js'
+import { AdminService } from './services/admin.js'
 import type { TokenClaims } from './types.js'
 
 async function main(): Promise<void> {
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const queries = new QueryService(repo)
   const metrics = new MetricsService(db)
+  const admin = new AdminService(config.paths)
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   const tools: Array<{ name: string; description: string; handler: ToolFn }> = [
@@ -48,6 +50,7 @@ async function main(): Promise<void> {
     { name: 'kanban_delete_card', description: 'Delete a card (optimistic locking)', handler: async (p, c) => cards.delete(p, c) },
     { name: 'kanban_archive_card', description: 'Archive a card so it stops appearing in default listings', handler: async (p, c) => cards.archive(p, c) },
     { name: 'kanban_unarchive_card', description: 'Restore an archived card to the default listing', handler: async (p, c) => cards.unarchive(p, c) },
+    { name: 'kanban_create_project', description: 'Manager-only — create a project folder and mint an agent token for it', handler: async (p, c) => admin.createProject(p, c) },
   ]
 
   if (stdioMode) {
