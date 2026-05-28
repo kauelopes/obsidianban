@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, type WorkspaceLeaf } from 'obsidian'
+import { ItemView, Menu, Notice, TFile, type WorkspaceLeaf } from 'obsidian'
 import type KanbanPlugin from '../main.js'
 import type {
   CardSummary,
@@ -8,11 +8,14 @@ import type {
   CardReorderedPayload,
   CardUpdatedPayload,
   CardHumanEditedPayload,
+  ProjectArchivedPayload,
+  ProjectDeletedPayload,
 } from '../../../src/types.js'
 import type { McpError } from '../mcp/client.js'
 import type { SSEFrame, SseStatus } from '../mcp/sse-subscriber.js'
 import { ConflictModal } from '../ui/conflict-modal.js'
 import { CreateCardModal } from '../ui/create-card-modal.js'
+import { DeleteProjectModal } from '../ui/delete-project-modal.js'
 import { showErrorToast, showRetryToast } from '../ui/toast.js'
 import { appendCard, patchCard, removeCard, replaceCard } from './state.js'
 import { DEFAULT_COLUMN_ORDER, renderBoard, todayString } from './render.js'
@@ -26,7 +29,7 @@ const OPTIMISTIC_POSITION = Number.MAX_SAFE_INTEGER
 
 export class KanbanBoardView extends ItemView {
   private cards: CardSummary[] = []
-  private projectShapes: Array<{ project: string; columns: readonly string[] }> = []
+  private projectShapes: Array<{ project: string; columns: readonly string[]; archived: boolean }> = []
 
   constructor(leaf: WorkspaceLeaf, private readonly plugin: KanbanPlugin) {
     super(leaf)
@@ -69,9 +72,13 @@ export class KanbanBoardView extends ItemView {
     // empty boards visible (with columns + "+ Add card"), so we render even
     // if it returns zero — the empty-state message tells the user how to
     // create one.
+    const showArchived = this.plugin.settings.showArchived
     const [cardsResult, projectsResult] = await Promise.all([
-      client.listCards({ include_archived: this.plugin.settings.showArchived }),
-      client.listProjects(),
+      client.listCards({
+        include_archived: showArchived,
+        include_archived_projects: showArchived,
+      }),
+      client.listProjects({ include_archived: showArchived }),
     ])
     if (!cardsResult.ok) {
       this.renderError(`MCP ${cardsResult.error.kind}: ${cardsResult.error.message}`)
@@ -93,7 +100,7 @@ export class KanbanBoardView extends ItemView {
     // before the server learns about the project.
     const settingsProject = this.plugin.settings.projectName
     if (settingsProject && !shapes.some((s) => s.project === settingsProject)) {
-      shapes.push({ project: settingsProject, columns: DEFAULT_COLUMN_ORDER })
+      shapes.push({ project: settingsProject, columns: DEFAULT_COLUMN_ORDER, archived: false })
     }
     renderBoard(this.contentEl, this.cards, todayString(), shapes)
   }
@@ -208,6 +215,17 @@ export class KanbanBoardView extends ItemView {
         await this.reconcileArchivedCard(p.card_id)
         return
       }
+      case 'PROJECT_ARCHIVED':
+      case 'PROJECT_UNARCHIVED':
+      case 'PROJECT_DELETED': {
+        // Project-level mutations change which projects/cards are visible
+        // in ways the local card list can't reconstruct cheaply. The full
+        // refresh is the simplest correct response and these events are
+        // infrequent.
+        const _p = frame.data as ProjectArchivedPayload | ProjectDeletedPayload
+        void this.refresh()
+        return
+      }
     }
   }
 
@@ -246,6 +264,14 @@ export class KanbanBoardView extends ItemView {
   }
 
   private readonly onClick = (e: MouseEvent): void => {
+    const menuBtn = closestEl(e.target, '.kanban-mcp-project-menu')
+    if (menuBtn) {
+      e.stopPropagation()
+      const project = menuBtn.dataset['project']
+      const archived = menuBtn.dataset['archived'] === 'true'
+      if (project) this.openProjectMenu(e, project, archived)
+      return
+    }
     const addBtn = closestEl(e.target, '.kanban-mcp-column-add')
     if (addBtn) {
       const project = addBtn.dataset['project']
@@ -433,6 +459,81 @@ export class KanbanBoardView extends ItemView {
     this.handleMutationError(result.error, 'Create failed', () =>
       this.attemptCreate(project, status, title),
     )
+  }
+
+  private openProjectMenu(e: MouseEvent, project: string, archived: boolean): void {
+    const menu = new Menu()
+    menu.addItem((item) =>
+      item
+        .setTitle(archived ? 'Unarchive project' : 'Archive project')
+        .setIcon(archived ? 'archive-restore' : 'archive')
+        .onClick(() => {
+          if (archived) void this.attemptUnarchiveProject(project)
+          else void this.attemptArchiveProject(project)
+        }),
+    )
+    menu.addItem((item) =>
+      item
+        .setTitle('Mint new agent token')
+        .setIcon('key')
+        .onClick(() => this.plugin.promptMintToken(project)),
+    )
+    menu.addSeparator()
+    menu.addItem((item) =>
+      item
+        .setTitle('Delete project…')
+        .setIcon('trash')
+        .onClick(() => void this.promptDeleteProject(project))
+        // Obsidian's Menu API exposes setWarning to render destructive items
+        // in the error color so users see the danger at a glance.
+        .setWarning(true),
+    )
+    menu.showAtMouseEvent(e)
+  }
+
+  private async attemptArchiveProject(project: string): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    const res = await client.archiveProject({ project })
+    if (!res.ok) {
+      this.handleMutationError(res.error, 'Archive project failed', () =>
+        this.attemptArchiveProject(project),
+      )
+      return
+    }
+    new Notice(`Project "${project}" archived`)
+    void this.refresh()
+  }
+
+  private async attemptUnarchiveProject(project: string): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    const res = await client.unarchiveProject({ project })
+    if (!res.ok) {
+      this.handleMutationError(res.error, 'Unarchive project failed', () =>
+        this.attemptUnarchiveProject(project),
+      )
+      return
+    }
+    new Notice(`Project "${project}" restored`)
+    void this.refresh()
+  }
+
+  private async promptDeleteProject(project: string): Promise<void> {
+    const cardCount = this.cards.filter((c) => c.project === project).length
+    new DeleteProjectModal(this.app, project, cardCount, async () => {
+      const client = this.plugin.client
+      if (!client) return
+      const res = await client.deleteProject({ project, confirm: project })
+      if (!res.ok) {
+        this.handleMutationError(res.error, 'Delete project failed', () => {
+          void this.promptDeleteProject(project)
+        })
+        return
+      }
+      new Notice(`Project "${project}" deleted (${res.data.cards_deleted} cards removed)`)
+      void this.refresh()
+    }).open()
   }
 
   private async attemptArchive(cardId: string): Promise<void> {

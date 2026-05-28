@@ -124,10 +124,28 @@ export class McpClient {
     return this.call('kanban_create_project', params)
   }
 
-  listProjects(): Promise<McpResult<{
-    projects: Array<{ project: string; columns: string[] }>
+  listProjects(opts: { include_archived?: boolean; archived_only?: boolean } = {}): Promise<McpResult<{
+    projects: Array<{ project: string; columns: string[]; archived: boolean }>
   }>> {
-    return this.call('kanban_list_projects', {})
+    return this.call('kanban_list_projects', opts)
+  }
+
+  archiveProject(params: { project: string }): Promise<McpResult<{
+    project: string; columns: string[]; archived: boolean
+  }>> {
+    return this.call('kanban_archive_project', params)
+  }
+
+  unarchiveProject(params: { project: string }): Promise<McpResult<{
+    project: string; columns: string[]; archived: boolean
+  }>> {
+    return this.call('kanban_unarchive_project', params)
+  }
+
+  deleteProject(params: { project: string; confirm: string }): Promise<McpResult<{
+    project: string; cards_deleted: number
+  }>> {
+    return this.call('kanban_delete_project', params)
   }
 
   async getMetrics(filter: MetricsFilter = {}): Promise<McpResult<Metrics>> {

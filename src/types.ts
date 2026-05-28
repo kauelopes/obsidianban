@@ -121,6 +121,7 @@ export interface ListCardsParams {
   order_by?: 'position' | 'updated_at' | 'priority' | 'due_date'
   include_archived?: boolean   // default false — archived cards hidden
   archived_only?: boolean      // default false — overrides include_archived
+  include_archived_projects?: boolean  // default false — manager-only cascade opt-out
 }
 
 export interface ArchiveCardParams extends TokenFields {

@@ -5,21 +5,30 @@ export interface CreateProjectInput {
   actor: string
 }
 
+export interface CreateProjectOptions {
+  /** When set, the project input is pre-filled and locked — used by the
+   *  per-project "Mint new token" flow which targets an existing project. */
+  presetProject?: string
+}
+
 export class CreateProjectModal extends Modal {
   constructor(
     app: App,
     private readonly onSubmit: (input: CreateProjectInput) => void | Promise<void>,
+    private readonly opts: CreateProjectOptions = {},
   ) {
     super(app)
   }
 
   override onOpen(): void {
-    this.titleEl.setText('New kanban project')
+    const reMint = this.opts.presetProject != null
+    this.titleEl.setText(reMint ? `New token for ${this.opts.presetProject}` : 'New kanban project')
     this.contentEl.createEl('p', {
       cls: 'kanban-mcp-modal-help',
-      text:
-        'Creates the project folder under kanban-data/ and mints a fresh ' +
-        'agent token. The token is shown once — write it down.',
+      text: reMint
+        ? 'Mints an additional agent token for this project. Prior tokens stay valid.'
+        : 'Creates the project folder under kanban-data/ and mints a fresh ' +
+          'agent token. The token is shown once — write it down.',
     })
 
     const projectInput = this.contentEl.createEl('input', {
@@ -27,6 +36,10 @@ export class CreateProjectModal extends Modal {
       cls: 'kanban-mcp-modal-input',
       attr: { placeholder: 'Project name (e.g. marketing)' },
     })
+    if (reMint) {
+      projectInput.value = this.opts.presetProject ?? ''
+      projectInput.setAttr('readonly', 'true')
+    }
     projectInput.focus()
 
     const actorInput = this.contentEl.createEl('input', {
@@ -35,6 +48,7 @@ export class CreateProjectModal extends Modal {
       attr: { placeholder: 'Agent actor (e.g. agent:claude)' },
     })
     actorInput.value = 'agent:claude'
+    if (reMint) actorInput.focus()
 
     const submit = async (): Promise<void> => {
       const project = projectInput.value.trim()

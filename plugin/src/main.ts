@@ -119,36 +119,48 @@ export default class KanbanPlugin extends Plugin {
   }
 
   private promptCreateProject(): void {
+    this.openCreateProjectModal()
+  }
+
+  /** Opens the same create/re-mint flow with the project pre-filled — used
+   *  by the per-project menu's "Mint new agent token" action. */
+  promptMintToken(project: string): void {
+    this.openCreateProjectModal(project)
+  }
+
+  private openCreateProjectModal(presetProject?: string): void {
     if (!this.client) {
       new Notice('Plugin not initialized')
       return
     }
-    new CreateProjectModal(this.app, async ({ project, actor }) => {
-      const client = this.client
-      if (!client) return
-      const res = await client.createProject({ project, actor })
-      if (!res.ok) {
-        const err = res.error
-        const detail =
-          err.kind === 'server' && err.status === 403
-            ? 'Manager token required — set it in plugin settings.'
-            : `${err.kind}: ${err.message}`
-        new Notice(`Create project failed — ${detail}`, 8000)
-        return
-      }
-      const secretNotePath = `_kanban-secrets/${res.data.project}.md`
-      await this.writeSecretNote(secretNotePath, res.data)
-      new ProjectTokenModal(this.app, {
-        ...res.data,
-        secretNotePath,
-      }).open()
-      // Pull the new project's columns into the board right away so the
-      // user doesn't have to wait for an SSE-triggered re-render.
-      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
-        const view = leaf.view
-        if (view instanceof KanbanBoardView) void view.refresh()
-      }
-    }).open()
+    new CreateProjectModal(
+      this.app,
+      async ({ project, actor }) => {
+        const client = this.client
+        if (!client) return
+        const res = await client.createProject({ project, actor })
+        if (!res.ok) {
+          const err = res.error
+          const detail =
+            err.kind === 'server' && err.status === 403
+              ? 'Manager token required — set it in plugin settings.'
+              : `${err.kind}: ${err.message}`
+          new Notice(`Create project failed — ${detail}`, 8000)
+          return
+        }
+        const secretNotePath = `_kanban-secrets/${res.data.project}.md`
+        await this.writeSecretNote(secretNotePath, res.data)
+        new ProjectTokenModal(this.app, {
+          ...res.data,
+          secretNotePath,
+        }).open()
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
+          const view = leaf.view
+          if (view instanceof KanbanBoardView) void view.refresh()
+        }
+      },
+      presetProject ? { presetProject } : {},
+    ).open()
   }
 
   private async writeSecretNote(
@@ -161,24 +173,33 @@ export default class KanbanPlugin extends Plugin {
     if (!(await this.app.vault.adapter.exists(folder))) {
       await this.app.vault.adapter.mkdir(folder)
     }
-    const body = [
-      `# Kanban agent token — ${info.project}`,
+    const entry = [
+      `## Token ${info.token_id} — ${info.created_at}`,
       '',
-      '> Stored in your vault by the kanban plugin. The server only keeps a',
-      "> hash of this token; if you lose it, mint a new one and revoke the old.",
-      '',
-      `- **Project:** ${info.project}`,
       `- **Actor:** ${info.actor}`,
-      `- **Token id:** ${info.token_id}`,
-      `- **Created:** ${info.created_at}`,
-      '',
-      '## Token',
       '',
       '```',
       info.token,
       '```',
       '',
     ].join('\n')
+
+    // Append-on-re-mint: previous tokens stay readable in the same note so
+    // the user has a full audit trail without us silently clobbering them.
+    let body: string
+    if (await this.app.vault.adapter.exists(relativePath)) {
+      const existing = await this.app.vault.adapter.read(relativePath)
+      body = existing.trimEnd() + '\n\n' + entry
+    } else {
+      body = [
+        `# Kanban agent tokens — ${info.project}`,
+        '',
+        '> Stored in your vault by the kanban plugin. The server only keeps a',
+        '> hash of each token; if you lose one, mint a new one and revoke the old.',
+        '',
+        entry,
+      ].join('\n')
+    }
     await this.app.vault.adapter.write(relativePath, body)
   }
 

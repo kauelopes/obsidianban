@@ -12,11 +12,13 @@ export interface ProjectGroup {
   project: string
   columns: string[]
   cards: Record<string, CardSummary[]>
+  archived: boolean
 }
 
 export interface ProjectShape {
   project: string
   columns: readonly string[]
+  archived?: boolean
 }
 
 /**
@@ -45,16 +47,17 @@ export function groupBoard(
     }
     col.push(c)
   }
-  const shapes = new Map<string, readonly string[]>()
+  const shapes = new Map<string, { columns: readonly string[]; archived: boolean }>()
   for (const f of forceProjects) {
-    shapes.set(f.project, f.columns)
+    shapes.set(f.project, { columns: f.columns, archived: f.archived === true })
     if (!byProject.has(f.project)) byProject.set(f.project, new Map())
   }
   const out: ProjectGroup[] = []
   const projectNames = [...byProject.keys()].sort((a, b) => a.localeCompare(b))
   for (const project of projectNames) {
     const statusMap = byProject.get(project)!
-    const baseColumns = shapes.get(project) ?? DEFAULT_COLUMN_ORDER
+    const shape = shapes.get(project)
+    const baseColumns = shape?.columns ?? DEFAULT_COLUMN_ORDER
     const seen = new Set<string>()
     const columns: string[] = []
     for (const def of baseColumns) {
@@ -72,7 +75,7 @@ export function groupBoard(
       const arr = statusMap.get(st) ?? []
       cardsMap[st] = [...arr].sort((a, b) => a.position - b.position)
     }
-    out.push({ project, columns, cards: cardsMap })
+    out.push({ project, columns, cards: cardsMap, archived: shape?.archived === true })
   }
   return out
 }
@@ -106,11 +109,18 @@ export function renderBoard(
 }
 
 function renderProject(parent: HTMLElement, group: ProjectGroup, today: string): void {
-  const wrap = parent.createDiv({ cls: 'kanban-mcp-project' })
+  const wrapCls = group.archived
+    ? 'kanban-mcp-project kanban-mcp-project-archived'
+    : 'kanban-mcp-project'
+  const wrap = parent.createDiv({ cls: wrapCls })
   wrap.setAttr('role', 'region')
-  wrap.setAttr('aria-label', `Project ${group.project}`)
+  wrap.setAttr('aria-label',
+    group.archived ? `Project ${group.project} (archived)` : `Project ${group.project}`)
   const header = wrap.createDiv({ cls: 'kanban-mcp-project-header' })
-  header.createSpan({ cls: 'kanban-mcp-project-title', text: group.project })
+  const title = header.createSpan({ cls: 'kanban-mcp-project-title', text: group.project })
+  if (group.archived) {
+    title.createSpan({ cls: 'kanban-mcp-project-archived-badge', text: ' (archived)' })
+  }
   const total = group.columns.reduce((n, st) => n + (group.cards[st]?.length ?? 0), 0)
   const counts = group.columns
     .map((st) => `${st}:${group.cards[st]?.length ?? 0}`)
@@ -119,6 +129,15 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string):
     cls: 'kanban-mcp-project-counts',
     text: `${total} cards — ${counts}`,
   })
+  // Per-project actions menu. The board view attaches the click handler
+  // (it owns the Menu instance and the McpClient).
+  const menuBtn = header.createEl('button', {
+    cls: 'kanban-mcp-project-menu',
+    text: '⋯',
+    attr: { 'type': 'button', 'aria-label': `Actions for ${group.project}` },
+  })
+  menuBtn.dataset['project'] = group.project
+  menuBtn.dataset['archived'] = group.archived ? 'true' : 'false'
 
   const cols = wrap.createDiv({ cls: 'kanban-mcp-columns' })
   for (const st of group.columns) {
