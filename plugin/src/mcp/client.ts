@@ -1,5 +1,6 @@
 import http from 'node:http'
 import type {
+  ArchiveCardParams,
   Card,
   CardSummary,
   CreateCardParams,
@@ -103,6 +104,14 @@ export class McpClient {
 
   deleteCard(params: DeleteCardParams): Promise<McpResult<{ deleted: true; id: string }>> {
     return this.call('kanban_delete_card', params)
+  }
+
+  archiveCard(params: ArchiveCardParams): Promise<McpResult<Card>> {
+    return this.call('kanban_archive_card', params)
+  }
+
+  unarchiveCard(params: ArchiveCardParams): Promise<McpResult<Card>> {
+    return this.call('kanban_unarchive_card', params)
   }
 
   async getMetrics(filter: MetricsFilter = {}): Promise<McpResult<Metrics>> {

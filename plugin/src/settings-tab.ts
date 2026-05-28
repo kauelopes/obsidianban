@@ -54,6 +54,21 @@ export class KanbanSettingsTab extends PluginSettingTab {
       })
 
     new Setting(containerEl)
+      .setName('Show archived cards')
+      .setDesc(
+        'When on, archived cards are fetched and rendered (faded) so you can ' +
+          'restore them. When off, they stay out of the board.',
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.showArchived)
+          .onChange(async (value) => {
+            this.plugin.settings.showArchived = value
+            await this.plugin.saveSettings()
+          }),
+      )
+
+    new Setting(containerEl)
       .setName('Connection')
       .setDesc('Verify that the MCP is reachable with the current settings.')
       .addButton((btn) =>

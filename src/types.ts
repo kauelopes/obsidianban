@@ -119,6 +119,14 @@ export interface ListCardsParams {
   limit?: number        // default 50, max 200
   offset?: number       // default 0
   order_by?: 'position' | 'updated_at' | 'priority' | 'due_date'
+  include_archived?: boolean   // default false — archived cards hidden
+  archived_only?: boolean      // default false — overrides include_archived
+}
+
+export interface ArchiveCardParams extends TokenFields {
+  id: string
+  version: number
+  request_id?: string
 }
 
 export interface ReorderResult {

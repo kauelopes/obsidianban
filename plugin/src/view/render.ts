@@ -147,12 +147,16 @@ function renderColumn(
 }
 
 function renderCard(parent: HTMLElement, card: CardSummary, today: string): void {
-  const el = parent.createDiv({ cls: 'kanban-mcp-card' })
+  const archived = card.archived === true
+  const cls = archived ? 'kanban-mcp-card kanban-mcp-card-archived' : 'kanban-mcp-card'
+  const el = parent.createDiv({ cls })
   el.dataset['cardId'] = card.id
-  el.setAttr('draggable', 'true')
+  // Archived cards are not draggable — restore first.
+  if (!archived) el.setAttr('draggable', 'true')
   el.setAttr('role', 'listitem')
   el.setAttr('tabindex', '0')
   const parts = [card.title, `priority ${card.priority}`]
+  if (archived) parts.push('archived')
   if (card.due_date) parts.push(`due ${card.due_date}`)
   if (card.assigned_to) parts.push(`assigned to ${card.assigned_to}`)
   el.setAttr('aria-label', parts.join(', '))
@@ -173,4 +177,17 @@ function renderCard(parent: HTMLElement, card: CardSummary, today: string): void
   if (card.assigned_to != null) {
     meta.createSpan({ cls: 'kanban-mcp-assignee', text: '@' + card.assigned_to })
   }
+
+  const actionCls = archived
+    ? 'kanban-mcp-card-action kanban-mcp-card-unarchive'
+    : 'kanban-mcp-card-action kanban-mcp-card-archive'
+  const actionBtn = meta.createEl('button', {
+    cls: actionCls,
+    text: archived ? 'restore' : 'archive',
+    attr: {
+      'type': 'button',
+      'aria-label': archived ? `Restore ${card.title}` : `Archive ${card.title}`,
+    },
+  })
+  actionBtn.dataset['cardId'] = card.id
 }

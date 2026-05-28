@@ -369,3 +369,24 @@
 .kanban-mcp-assignee {
   color: var(--text-muted);
 }
+
+.kanban-mcp-card-archived {
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.kanban-mcp-card-action {
+  margin-left: auto;
+  padding: 0.05em 0.4em;
+  font-size: 0.75em;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.kanban-mcp-card-action:hover {
+  color: var(--text-normal);
+  border-color: var(--text-muted);
+}

@@ -64,7 +64,9 @@ export class KanbanBoardView extends ItemView {
       this.renderError('Plugin not initialized')
       return
     }
-    const result = await client.listCards()
+    const result = await client.listCards({
+      include_archived: this.plugin.settings.showArchived,
+    })
     if (!result.ok) {
       this.renderError(`MCP ${result.error.kind}: ${result.error.message}`)
       return
@@ -185,7 +187,40 @@ export class KanbanBoardView extends ItemView {
         this.render()
         return
       }
+      case 'CARD_ARCHIVED':
+      case 'CARD_UNARCHIVED': {
+        // Server emits only {card_id, project}; the visibility decision
+        // depends on the showArchived setting. Refetch the card and either
+        // patch the list (if it should stay) or drop it.
+        const p = frame.data as { card_id: string }
+        await this.reconcileArchivedCard(p.card_id)
+        return
+      }
     }
+  }
+
+  private async reconcileArchivedCard(cardId: string): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    const res = await client.getCard(cardId)
+    if (!res.ok) {
+      // If we can no longer see it (e.g. archived + showArchived=false would
+      // not gate getCard, but cross-project 404 might), just drop it.
+      this.cards = removeCard(this.cards, cardId)
+      this.render()
+      return
+    }
+    const card = res.data
+    const keep = this.plugin.settings.showArchived || !card.archived
+    const exists = this.cards.some((c) => c.id === cardId)
+    if (!keep) {
+      this.cards = removeCard(this.cards, cardId)
+    } else if (exists) {
+      this.cards = replaceCard(this.cards, card)
+    } else {
+      this.cards = appendCard(this.cards, card)
+    }
+    this.render()
   }
 
   private async refetchCard(cardId: string): Promise<void> {
@@ -204,6 +239,23 @@ export class KanbanBoardView extends ItemView {
       const project = addBtn.dataset['project']
       const status = addBtn.dataset['status']
       if (project && status) this.promptCreate(project, status)
+      return
+    }
+    // Card-level action buttons must short-circuit before the card-open
+    // fallback below, otherwise the .md file would open every time the user
+    // clicks archive / restore.
+    const archiveBtn = closestEl(e.target, '.kanban-mcp-card-archive')
+    if (archiveBtn) {
+      e.stopPropagation()
+      const cardId = archiveBtn.dataset['cardId']
+      if (cardId) void this.attemptArchive(cardId)
+      return
+    }
+    const unarchiveBtn = closestEl(e.target, '.kanban-mcp-card-unarchive')
+    if (unarchiveBtn) {
+      e.stopPropagation()
+      const cardId = unarchiveBtn.dataset['cardId']
+      if (cardId) void this.attemptUnarchive(cardId)
       return
     }
     const cardEl = closestEl(e.target, '.kanban-mcp-card')
@@ -340,6 +392,7 @@ export class KanbanBoardView extends ItemView {
       agent_notes: null,
       total_input_tokens: 0,
       total_output_tokens: 0,
+      archived: false,
       created_at: now,
       updated_at: now,
       created_by: 'human:plugin',
@@ -368,6 +421,53 @@ export class KanbanBoardView extends ItemView {
     this.handleMutationError(result.error, 'Create failed', () =>
       this.attemptCreate(project, status, title),
     )
+  }
+
+  private async attemptArchive(cardId: string): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    const card = this.cards.find((c) => c.id === cardId)
+    if (!card) return
+    const result = await client.archiveCard({
+      id: cardId,
+      version: card.version,
+      input_tokens: 0,
+      output_tokens: 0,
+      model: 'plugin',
+    })
+    if (result.ok) {
+      // SSE will broadcast CARD_ARCHIVED and reconcileArchivedCard handles
+      // the visibility decision — but apply immediately so the UI doesn't
+      // flicker waiting on the round trip.
+      if (this.plugin.settings.showArchived) {
+        this.cards = replaceCard(this.cards, result.data)
+      } else {
+        this.cards = removeCard(this.cards, cardId)
+      }
+      this.render()
+      return
+    }
+    this.handleMutationError(result.error, 'Archive failed', () => this.attemptArchive(cardId))
+  }
+
+  private async attemptUnarchive(cardId: string): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    const card = this.cards.find((c) => c.id === cardId)
+    if (!card) return
+    const result = await client.unarchiveCard({
+      id: cardId,
+      version: card.version,
+      input_tokens: 0,
+      output_tokens: 0,
+      model: 'plugin',
+    })
+    if (result.ok) {
+      this.cards = replaceCard(this.cards, result.data)
+      this.render()
+      return
+    }
+    this.handleMutationError(result.error, 'Restore failed', () => this.attemptUnarchive(cardId))
   }
 
   /**
