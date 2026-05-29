@@ -55,6 +55,7 @@ async function main(): Promise<void> {
     { name: 'kanban_unarchive_card', description: 'Restore an archived card to the default listing', handler: async (p, c) => cards.unarchive(p, c) },
     { name: 'kanban_claim_card', description: 'Claim an unassigned card for the caller; 409 already_claimed if held by another agent', handler: async (p, c) => cards.claim(p, c) },
     { name: 'kanban_release_card', description: 'Release a card you currently own so another agent can claim it', handler: async (p, c) => cards.release(p, c) },
+    { name: 'kanban_pick_next', description: 'Return the next card ready to work on (no unsatisfied blockers); filters by sprint_id, assigned_to, status', handler: async (p, c) => cards.pickNext(p, c) },
     { name: 'kanban_create_project', description: 'Manager-only — create a project folder and mint an agent token for it', handler: async (p, c) => admin.createProject(p, c) },
     { name: 'kanban_list_projects', description: 'List projects visible to the caller; supports include_archived / archived_only filters', handler: async (p, c) => admin.listProjects(p, c) },
     { name: 'kanban_archive_project', description: 'Manager-only — hide a project (and its cards) from default listings', handler: async (p, c) => admin.archiveProject(p, c) },

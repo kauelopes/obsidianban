@@ -38,6 +38,7 @@ const UPDATE_ALLOWED_AGENT = [
   'assigned_to',
   'agent_notes',
   'body',
+  'blocked_by',
 ] as const
 const UPDATE_ALLOWED_MANAGER = [...UPDATE_ALLOWED_AGENT, 'owner'] as const
 
@@ -59,6 +60,7 @@ const CREATE_ALLOWED = [
   'agent_notes',
   'request_id',
   'project',
+  'blocked_by',
 ] as const
 
 const MOVE_ALLOWED = [
@@ -297,6 +299,20 @@ export class CardService {
       proposed.owner = optNullableString(params, 'owner').value
     }
     if ('body' in params) proposed.body = optString(params, 'body') ?? ''
+    if ('blocked_by' in params) {
+      const next = this.normalizeBlockedBy(params['blocked_by'], current.id, row.project)
+      proposed.blocked_by = next
+    }
+
+    // Status change: if we're advancing into "in-progress" or beyond, the
+    // card must not have unsatisfied blockers. We compare against `proposed`
+    // so a single update can both rewrite blocked_by AND advance status,
+    // as long as the new blocker list is satisfied.
+    if (proposed.status && this.isAdvancingBeyondTodo(proposed.status, current.status)) {
+      const blockersToCheck = proposed.blocked_by ?? current.blocked_by
+      const unmet = this.unmetBlockers(blockersToCheck)
+      if (unmet.length > 0) throw this.blockedConflict(unmet)
+    }
 
     // Version check — must happen after disallowed-field check but before
     // applying any change. PRD §6.4: 409 with current_card + conflicting_fields.
@@ -408,6 +424,10 @@ export class CardService {
 
     const current = this.repo.toCard(row)
     this.assertWritable(current.assigned_to, claims)
+    if (this.isAdvancingBeyondTodo(toStatus, current.status)) {
+      const unmet = this.unmetBlockers(current.blocked_by)
+      if (unmet.length > 0) throw this.blockedConflict(unmet)
+    }
     const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const parsedFile = parseCardFile(await fs.readFile(filePath, 'utf8'))
     const body = parsedFile.body
@@ -945,5 +965,169 @@ export class CardService {
     }
 
     return { created, failed }
+  }
+
+  // ── Dependencies helpers ────────────────────────────────────────────────
+
+  /**
+   * Returns true when the status transition crosses the "ready to advance"
+   * boundary — anything past `todo` (in-progress, review, done) counts. The
+   * threshold is intentionally simple: it matches the kanban_create_project
+   * default columns and stays valid for any project that follows the same
+   * "earlier columns are unstarted" convention.
+   */
+  private isAdvancingBeyondTodo(toStatus: string, fromStatus: string): boolean {
+    const unstarted = new Set(['backlog', 'todo'])
+    return !unstarted.has(toStatus) && unstarted.has(fromStatus)
+  }
+
+  /**
+   * Return blockers that are NOT yet satisfied. A blocker is satisfied if
+   * its card is `done` OR archived OR has been deleted (so an outdated
+   * blocker reference never permanently locks a card). Cross-project
+   * blockers are treated as unsatisfied if the blocker can't be found,
+   * which is a conservative choice — it forces the manager to clean up.
+   */
+  private unmetBlockers(blockerIds: readonly string[]): Array<{
+    id: string
+    status: string | 'missing'
+  }> {
+    const unmet: Array<{ id: string; status: string | 'missing' }> = []
+    for (const blockerId of blockerIds) {
+      const row = this.repo.findById(blockerId)
+      if (!row) {
+        unmet.push({ id: blockerId, status: 'missing' })
+        continue
+      }
+      if (row.status === 'done') continue
+      if (row.archived === 1) continue
+      unmet.push({ id: blockerId, status: row.status })
+    }
+    return unmet
+  }
+
+  private blockedConflict(
+    unmet: Array<{ id: string; status: string | 'missing' }>,
+  ): HttpError {
+    return new HttpError(409, {
+      error: 'blocked',
+      message: 'card has unsatisfied dependencies',
+      blockers: unmet,
+    })
+  }
+
+  /**
+   * Validate, dedupe, and cycle-check a proposed blocked_by list. Throws
+   * 400 on bad input (non-string, self-reference, missing card, cycle).
+   * Returns the canonicalized list (sorted for deterministic frontmatter).
+   */
+  private normalizeBlockedBy(raw: unknown, selfId: string, project: string): string[] {
+    if (raw === null) return []
+    if (!Array.isArray(raw) || !raw.every((x) => typeof x === 'string')) {
+      throw badRequest('invalid_field', { field: 'blocked_by', expected: 'string[]' })
+    }
+    const dedup = Array.from(new Set(raw as string[]))
+    if (dedup.includes(selfId)) {
+      throw badRequest('invalid_field', {
+        field: 'blocked_by', reason: 'card cannot block itself',
+      })
+    }
+    for (const id of dedup) {
+      const row = this.repo.findById(id)
+      if (!row) {
+        throw badRequest('invalid_field', {
+          field: 'blocked_by', reason: `unknown card id ${id}`,
+        })
+      }
+      if (row.project !== project) {
+        throw badRequest('invalid_field', {
+          field: 'blocked_by', reason: `cross-project blocker ${id}`,
+        })
+      }
+    }
+    // Cycle detection: walk forward from each proposed blocker; if any
+    // path reaches selfId we'd form a cycle once we accept the new list.
+    for (const startId of dedup) {
+      if (this.reachesViaBlockers(startId, selfId)) {
+        throw badRequest('invalid_field', {
+          field: 'blocked_by', reason: `cycle: ${startId} → … → ${selfId}`,
+        })
+      }
+    }
+    return [...dedup].sort()
+  }
+
+  private reachesViaBlockers(startId: string, targetId: string): boolean {
+    const seen = new Set<string>()
+    const stack = [startId]
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      if (cur === targetId) return true
+      if (seen.has(cur)) continue
+      seen.add(cur)
+      const row = this.repo.findById(cur)
+      if (!row) continue
+      const blockers = safeParseStringArray(row.blocked_by)
+      for (const next of blockers) stack.push(next)
+    }
+    return false
+  }
+
+  /**
+   * Find the next card "ready to pick up" — first non-blocked card in the
+   * caller's project that matches the optional filters. Returns null when
+   * nothing is ready, along with the count of would-match cards that are
+   * still blocked so the agent can see "there's work, but it's gated".
+   */
+  async pickNext(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<{
+    card: Omit<Card, 'body'> | null
+    blocked_candidates: number
+  }> {
+    const project =
+      claims.role === 'agent' ? claims.project_id : optString(params, 'project') ?? undefined
+    const sprintIdFilter = optString(params, 'sprint_id')
+    const assignedToFilter = optString(params, 'assigned_to')
+    const statusFilter = optString(params, 'status') ?? 'todo'
+
+    // Pull a generous slice; pick_next is meant to be called frequently
+    // and the result set is small (cards in `todo` in one project).
+    const rows = this.repo.query({
+      project,
+      status: statusFilter,
+      assignedTo: assignedToFilter ?? undefined,
+      includeArchived: false,
+      orderBy: 'priority',
+      limit: 200,
+      offset: 0,
+    })
+
+    let blockedCandidates = 0
+    for (const row of rows) {
+      if (sprintIdFilter != null && row.sprint_id !== sprintIdFilter) continue
+      const blockers = safeParseStringArray(row.blocked_by)
+      if (blockers.length === 0) {
+        return { card: this.repo.toCard(row), blocked_candidates: blockedCandidates }
+      }
+      const unmet = this.unmetBlockers(blockers)
+      if (unmet.length === 0) {
+        return { card: this.repo.toCard(row), blocked_candidates: blockedCandidates }
+      }
+      blockedCandidates += 1
+    }
+    return { card: null, blocked_candidates: blockedCandidates }
+  }
+}
+
+function safeParseStringArray(raw: string | null | undefined): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v
+    return []
+  } catch {
+    return []
   }
 }
