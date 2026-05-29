@@ -85,15 +85,19 @@ the next request with that token returns `401 token_revoked`.
 
 ## 3. Pick the transport
 
-Both transports expose the **same fourteen tools** (`kanban_list_cards`,
+Both transports expose the **same sixteen tools** (`kanban_list_cards`,
 `kanban_get_card`, `kanban_create_card`, `kanban_update_card`,
 `kanban_move_card`, `kanban_reorder_card`, `kanban_delete_card`,
-`kanban_archive_card`, `kanban_unarchive_card`, `kanban_create_project`,
-`kanban_list_projects`, `kanban_archive_project`,
-`kanban_unarchive_project`, `kanban_delete_project`). All `*_project`
-tools except `list_projects` are manager-only; `list_projects` is
-scoped to the caller's project for agents and unscoped for managers.
-`delete_project` requires `confirm` to equal the project name. Pick
+`kanban_archive_card`, `kanban_unarchive_card`, `kanban_claim_card`,
+`kanban_release_card`, `kanban_create_project`, `kanban_list_projects`,
+`kanban_archive_project`, `kanban_unarchive_project`,
+`kanban_delete_project`). All `*_project` tools except `list_projects`
+are manager-only; `list_projects` is scoped to the caller's project for
+agents and unscoped for managers. `delete_project` requires `confirm`
+to equal the project name. Cards are gated by `assigned_to`: mutating a
+card owned by another actor returns 403 — use `kanban_claim_card` to
+take ownership of an unassigned card, then `kanban_release_card` when
+you're done. Pick
 based on where the agent runs.
 
 | Transport | Best for                                                                                                          | Notes                                                                                  |

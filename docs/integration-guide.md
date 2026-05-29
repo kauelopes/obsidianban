@@ -200,6 +200,38 @@ project lifecycle:
   project name as a typo guard; mismatched or missing `confirm` returns
   400. Returns `{ project, cards_deleted }`. SSE: `PROJECT_DELETED`.
 
+**Card ownership (`assigned_to`).** Every card has an `assigned_to`
+field that doubles as an ownership claim. Mutations
+(`update_card`, `move_card`, `reorder_card`, `archive_card`,
+`unarchive_card`, `delete_card`) are gated by it:
+
+- Manager tokens always pass.
+- Unassigned cards (`assigned_to == null`) accept any agent in the
+  project — the call implicitly claims the card.
+- Cards owned by `agent:foo` only accept calls from that actor;
+  other agents get `403 forbidden { reason: "not_assigned",
+  assigned_to: "agent:foo" }`.
+
+Agents trying to change `assigned_to` via `update_card` can only
+claim (set to their own actor) or release (set to `null`).
+Cross-agent reassignment returns `403 forbidden { reason:
+"cannot_reassign", target }` and is manager-only.
+
+Two sugar tools wrap the common transitions with cleaner errors:
+
+- `kanban_claim_card { id, version, ...tokens }` — claims an
+  unassigned card. Returns `409 { error: "already_claimed",
+  current_assigned_to }` if another agent already holds it.
+  Manager tokens can pass `actor: "agent:foo"` to claim on
+  behalf of another agent.
+- `kanban_release_card { id, version, ...tokens }` — releases
+  your own card so the next agent can claim. No-op (no version
+  bump, no audit row) on an already-unassigned card.
+
+Both emit `CARD_UPDATED` SSE with `changed_fields: ["assigned_to"]`
+and write `CLAIM` / `RELEASE` audit ops so handoffs are easy to
+filter out of the timeline.
+
 **Archived cards.** Cards with `archived: true` are hidden from
 `kanban_list_cards` by default. Pass `include_archived: true` to fold them
 back into the result, or `archived_only: true` to see only archived cards
