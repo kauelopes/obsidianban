@@ -19,3 +19,6 @@ export const badRequest = (error: string, extras: Record<string, unknown> = {}):
 
 export const conflict = (body: Record<string, unknown>): HttpError =>
   new HttpError(409, { error: 'conflict', ...body })
+
+export const forbidden = (reason: string, extras: Record<string, unknown> = {}): HttpError =>
+  new HttpError(403, { error: 'forbidden', reason, ...extras })

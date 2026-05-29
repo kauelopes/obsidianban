@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Paths } from '../config.js'
-import type { CardRepository } from '../cards/repository.js'
+import type { CardRepository, CardRow } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
@@ -9,7 +9,7 @@ import { loadProjectMeta } from '../vault/layout.js'
 import type { Card, ReorderResult, TokenClaims } from '../types.js'
 import { cardFromFrontmatter, parseCardFile } from '../cards/serialize.js'
 import { slugifyTitle, uniqueBasename } from '../cards/slug.js'
-import { badRequest, conflict, notFound } from './errors.js'
+import { badRequest, conflict, forbidden, notFound } from './errors.js'
 import {
   generateCardId,
   optDueDate,
@@ -70,6 +70,14 @@ const REORDER_ALLOWED = [
 const DELETE_ALLOWED = [
   'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
 ] as const
+const CLAIM_ALLOWED = [
+  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id', 'actor',
+] as const
+
+const RELEASE_ALLOWED = [
+  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+] as const
+
 const ARCHIVE_ALLOWED = [
   'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
 ] as const
@@ -88,6 +96,19 @@ export class CardService {
     private readonly audit: AuditLogger,
     private readonly sse: SSEEventBus,
   ) {}
+
+  /**
+   * Throw 403 if the caller is an agent and the card is owned by someone
+   * else. Manager passes through; unassigned cards pass through (an agent
+   * interacting with a null-assigned card is implicitly claiming it).
+   * Used to gate every mutation that isn't get/list.
+   */
+  private assertWritable(assignedTo: string | null, claims: TokenClaims): void {
+    if (claims.role === 'manager') return
+    if (assignedTo == null) return
+    if (assignedTo === claims.actor) return
+    throw forbidden('not_assigned', { assigned_to: assignedTo })
+  }
 
   async get(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
     const id = requireString(params, 'id')
@@ -219,6 +240,7 @@ export class CardService {
     if (!row) throw notFound()
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
     const current = this.repo.toCard(row)
+    this.assertWritable(current.assigned_to, claims)
 
     // Read body from disk so we have it both for conflict responses and for
     // the no-body update path (preserve existing body).
@@ -252,7 +274,14 @@ export class CardService {
     const due = optDueDate(params)
     if (due.present) proposed.due_date = due.value
     const assigned = optNullableString(params, 'assigned_to')
-    if (assigned.present) proposed.assigned_to = assigned.value
+    if (assigned.present) {
+      proposed.assigned_to = assigned.value
+      // Agents can only claim (set to own actor) or release (set to null).
+      // Cross-agent reassignment is a manager-only operation.
+      if (claims.role === 'agent' && assigned.value !== claims.actor && assigned.value !== null) {
+        throw forbidden('cannot_reassign', { target: assigned.value })
+      }
+    }
     if ('agent_notes' in params) {
       proposed.agent_notes = optString(params, 'agent_notes', 2000)
     }
@@ -370,6 +399,7 @@ export class CardService {
     }
 
     const current = this.repo.toCard(row)
+    this.assertWritable(current.assigned_to, claims)
     const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const parsedFile = parseCardFile(await fs.readFile(filePath, 'utf8'))
     const body = parsedFile.body
@@ -441,6 +471,7 @@ export class CardService {
     if (!row) throw notFound()
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
     const current = this.repo.toCard(row)
+    this.assertWritable(current.assigned_to, claims)
 
     const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const parsedFile = parseCardFile(await fs.readFile(filePath, 'utf8'))
@@ -553,6 +584,7 @@ export class CardService {
     const row = this.repo.findById(id)
     if (!row) throw notFound()
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
+    this.assertWritable(this.repo.toCard(row).assigned_to, claims)
 
     if (claimedVersion !== row.version) {
       const current = this.repo.toCard(row)
@@ -615,6 +647,7 @@ export class CardService {
     if (!row) throw notFound()
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
     const current = this.repo.toCard(row)
+    this.assertWritable(current.assigned_to, claims)
 
     const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
@@ -658,6 +691,148 @@ export class CardService {
     this.sse.emit({
       type: target ? 'CARD_ARCHIVED' : 'CARD_UNARCHIVED',
       payload: { card_id: id, project: row.project },
+    })
+    return { ...next, body }
+  }
+
+  /**
+   * Claim an unassigned card for the caller. Sugar over update_card with
+   * cleaner errors: 409 `already_claimed` if someone else holds it.
+   * Manager tokens can claim on behalf of an agent by passing actor=...
+   * (defaults to claims.actor).
+   */
+  async claim(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    rejectDisallowed(params, CLAIM_ALLOWED)
+    const id = requireString(params, 'id')
+    const claimedVersion = requireInt(params, 'version', 1)
+    const inputTokens = requireInt(params, 'input_tokens')
+    const outputTokens = requireInt(params, 'output_tokens')
+    const model = requireString(params, 'model')
+    // Managers can claim-on-behalf via explicit actor; agents always claim
+    // for themselves regardless of the param.
+    const requestedActor = optString(params, 'actor')
+    const targetActor =
+      claims.role === 'manager' && requestedActor ? requestedActor : claims.actor
+
+    const row = this.repo.findById(id)
+    if (!row) throw notFound()
+    if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
+    const current = this.repo.toCard(row)
+
+    if (current.assigned_to != null && current.assigned_to !== targetActor) {
+      throw conflict({
+        error: 'already_claimed',
+        message: `card is already claimed by ${current.assigned_to}`,
+        current_assigned_to: current.assigned_to,
+        current_version: current.version,
+      })
+    }
+
+    return this.applyAssignedTo({
+      id,
+      claimedVersion,
+      inputTokens,
+      outputTokens,
+      model,
+      row,
+      current,
+      targetActor,
+      op: 'CLAIM',
+      sseFields: ['assigned_to'],
+      claims,
+    })
+  }
+
+  /**
+   * Release a card you currently own. Manager tokens can release any card.
+   */
+  async release(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    rejectDisallowed(params, RELEASE_ALLOWED)
+    const id = requireString(params, 'id')
+    const claimedVersion = requireInt(params, 'version', 1)
+    const inputTokens = requireInt(params, 'input_tokens')
+    const outputTokens = requireInt(params, 'output_tokens')
+    const model = requireString(params, 'model')
+
+    const row = this.repo.findById(id)
+    if (!row) throw notFound()
+    if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
+    const current = this.repo.toCard(row)
+    this.assertWritable(current.assigned_to, claims)
+
+    if (current.assigned_to == null) {
+      // No-op short-circuit, matching the project-archive semantics.
+      const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
+      const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
+      return { ...current, body }
+    }
+
+    return this.applyAssignedTo({
+      id,
+      claimedVersion,
+      inputTokens,
+      outputTokens,
+      model,
+      row,
+      current,
+      targetActor: null,
+      op: 'RELEASE',
+      sseFields: ['assigned_to'],
+      claims,
+    })
+  }
+
+  private async applyAssignedTo(args: {
+    id: string
+    claimedVersion: number
+    inputTokens: number
+    outputTokens: number
+    model: string
+    row: CardRow
+    current: Omit<Card, 'body'>
+    targetActor: string | null
+    op: 'CLAIM' | 'RELEASE'
+    sseFields: string[]
+    claims: TokenClaims
+  }): Promise<Card> {
+    const { id, claimedVersion, inputTokens, outputTokens, model, row, current, targetActor, op, sseFields, claims } = args
+    const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
+    const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
+
+    if (claimedVersion !== current.version) {
+      throw conflict({
+        message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
+        your_version: claimedVersion,
+        current_version: current.version,
+        conflicting_fields: current.assigned_to !== targetActor ? ['assigned_to'] : [],
+        current_card: { ...current, body },
+      })
+    }
+
+    const now = new Date().toISOString()
+    const next: Omit<Card, 'body'> = {
+      ...current,
+      assigned_to: targetActor,
+      version: current.version + 1,
+      total_input_tokens: current.total_input_tokens + inputTokens,
+      total_output_tokens: current.total_output_tokens + outputTokens,
+      updated_at: now,
+      updated_by: claims.actor,
+    }
+    await this.writer.write(next, body, row.file_basename)
+    this.repo.logTokens({
+      ts: now, op: 'UPDATE', card_id: id, card_type: row.type,
+      actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
+      project: row.project,
+    })
+    await this.audit.log({
+      ts: now, op, project: row.project, card_id: id, version: next.version,
+      actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
+      changed_fields: sseFields,
+    })
+    this.sse.emit({
+      type: 'CARD_UPDATED',
+      payload: { card_id: id, project: row.project, changed_fields: sseFields },
     })
     return { ...next, body }
   }

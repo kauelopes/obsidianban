@@ -187,6 +187,7 @@ export type SSEHandler<T extends SSEEventPayload = SSEEventPayload> = (payload: 
 export type AuditOp =
   | 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER' | 'DELETE'
   | 'ARCHIVE' | 'UNARCHIVE'
+  | 'CLAIM' | 'RELEASE'
   | 'PROJECT_ARCHIVED' | 'PROJECT_UNARCHIVED' | 'PROJECT_DELETED'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
