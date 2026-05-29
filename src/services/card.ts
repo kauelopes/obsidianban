@@ -9,7 +9,7 @@ import { loadProjectMeta } from '../vault/layout.js'
 import type { Card, ReorderResult, TokenClaims } from '../types.js'
 import { cardFromFrontmatter, parseCardFile } from '../cards/serialize.js'
 import { slugifyTitle, uniqueBasename } from '../cards/slug.js'
-import { badRequest, conflict, forbidden, notFound } from './errors.js'
+import { badRequest, conflict, forbidden, HttpError, notFound } from './errors.js'
 import {
   generateCardId,
   optDueDate,
@@ -77,6 +77,12 @@ const CLAIM_ALLOWED = [
 const RELEASE_ALLOWED = [
   'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
 ] as const
+
+// Per-card entries in bulk_create payloads cannot carry these — they're
+// owned by the envelope (one cost, one optional dedupe key for the batch).
+const BULK_ENVELOPE_FIELDS = ['input_tokens', 'output_tokens', 'model', 'request_id'] as const
+
+const BULK_CREATE_LIMIT = 100
 
 const ARCHIVE_ALLOWED = [
   'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
@@ -835,5 +841,107 @@ export class CardService {
       payload: { card_id: id, project: row.project, changed_fields: sseFields },
     })
     return { ...next, body }
+  }
+
+  /**
+   * Create up to BULK_CREATE_LIMIT cards in one call. Use case: an agent
+   * reads a PRD and produces N cards in a single LLM round — instead of
+   * N tool calls and N audit rows for the same conversation, we charge
+   * the envelope cost once and prorate it per card so per-card token
+   * stats remain meaningful.
+   *
+   * Partial success on purpose: individual validation failures are
+   * collected in `failed[]` with the original index, so the caller can
+   * retry only the broken ones rather than the whole batch.
+   */
+  async bulkCreate(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<{
+    created: Array<{ index: number; card: Card }>
+    failed: Array<{ index: number; error: string; detail: Record<string, unknown> }>
+  }> {
+    const rawCards = params['cards']
+    if (!Array.isArray(rawCards)) {
+      throw badRequest('invalid_field', { field: 'cards', expected: 'array' })
+    }
+    if (rawCards.length === 0) {
+      throw badRequest('invalid_field', { field: 'cards', reason: 'empty' })
+    }
+    if (rawCards.length > BULK_CREATE_LIMIT) {
+      throw badRequest('invalid_field', {
+        field: 'cards', reason: `at most ${BULK_CREATE_LIMIT} entries per call`,
+        max: BULK_CREATE_LIMIT, given: rawCards.length,
+      })
+    }
+
+    const envelopeInputTokens = requireInt(params, 'input_tokens')
+    const envelopeOutputTokens = requireInt(params, 'output_tokens')
+    const envelopeModel = requireString(params, 'model')
+    // Optional project sugar — when set and the per-card entry omits its
+    // own project, the envelope value is injected. Managers can still set
+    // project per card to mix projects in one batch.
+    const envelopeProject = params['project']
+    if (envelopeProject != null && typeof envelopeProject !== 'string') {
+      throw badRequest('invalid_field', { field: 'project', expected: 'string' })
+    }
+
+    const n = rawCards.length
+    const perInputBase = Math.floor(envelopeInputTokens / n)
+    const perOutputBase = Math.floor(envelopeOutputTokens / n)
+    const inputRemainder = envelopeInputTokens - perInputBase * n
+    const outputRemainder = envelopeOutputTokens - perOutputBase * n
+
+    const created: Array<{ index: number; card: Card }> = []
+    const failed: Array<{ index: number; error: string; detail: Record<string, unknown> }> = []
+
+    for (let i = 0; i < n; i++) {
+      const entry = rawCards[i]
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        failed.push({ index: i, error: 'invalid_card', detail: { reason: 'must be object' } })
+        continue
+      }
+      const cardInput = entry as Record<string, unknown>
+      const conflictingKeys = BULK_ENVELOPE_FIELDS.filter((k) => k in cardInput)
+      if (conflictingKeys.length > 0) {
+        failed.push({
+          index: i,
+          error: 'invalid_card',
+          detail: { reason: 'envelope-owned fields not allowed per card', fields: conflictingKeys },
+        })
+        continue
+      }
+
+      const isLast = i === n - 1
+      const perInput = perInputBase + (isLast ? inputRemainder : 0)
+      const perOutput = perOutputBase + (isLast ? outputRemainder : 0)
+      const inner: Record<string, unknown> = {
+        ...cardInput,
+        input_tokens: perInput,
+        output_tokens: perOutput,
+        model: envelopeModel,
+      }
+      if (envelopeProject != null && !('project' in inner)) {
+        inner['project'] = envelopeProject
+      }
+
+      try {
+        const card = await this.create(inner, claims)
+        created.push({ index: i, card })
+      } catch (err) {
+        if (err instanceof HttpError) {
+          const body = err.body as Record<string, unknown>
+          const errCode = typeof body['error'] === 'string' ? body['error'] : 'http_error'
+          failed.push({ index: i, error: errCode, detail: body })
+        } else {
+          failed.push({
+            index: i, error: 'internal_error',
+            detail: { message: (err as Error).message },
+          })
+        }
+      }
+    }
+
+    return { created, failed }
   }
 }

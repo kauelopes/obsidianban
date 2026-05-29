@@ -44,6 +44,7 @@ async function main(): Promise<void> {
     { name: 'kanban_list_cards', description: 'List cards in the project, with optional filters', handler: async (p, c) => queries.list(p, c) },
     { name: 'kanban_get_card', description: 'Get a card by id including body', handler: async (p, c) => cards.get(p, c) },
     { name: 'kanban_create_card', description: 'Create a new card', handler: async (p, c) => cards.create(p, c) },
+    { name: 'kanban_bulk_create_cards', description: 'Create up to 100 cards in one call (partial success); envelope-level token cost is prorated', handler: async (p, c) => cards.bulkCreate(p, c) },
     { name: 'kanban_update_card', description: 'Update fields of an existing card (optimistic locking)', handler: async (p, c) => cards.update(p, c) },
     { name: 'kanban_move_card', description: 'Move a card to another column', handler: async (p, c) => cards.move(p, c) },
     { name: 'kanban_reorder_card', description: 'Reorder a card within its column', handler: async (p, c) => cards.reorder(p, c) },
