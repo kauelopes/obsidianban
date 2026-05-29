@@ -249,6 +249,8 @@ function starterCardBody(project: string, actor: string, tokenId: string): strin
     '- `kanban_list_cards` — see the board (your token scopes you to this project)',
     '- `kanban_get_card` — read a card including its markdown body',
     '- `kanban_create_card` — add a card to any column',
+    '- `kanban_bulk_create_cards` — create up to 100 cards in one call',
+    '  (use this when parsing a PRD into a backlog so the cost is booked once)',
     '- `kanban_update_card` — edit fields with optimistic locking',
     '- `kanban_move_card` — change a card\'s column',
     '- `kanban_reorder_card` — change ordering within a column',

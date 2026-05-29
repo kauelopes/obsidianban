@@ -85,8 +85,9 @@ the next request with that token returns `401 token_revoked`.
 
 ## 3. Pick the transport
 
-Both transports expose the **same sixteen tools** (`kanban_list_cards`,
-`kanban_get_card`, `kanban_create_card`, `kanban_update_card`,
+Both transports expose the **same seventeen tools** (`kanban_list_cards`,
+`kanban_get_card`, `kanban_create_card`, `kanban_bulk_create_cards`,
+`kanban_update_card`,
 `kanban_move_card`, `kanban_reorder_card`, `kanban_delete_card`,
 `kanban_archive_card`, `kanban_unarchive_card`, `kanban_claim_card`,
 `kanban_release_card`, `kanban_create_project`, `kanban_list_projects`,

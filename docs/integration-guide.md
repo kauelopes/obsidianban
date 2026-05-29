@@ -200,6 +200,44 @@ project lifecycle:
   project name as a typo guard; mismatched or missing `confirm` returns
   400. Returns `{ project, cards_deleted }`. SSE: `PROJECT_DELETED`.
 
+**Bulk-creating cards.** When one LLM round produces several cards
+(parsing a PRD into a backlog is the canonical case), call
+`kanban_bulk_create_cards` instead of looping over `create_card`:
+
+```json
+{
+  "cards": [
+    { "title": "Design login flow", "type": "task", "priority": "high" },
+    { "title": "Write auth tests",  "type": "task" },
+    { "title": "Doc the new endpoint", "type": "doc", "tags": ["docs","auth"] }
+  ],
+  "input_tokens": 1200,
+  "output_tokens": 350,
+  "model": "claude-sonnet-4-6",
+  "request_id": "<uuid v4>",
+  "project": "marketing"
+}
+```
+
+- Limit: 100 entries per call (over → `400 invalid_field max=100`).
+- The envelope owns `input_tokens` / `output_tokens` / `model` /
+  `request_id` (and optionally a default `project`). Including any
+  of those four token-tracking fields *per-card* drops that card
+  into `failed[]` with `error: "invalid_card"`.
+- Tokens are prorated evenly across cards; the remainder is added to
+  the last card so totals reconcile (`envelope == sum(cards)`).
+- Response is `{ created: [{ index, card }], failed: [{ index,
+  error, detail }] }`. Indices match the original `cards[]` array,
+  so the caller can retry only the failed entries. A partial batch
+  still returns HTTP 200 — individual failures are part of the
+  contract, not protocol errors. Real protocol errors (envelope
+  validation, role gate) still surface as 400/403.
+- Idempotency works at the envelope level via the existing
+  `request_id` dedupe — a retry returns the cached response (same
+  card ids), so it's safe to retry on network blips.
+- Each successful card emits a normal `CARD_CREATED` SSE; there is
+  no separate "bulk" event type.
+
 **Card ownership (`assigned_to`).** Every card has an `assigned_to`
 field that doubles as an ownership claim. Mutations
 (`update_card`, `move_card`, `reorder_card`, `archive_card`,
