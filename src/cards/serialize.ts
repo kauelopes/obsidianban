@@ -18,6 +18,8 @@ const FRONTMATTER_KEYS: ReadonlyArray<keyof Omit<Card, 'body'>> = [
   'total_input_tokens',
   'total_output_tokens',
   'archived',
+  'sprint_id',
+  'blocked_by',
   'created_at',
   'updated_at',
   'created_by',
@@ -58,6 +60,8 @@ export function cardFromFrontmatter(data: Record<string, unknown>): Card {
     total_input_tokens: numOr(data, 'total_input_tokens', 0),
     total_output_tokens: numOr(data, 'total_output_tokens', 0),
     archived: boolOr(data, 'archived', false),
+    sprint_id: optStr(data, 'sprint_id'),
+    blocked_by: optStringArray(data, 'blocked_by'),
     created_at: requireStr(data, 'created_at'),
     updated_at: requireStr(data, 'updated_at'),
     created_by: requireStr(data, 'created_by'),
@@ -102,6 +106,15 @@ function requirePriority(d: Record<string, unknown>): Card['priority'] {
   if (v === 'low' || v === 'medium' || v === 'high' || v === 'critical') return v
   throw new Error(`frontmatter 'priority' must be one of low|medium|high|critical`)
 }
+function optStringArray(d: Record<string, unknown>, k: string): string[] {
+  const v = d[k]
+  if (v == null) return []
+  if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) {
+    throw new Error(`frontmatter field '${k}' must be string[]`)
+  }
+  return v as string[]
+}
+
 function requireTags(d: Record<string, unknown>): string[] {
   const v = d['tags']
   if (v == null) return []

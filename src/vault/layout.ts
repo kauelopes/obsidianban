@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Paths } from '../config.js'
+import type { Sprint } from '../types.js'
 
 export const DEFAULT_COLUMNS = ['backlog', 'todo', 'in-progress', 'review', 'done'] as const
 
@@ -11,6 +12,8 @@ export interface ProjectMeta {
   created_at: string
   /** Optional — absent on legacy metas means the project is active. */
   archived?: boolean
+  /** Optional — absent on legacy metas means no sprints declared yet. */
+  sprints?: Sprint[]
 }
 
 export interface TokenRecord {

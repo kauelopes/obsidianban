@@ -15,6 +15,7 @@ import { CardService } from './services/card.js'
 import { QueryService } from './services/query.js'
 import { MetricsService } from './services/metrics.js'
 import { AdminService } from './services/admin.js'
+import { SprintService } from './services/sprint.js'
 import type { TokenClaims } from './types.js'
 
 async function main(): Promise<void> {
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const metrics = new MetricsService(db)
   const admin = new AdminService(config.paths, cards, repo, audit, sse)
+  const sprints = new SprintService(config.paths, repo, writer, audit, sse)
   const queries = new QueryService(repo, () => admin.getArchivedProjects())
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
@@ -58,6 +60,12 @@ async function main(): Promise<void> {
     { name: 'kanban_archive_project', description: 'Manager-only — hide a project (and its cards) from default listings', handler: async (p, c) => admin.archiveProject(p, c) },
     { name: 'kanban_unarchive_project', description: 'Manager-only — restore a previously archived project', handler: async (p, c) => admin.unarchiveProject(p, c) },
     { name: 'kanban_delete_project', description: 'Manager-only — permanently delete a project, its cards, and its tokens (requires confirm=<project>)', handler: async (p, c) => admin.deleteProject(p, c) },
+    { name: 'kanban_create_sprint', description: 'Manager-only — create a sprint for a project (name + optional goal text)', handler: async (p, c) => sprints.createSprint(p, c) },
+    { name: 'kanban_list_sprints', description: 'List sprints visible to the caller; filter by status: active|closed|all', handler: async (p, c) => sprints.listSprints(p, c) },
+    { name: 'kanban_get_sprint', description: 'Get a sprint with its current member cards and aggregates (cards by status, total tokens)', handler: async (p, c) => sprints.getSprint(p, c) },
+    { name: 'kanban_add_to_sprint', description: 'Manager-only — attach cards to a sprint; optionally move_to_todo to start them', handler: async (p, c) => sprints.addToSprint(p, c) },
+    { name: 'kanban_remove_from_sprint', description: 'Manager-only — detach cards from a sprint without changing their column', handler: async (p, c) => sprints.removeFromSprint(p, c) },
+    { name: 'kanban_close_sprint', description: 'Manager-only — close a sprint; optionally rollover_to=<sprint_id|null> for unfinished cards', handler: async (p, c) => sprints.closeSprint(p, c) },
   ]
 
   if (stdioMode) {

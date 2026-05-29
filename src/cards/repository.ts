@@ -24,12 +24,15 @@ export interface CardRow {
   file_hash: string
   file_basename: string
   archived: number  // SQLite stores 0/1; toCard converts to boolean
+  sprint_id: string | null
+  blocked_by: string  // JSON-encoded string[]
 }
 
 const COLUMNS =
   'id, project, title, status, type, version, position, priority, tags, ' +
   'due_date, assigned_to, owner, agent_notes, total_input_tokens, total_output_tokens, ' +
-  'created_at, updated_at, created_by, updated_by, file_hash, file_basename, archived'
+  'created_at, updated_at, created_by, updated_by, file_hash, file_basename, archived, ' +
+  'sprint_id, blocked_by'
 
 const PLACEHOLDERS = COLUMNS.split(', ')
   .map((c) => '@' + c)
@@ -67,6 +70,7 @@ export class CardRepository {
         file_hash: fileHash,
         file_basename: fileBasename,
         archived: card.archived ? 1 : 0,
+        blocked_by: JSON.stringify(card.blocked_by),
       })
   }
 
@@ -86,7 +90,7 @@ export class CardRepository {
            agent_notes=@agent_notes, total_input_tokens=@total_input_tokens,
            total_output_tokens=@total_output_tokens, updated_at=@updated_at,
            updated_by=@updated_by, file_hash=@file_hash, file_basename=@file_basename,
-           archived=@archived
+           archived=@archived, sprint_id=@sprint_id, blocked_by=@blocked_by
          WHERE id=@id`,
       )
       .run({
@@ -95,6 +99,7 @@ export class CardRepository {
         file_hash: fileHash,
         file_basename: fileBasename,
         archived: card.archived ? 1 : 0,
+        blocked_by: JSON.stringify(card.blocked_by),
       })
   }
 
@@ -235,6 +240,29 @@ export class CardRepository {
       updated_by: row.updated_by,
       file_basename: row.file_basename,
       archived: row.archived === 1,
+      sprint_id: row.sprint_id,
+      blocked_by: safeJsonStringArray(row.blocked_by),
     }
+  }
+
+  /**
+   * All cards belonging to a sprint. Used by SprintService.get_sprint to
+   * compute aggregates and by close_sprint to find rollover candidates.
+   */
+  findBySprint(sprintId: string): CardRow[] {
+    return this.db
+      .prepare('SELECT * FROM cards WHERE sprint_id = ? ORDER BY status, position ASC')
+      .all(sprintId) as CardRow[]
+  }
+}
+
+function safeJsonStringArray(raw: string): string[] {
+  if (!raw) return []
+  try {
+    const v = JSON.parse(raw)
+    if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v
+    return []
+  } catch {
+    return []
   }
 }

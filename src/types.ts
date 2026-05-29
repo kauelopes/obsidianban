@@ -33,8 +33,19 @@ export interface Card {
   created_by: string           // agent:|human:|external:
   updated_by: string           // agent:|human:|external:
   archived: boolean            // hidden from default listings; reversible
+  sprint_id: string | null     // membership in a project Sprint
+  blocked_by: string[]         // card_ids that must be done before this can advance
   body?: string                // present only in kanban_get_card
   file_basename?: string       // current .md basename (no extension); populated in API responses
+}
+
+export interface Sprint {
+  id: string                   // sprint-{nanoid(8)}
+  name: string                 // human-readable, max 80 chars
+  goal: string                 // sprint goal text, max 1000 chars
+  started_at: string           // ISO 8601 — when create_sprint was called
+  ended_at: string | null      // null while status==='active'
+  status: 'active' | 'closed'
 }
 
 export type CardSummary = Omit<Card, 'body'>
@@ -149,6 +160,9 @@ export type SSEEventType =
   | 'PROJECT_ARCHIVED'
   | 'PROJECT_UNARCHIVED'
   | 'PROJECT_DELETED'
+  | 'SPRINT_CREATED'
+  | 'SPRINT_UPDATED'
+  | 'SPRINT_CLOSED'
 
 export interface CardCreatedPayload     { card_id: string; project: string; status: string; position: number }
 export interface CardUpdatedPayload     { card_id: string; project: string; changed_fields: string[] }
@@ -161,6 +175,9 @@ export interface CardUnarchivedPayload  { card_id: string; project: string }
 export interface ProjectArchivedPayload   { project: string }
 export interface ProjectUnarchivedPayload { project: string }
 export interface ProjectDeletedPayload    { project: string }
+export interface SprintCreatedPayload     { sprint_id: string; project: string }
+export interface SprintUpdatedPayload     { sprint_id: string; project: string }
+export interface SprintClosedPayload      { sprint_id: string; project: string }
 
 export type SSEEventPayload =
   | CardCreatedPayload
@@ -174,6 +191,9 @@ export type SSEEventPayload =
   | ProjectArchivedPayload
   | ProjectUnarchivedPayload
   | ProjectDeletedPayload
+  | SprintCreatedPayload
+  | SprintUpdatedPayload
+  | SprintClosedPayload
 
 export interface SSEEvent {
   type: SSEEventType
@@ -189,6 +209,7 @@ export type AuditOp =
   | 'ARCHIVE' | 'UNARCHIVE'
   | 'CLAIM' | 'RELEASE'
   | 'PROJECT_ARCHIVED' | 'PROJECT_UNARCHIVED' | 'PROJECT_DELETED'
+  | 'SPRINT_CREATED' | 'SPRINT_CLOSED'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
 

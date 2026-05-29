@@ -103,7 +103,15 @@ export function rejectDisallowed(
 }
 
 export function generateCardId(): string {
-  let id = 'card-'
+  return generateId('card')
+}
+
+export function generateSprintId(): string {
+  return generateId('sprint')
+}
+
+function generateId(prefix: string): string {
+  let id = `${prefix}-`
   const arr = new Uint8Array(8)
   crypto.getRandomValues(arr)
   for (const b of arr) id += NANOID_ALPHABET[b % NANOID_ALPHABET.length]

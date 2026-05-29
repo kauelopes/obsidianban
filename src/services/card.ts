@@ -195,6 +195,8 @@ export class CardService {
       total_input_tokens: inputTokens,
       total_output_tokens: outputTokens,
       archived: false,
+      sprint_id: null,
+      blocked_by: [],
       created_at: now,
       updated_at: now,
       created_by: claims.actor,

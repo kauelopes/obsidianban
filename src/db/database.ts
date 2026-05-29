@@ -29,6 +29,7 @@ function applySchema(db: Database.Database): void {
     for (const stmt of SCHEMA_STATEMENTS) db.exec(stmt)
     migrateAddFileBasename(db)
     migrateAddArchived(db)
+    migrateAddSprintAndDeps(db)
   })
   tx()
 }
@@ -59,6 +60,22 @@ function migrateAddArchived(db: Database.Database): void {
     db.exec(`ALTER TABLE cards ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`)
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_project_archived ON cards(project, archived)`)
+}
+
+/**
+ * Add `sprint_id` and `blocked_by` together — they land in the same release
+ * and share a migration window so a vault only sees one ALTER pass.
+ */
+function migrateAddSprintAndDeps(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(cards)`).all() as Array<{ name: string }>
+  const names = new Set(cols.map((c) => c.name))
+  if (!names.has('sprint_id')) {
+    db.exec(`ALTER TABLE cards ADD COLUMN sprint_id TEXT`)
+  }
+  if (!names.has('blocked_by')) {
+    db.exec(`ALTER TABLE cards ADD COLUMN blocked_by TEXT NOT NULL DEFAULT '[]'`)
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_project_sprint ON cards(project, sprint_id)`)
 }
 
 function isFreshlyCreated(db: Database.Database): boolean {
