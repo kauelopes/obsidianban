@@ -238,6 +238,63 @@ project lifecycle:
 - Each successful card emits a normal `CARD_CREATED` SSE; there is
   no separate "bulk" event type.
 
+**Sprints.** A project can hold any number of `Sprint` entities in its
+`_meta.json`, each with `{ id, name, goal, started_at, ended_at, status }`.
+Sprints are manager-managed and provide a structured way to group cards
+that should be worked on together:
+
+- `kanban_create_sprint { project, name, goal? }` — declare a sprint.
+  Manager-only; returns the Sprint object including the generated
+  `sprint-<8 char>` id.
+- `kanban_list_sprints { project, status?: 'active' | 'closed' | 'all' }`
+  — agents scoped to their own project; managers can list any project.
+- `kanban_get_sprint { sprint_id }` — returns
+  `{ sprint, project, cards: CardSummary[], aggregates }` where
+  aggregates carries per-status counts and total token spend. Useful
+  as the briefing card for an agent: "what's the goal, how many cards
+  are done vs todo, how much have we already spent?".
+- `kanban_add_to_sprint { sprint_id, card_ids[], move_to_todo?: boolean }`
+  — bulk-attach. `move_to_todo: true` also moves the cards to the `todo`
+  column in one pass, which is the canonical "start the sprint" gesture.
+  Returns `{ updated[], failed[] }`.
+- `kanban_remove_from_sprint { sprint_id, card_ids[] }` — bulk-detach
+  without changing column.
+- `kanban_close_sprint { sprint_id, rollover_to?: string | null }` —
+  marks `status: 'closed'` and `ended_at`. Cards already `done` stay
+  attached (for retrospective accounting). Unfinished cards get their
+  `sprint_id` cleared (`rollover_to: null`, default) or reassigned to
+  another active sprint (`rollover_to: 'sprint-...'`). Returns
+  `{ rolled_over[], finished[] }`.
+
+SSE event types: `SPRINT_CREATED`, `SPRINT_UPDATED` (membership change),
+`SPRINT_CLOSED`. Audit ops: `SPRINT_CREATED`, `SPRINT_CLOSED`.
+
+**Dependencies (`blocked_by`).** Cards have a `blocked_by: string[]`
+field — ids of other cards in the same project that must finish before
+this card can advance. Set it via `create_card` or `update_card`. The
+server enforces the graph:
+
+- **Validation**: every id must exist, be in the same project, and not
+  equal the card's own id. Self-reference, missing card, and
+  cross-project ids return `400 invalid_field` with `reason` set.
+- **Cycle detection**: the proposed `blocked_by` is walked forward. If
+  any path leads back to the card being updated, the call returns
+  `400 invalid_field` with `reason: "cycle: <start> → … → <self>"`.
+- **Forward-progress guard**: `move_card` and `update_card` refuse to
+  advance a card from `backlog`/`todo` into `in-progress`/`review`/
+  `done` while it still has unsatisfied blockers. Response is
+  `409 { error: "blocked", blockers: [{ id, status }] }`. Sideways
+  moves within the unstarted columns are still allowed.
+- A blocker is **satisfied** when its card is `done`, archived, or has
+  been deleted — an outdated reference never permanently locks a card.
+
+The companion query is `kanban_pick_next { project?, sprint_id?,
+assigned_to?, status? }`. It returns the highest-priority card in
+`status` (default `todo`) that matches the optional filters and has
+all its blockers satisfied. The response also carries
+`blocked_candidates: number` so an agent can see whether the queue is
+empty or just gated.
+
 **Card ownership (`assigned_to`).** Every card has an `assigned_to`
 field that doubles as an ownership claim. Mutations
 (`update_card`, `move_card`, `reorder_card`, `archive_card`,
