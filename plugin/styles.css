@@ -91,6 +91,56 @@
   margin: 0.35em 0;
 }
 
+.kanban-mcp-modal-textarea {
+  min-height: 4em;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.kanban-mcp-sprint-selector {
+  padding: 0.15em 0.45em;
+  font-size: 0.85em;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  color: var(--text-normal);
+}
+
+.kanban-mcp-sprint-banner {
+  background: var(--background-secondary);
+  border-left: 3px solid var(--interactive-accent);
+  padding: 0.4em 0.75em;
+  margin: 0 0 0.5em 0;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.kanban-mcp-sprint-banner strong {
+  color: var(--text-normal);
+}
+
+.kanban-mcp-sprint-goal {
+  margin: 0.25em 0 0 0;
+  color: var(--text-muted);
+}
+
+.kanban-mcp-blockers {
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  background: var(--background-modifier-error-hover);
+  color: var(--text-error);
+  font-weight: 500;
+  cursor: help;
+}
+
+.kanban-mcp-sprint-pill {
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .kanban-mcp-columns {
   display: flex;
   gap: 0.75em;

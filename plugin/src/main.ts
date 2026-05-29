@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, type KanbanPluginSettings } from './settings.js'
 import { KanbanSettingsTab } from './settings-tab.js'
 import { registerCardBanner } from './editor/card-banner.js'
 import { CreateProjectModal } from './ui/create-project-modal.js'
+import { CreateSprintModal } from './ui/create-sprint-modal.js'
 import { ProjectTokenModal } from './ui/project-token-modal.js'
 import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
 import { KanbanMetricsView, VIEW_TYPE_KANBAN_METRICS } from './view/metrics-view.js'
@@ -126,6 +127,35 @@ export default class KanbanPlugin extends Plugin {
    *  by the per-project menu's "Mint new agent token" action. */
   promptMintToken(project: string): void {
     this.openCreateProjectModal(project)
+  }
+
+  /** Per-project "New sprint…" menu item entry point. */
+  promptCreateSprint(project: string): void {
+    if (!this.client) {
+      new Notice('Plugin not initialized')
+      return
+    }
+    new CreateSprintModal(this.app, project, async ({ name, goal }) => {
+      const client = this.client
+      if (!client) return
+      const res = await client.createSprint({ project, name, goal })
+      if (!res.ok) {
+        const err = res.error
+        const detail =
+          err.kind === 'server' && err.status === 403
+            ? 'Manager token required — set it in plugin settings.'
+            : `${err.kind}: ${err.message}`
+        new Notice(`Create sprint failed — ${detail}`, 8000)
+        return
+      }
+      new Notice(`Sprint "${res.data.name}" created`)
+      // SSE will broadcast SPRINT_CREATED and the board refresh will pick it
+      // up; nudge it explicitly so the selector appears without lag.
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
+        const view = leaf.view
+        if (view instanceof KanbanBoardView) void view.refresh()
+      }
+    }).open()
   }
 
   private openCreateProjectModal(presetProject?: string): void {

@@ -30,6 +30,10 @@ const OPTIMISTIC_POSITION = Number.MAX_SAFE_INTEGER
 export class KanbanBoardView extends ItemView {
   private cards: CardSummary[] = []
   private projectShapes: Array<{ project: string; columns: readonly string[]; archived: boolean }> = []
+  /** Active sprints by project, keyed for fast lookup during render. */
+  private sprintsByProject: Map<string, import('../../../src/types.js').Sprint[]> = new Map()
+  /** Sprint filter per project: undefined = "All", string = sprint_id. */
+  private selectedSprintByProject: Map<string, string> = new Map()
 
   constructor(leaf: WorkspaceLeaf, private readonly plugin: KanbanPlugin) {
     super(leaf)
@@ -55,6 +59,7 @@ export class KanbanBoardView extends ItemView {
     this.registerDomEvent(this.contentEl, 'drop', this.onDrop)
     this.registerDomEvent(this.contentEl, 'click', this.onClick)
     this.registerDomEvent(this.contentEl, 'keydown', this.onKeyDown)
+    this.registerDomEvent(this.contentEl, 'change', this.onChange)
     await this.refresh()
   }
 
@@ -86,6 +91,20 @@ export class KanbanBoardView extends ItemView {
     }
     this.cards = [...cardsResult.data.cards]
     this.projectShapes = projectsResult.ok ? [...projectsResult.data.projects] : []
+
+    // Fetch sprints for every visible project in parallel. Failures degrade
+    // silently — no sprint UI for that project but the board still renders.
+    this.sprintsByProject = new Map()
+    const projectsToFetch = this.projectShapes.map((p) => p.project)
+    const sprintResults = await Promise.all(
+      projectsToFetch.map(async (project) => {
+        const r = await client.listSprints({ project, status: 'active' })
+        return { project, sprints: r.ok ? r.data.sprints : [] }
+      }),
+    )
+    for (const { project, sprints } of sprintResults) {
+      if (sprints.length > 0) this.sprintsByProject.set(project, sprints)
+    }
     this.render()
   }
 
@@ -94,13 +113,22 @@ export class KanbanBoardView extends ItemView {
     if (this.plugin.connectionStatus !== 'connected') {
       this.renderOfflineBanner(this.plugin.connectionStatus)
     }
-    const shapes = [...this.projectShapes]
+    const shapes = this.projectShapes.map((p) => ({
+      project: p.project,
+      columns: p.columns,
+      archived: p.archived,
+      sprints: this.sprintsByProject.get(p.project) ?? [],
+      selectedSprint: this.selectedSprintByProject.get(p.project),
+    }))
     // Surface the settings.projectName as a pseudo-project too so users can
     // see a placeholder column layout before any first card is created and
     // before the server learns about the project.
     const settingsProject = this.plugin.settings.projectName
     if (settingsProject && !shapes.some((s) => s.project === settingsProject)) {
-      shapes.push({ project: settingsProject, columns: DEFAULT_COLUMN_ORDER, archived: false })
+      shapes.push({
+        project: settingsProject, columns: DEFAULT_COLUMN_ORDER, archived: false,
+        sprints: [], selectedSprint: undefined,
+      })
     }
     renderBoard(this.contentEl, this.cards, todayString(), shapes)
   }
@@ -226,6 +254,15 @@ export class KanbanBoardView extends ItemView {
         void this.refresh()
         return
       }
+      case 'SPRINT_CREATED':
+      case 'SPRINT_UPDATED':
+      case 'SPRINT_CLOSED': {
+        // Sprint-shape changes (new sprint, membership change, close)
+        // affect what the selector shows and which cards belong where —
+        // refetch wholesale, same logic as the project events above.
+        void this.refresh()
+        return
+      }
     }
   }
 
@@ -302,6 +339,18 @@ export class KanbanBoardView extends ItemView {
       if (cardId) void this.openCardFile(cardId)
       return
     }
+  }
+
+  private readonly onChange = (e: Event): void => {
+    const target = e.target
+    if (!(target instanceof HTMLSelectElement)) return
+    if (!target.classList.contains('kanban-mcp-sprint-selector')) return
+    const project = target.dataset['project']
+    if (!project) return
+    const value = target.value
+    if (value === '') this.selectedSprintByProject.delete(project)
+    else this.selectedSprintByProject.set(project, value)
+    this.render()
   }
 
   /** Enter/Space on a focused card → open the .md (keyboard equivalent of
@@ -431,6 +480,8 @@ export class KanbanBoardView extends ItemView {
       total_input_tokens: 0,
       total_output_tokens: 0,
       archived: false,
+      sprint_id: null,
+      blocked_by: [],
       created_at: now,
       updated_at: now,
       created_by: 'human:plugin',
@@ -465,6 +516,22 @@ export class KanbanBoardView extends ItemView {
     const menu = new Menu()
     menu.addItem((item) =>
       item
+        .setTitle('New sprint…')
+        .setIcon('calendar-plus')
+        .onClick(() => this.plugin.promptCreateSprint(project)),
+    )
+    const selectedSprintId = this.selectedSprintByProject.get(project)
+    if (selectedSprintId != null) {
+      menu.addItem((item) =>
+        item
+          .setTitle('Close current sprint…')
+          .setIcon('calendar-check')
+          .onClick(() => void this.promptCloseSprint(project, selectedSprintId)),
+      )
+    }
+    menu.addSeparator()
+    menu.addItem((item) =>
+      item
         .setTitle(archived ? 'Unarchive project' : 'Archive project')
         .setIcon(archived ? 'archive-restore' : 'archive')
         .onClick(() => {
@@ -489,6 +556,35 @@ export class KanbanBoardView extends ItemView {
         .setWarning(true),
     )
     menu.showAtMouseEvent(e)
+  }
+
+  private async promptCloseSprint(project: string, sprintId: string): Promise<void> {
+    const sprints = this.sprintsByProject.get(project) ?? []
+    const sprint = sprints.find((s) => s.id === sprintId)
+    if (!sprint) {
+      new Notice(`Sprint ${sprintId} not found`)
+      return
+    }
+    // Confirmation is intentionally lightweight — sprint close is reversible
+    // in spirit (you can create a new sprint and migrate unfinished cards via
+    // MCP), unlike project delete which is destructive.
+    const ok = confirm(`Close sprint "${sprint.name}"? Unfinished cards lose their sprint_id.`)
+    if (!ok) return
+    const client = this.plugin.client
+    if (!client) return
+    const res = await client.closeSprint({ sprint_id: sprintId, rollover_to: null })
+    if (!res.ok) {
+      this.handleMutationError(res.error, 'Close sprint failed', () =>
+        this.promptCloseSprint(project, sprintId),
+      )
+      return
+    }
+    new Notice(
+      `Sprint closed — ${res.data.finished.length} done, ` +
+      `${res.data.rolled_over.length} cards returned to backlog`,
+    )
+    this.selectedSprintByProject.delete(project)
+    void this.refresh()
   }
 
   private async attemptArchiveProject(project: string): Promise<void> {

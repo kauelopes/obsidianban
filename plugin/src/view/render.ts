@@ -1,4 +1,4 @@
-import type { CardSummary } from '../../../src/types.js'
+import type { CardSummary, Sprint } from '../../../src/types.js'
 
 export const DEFAULT_COLUMN_ORDER: ReadonlyArray<string> = [
   'backlog',
@@ -13,12 +13,17 @@ export interface ProjectGroup {
   columns: string[]
   cards: Record<string, CardSummary[]>
   archived: boolean
+  sprints: readonly Sprint[]
+  selectedSprint: string | undefined
 }
 
 export interface ProjectShape {
   project: string
   columns: readonly string[]
   archived?: boolean
+  sprints?: readonly Sprint[]
+  /** Sprint id the user has filtered the project by; undefined = all. */
+  selectedSprint?: string
 }
 
 /**
@@ -47,9 +52,19 @@ export function groupBoard(
     }
     col.push(c)
   }
-  const shapes = new Map<string, { columns: readonly string[]; archived: boolean }>()
+  const shapes = new Map<string, {
+    columns: readonly string[]
+    archived: boolean
+    sprints: readonly Sprint[]
+    selectedSprint: string | undefined
+  }>()
   for (const f of forceProjects) {
-    shapes.set(f.project, { columns: f.columns, archived: f.archived === true })
+    shapes.set(f.project, {
+      columns: f.columns,
+      archived: f.archived === true,
+      sprints: f.sprints ?? [],
+      selectedSprint: f.selectedSprint,
+    })
     if (!byProject.has(f.project)) byProject.set(f.project, new Map())
   }
   const out: ProjectGroup[] = []
@@ -71,11 +86,25 @@ export function groupBoard(
       }
     }
     const cardsMap: Record<string, CardSummary[]> = {}
+    const sprintFilter = shape?.selectedSprint
     for (const st of columns) {
-      const arr = statusMap.get(st) ?? []
+      let arr = statusMap.get(st) ?? []
+      // When the project has a sprint selected, only render cards belonging
+      // to it. Cards outside the sprint still exist server-side; they're
+      // just hidden from this filtered view.
+      if (sprintFilter != null) {
+        arr = arr.filter((c) => c.sprint_id === sprintFilter)
+      }
       cardsMap[st] = [...arr].sort((a, b) => a.position - b.position)
     }
-    out.push({ project, columns, cards: cardsMap, archived: shape?.archived === true })
+    out.push({
+      project,
+      columns,
+      cards: cardsMap,
+      archived: shape?.archived === true,
+      sprints: shape?.sprints ?? [],
+      selectedSprint: shape?.selectedSprint,
+    })
   }
   return out
 }
@@ -129,6 +158,22 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string):
     cls: 'kanban-mcp-project-counts',
     text: `${total} cards — ${counts}`,
   })
+  // Sprint selector — renders only when there's at least one active sprint.
+  // The board view attaches the change handler.
+  if (group.sprints.length > 0) {
+    const selector = header.createEl('select', {
+      cls: 'kanban-mcp-sprint-selector',
+      attr: { 'aria-label': `Sprint filter for ${group.project}` },
+    })
+    selector.dataset['project'] = group.project
+    const allOpt = selector.createEl('option', { text: 'All sprints', value: '' })
+    if (group.selectedSprint == null) allOpt.setAttr('selected', 'true')
+    for (const s of group.sprints) {
+      const opt = selector.createEl('option', { text: s.name, value: s.id })
+      if (s.id === group.selectedSprint) opt.setAttr('selected', 'true')
+    }
+  }
+
   // Per-project actions menu. The board view attaches the click handler
   // (it owns the Menu instance and the McpClient).
   const menuBtn = header.createEl('button', {
@@ -138,6 +183,19 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string):
   })
   menuBtn.dataset['project'] = group.project
   menuBtn.dataset['archived'] = group.archived ? 'true' : 'false'
+
+  // When a sprint is selected, render its goal + counts as a banner under
+  // the header so the agent has the briefing visible.
+  if (group.selectedSprint != null) {
+    const sprint = group.sprints.find((s) => s.id === group.selectedSprint)
+    if (sprint) {
+      const banner = wrap.createDiv({ cls: 'kanban-mcp-sprint-banner' })
+      banner.createEl('strong', { text: sprint.name })
+      if (sprint.goal) {
+        banner.createEl('p', { cls: 'kanban-mcp-sprint-goal', text: sprint.goal })
+      }
+    }
+  }
 
   const cols = wrap.createDiv({ cls: 'kanban-mcp-columns' })
   for (const st of group.columns) {
@@ -203,6 +261,20 @@ function renderCard(parent: HTMLElement, card: CardSummary, today: string): void
   }
   if (card.assigned_to != null) {
     meta.createSpan({ cls: 'kanban-mcp-assignee', text: '@' + card.assigned_to })
+  }
+  if (card.blocked_by != null && card.blocked_by.length > 0) {
+    const blockerEl = meta.createSpan({
+      cls: 'kanban-mcp-blockers',
+      text: `blocked by ${card.blocked_by.length}`,
+    })
+    blockerEl.setAttr('title', card.blocked_by.join('\n'))
+  }
+  if (card.sprint_id != null) {
+    const pill = meta.createSpan({
+      cls: 'kanban-mcp-sprint-pill',
+      text: 'sprint',
+    })
+    pill.setAttr('title', card.sprint_id)
   }
 
   const actionCls = archived

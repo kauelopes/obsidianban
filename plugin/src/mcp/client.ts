@@ -11,6 +11,7 @@ import type {
   MetricsFilter,
   ReorderCardParams,
   ReorderResult,
+  Sprint,
   UpdateCardParams,
 } from '../../../src/types.js'
 
@@ -146,6 +147,25 @@ export class McpClient {
     project: string; cards_deleted: number
   }>> {
     return this.call('kanban_delete_project', params)
+  }
+
+  listSprints(params: { project: string; status?: 'active' | 'closed' | 'all' }): Promise<McpResult<{
+    sprints: Sprint[]
+  }>> {
+    return this.call('kanban_list_sprints', params)
+  }
+
+  createSprint(params: { project: string; name: string; goal?: string }): Promise<McpResult<Sprint>> {
+    return this.call('kanban_create_sprint', params)
+  }
+
+  closeSprint(params: { sprint_id: string; rollover_to?: string | null }): Promise<McpResult<{
+    sprint_id: string
+    closed_at: string
+    rolled_over: string[]
+    finished: string[]
+  }>> {
+    return this.call('kanban_close_sprint', params)
   }
 
   async getMetrics(filter: MetricsFilter = {}): Promise<McpResult<Metrics>> {
