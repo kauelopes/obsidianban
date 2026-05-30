@@ -16,6 +16,8 @@ import type { SSEFrame, SseStatus } from '../mcp/sse-subscriber.js'
 import { ConflictModal } from '../ui/conflict-modal.js'
 import { ConfirmModal } from '../ui/confirm-modal.js'
 import { ChangeSprintModal } from '../ui/change-sprint-modal.js'
+import { BlockerWarningModal } from '../ui/blocker-warning-modal.js'
+import { PastSprintsModal } from '../ui/past-sprints-modal.js'
 import { HelpModal } from '../ui/help-modal.js'
 import { CreateCardModal } from '../ui/create-card-modal.js'
 import { DeleteProjectModal } from '../ui/delete-project-modal.js'
@@ -62,7 +64,7 @@ export class KanbanBoardView extends ItemView {
     this.registerDomEvent(this.contentEl, 'drop', this.onDrop)
     this.registerDomEvent(this.contentEl, 'click', this.onClick)
     this.registerDomEvent(this.contentEl, 'keydown', this.onKeyDown)
-    this.registerDomEvent(this.contentEl, 'change', this.onChange)
+    // onChange removed — sprint selection now uses click on tab buttons
     await this.refresh()
   }
 
@@ -114,8 +116,9 @@ export class KanbanBoardView extends ItemView {
   private render(): void {
     this.contentEl.empty()
     this.renderToolbar()
+    const boardContent = this.contentEl.createDiv({ cls: 'kanban-mcp-board-content' })
     if (this.plugin.connectionStatus !== 'connected') {
-      this.renderOfflineBanner(this.plugin.connectionStatus)
+      this.renderOfflineBanner(this.plugin.connectionStatus, boardContent)
     }
     const shapes = this.projectShapes.map((p) => ({
       project: p.project,
@@ -134,17 +137,33 @@ export class KanbanBoardView extends ItemView {
         sprints: [], selectedSprint: undefined,
       })
     }
-    renderBoard(this.contentEl, this.cards, todayString(), shapes)
+    // Cards archived via sprint-close (archived + sprint_id pointing to a
+    // closed sprint) must never appear on the board — they live in "Past
+    // sprints" only. Build a set of open sprint IDs so we can detect them.
+    const openSprintIds = new Set<string>()
+    for (const sprints of this.sprintsByProject.values()) {
+      for (const s of sprints) openSprintIds.add(s.id)
+    }
+    const boardCards = this.cards.filter((c) => {
+      if (!c.archived) return true
+      // Archived card whose sprint is closed → hide unconditionally.
+      if (c.sprint_id != null && !openSprintIds.has(c.sprint_id)) return false
+      // Manually archived card → respect showArchived setting.
+      return this.plugin.settings.showArchived
+    })
+    renderBoard(boardContent, boardCards, todayString(), shapes)
   }
 
   private renderToolbar(): void {
-    const bar = this.contentEl.createDiv({ cls: 'kanban-mcp-toolbar' })
-    bar.createEl('button', {
-      cls: 'kanban-mcp-toolbar-btn kanban-mcp-new-project-btn',
+    const bar = this.contentEl.createDiv({ cls: 'kanban-mcp-topbar' })
+    bar.createSpan({ cls: 'kanban-mcp-topbar-brand', text: 'ObsidianKan' })
+    const actions = bar.createDiv({ cls: 'kanban-mcp-topbar-actions' })
+    actions.createEl('button', {
+      cls: 'kanban-mcp-new-project-btn',
       text: '+ New project',
       attr: { type: 'button', 'aria-label': 'Create kanban project' },
     })
-    const helpBtn = bar.createEl('button', {
+    const helpBtn = actions.createEl('button', {
       cls: 'kanban-mcp-help-btn',
       text: '? Help',
       attr: { type: 'button', 'aria-label': 'Open agent onboarding help' },
@@ -152,8 +171,8 @@ export class KanbanBoardView extends ItemView {
     helpBtn.dataset['action'] = 'open-help'
   }
 
-  private renderOfflineBanner(status: SseStatus): void {
-    const banner = this.contentEl.createDiv({ cls: 'kanban-mcp-offline-banner' })
+  private renderOfflineBanner(status: SseStatus, parent: HTMLElement = this.contentEl): void {
+    const banner = parent.createDiv({ cls: 'kanban-mcp-offline-banner' })
     banner.setText(
       status === 'connecting'
         ? 'Connecting to MCP…'
@@ -169,7 +188,9 @@ export class KanbanBoardView extends ItemView {
 
   private renderError(msg: string): void {
     this.contentEl.empty()
-    this.contentEl.createDiv({ cls: 'kanban-mcp-error', text: msg })
+    this.renderToolbar()
+    this.contentEl.createDiv({ cls: 'kanban-mcp-board-content' })
+      .createDiv({ cls: 'kanban-mcp-error', text: msg })
   }
 
   // ── Drag & drop ────────────────────────────────────────────────────────
@@ -370,24 +391,23 @@ export class KanbanBoardView extends ItemView {
       if (cardId) this.openCardMenu(e, cardId)
       return
     }
+    const sprintTab = closestEl(e.target, '.kanban-mcp-sprint-tab')
+    if (sprintTab) {
+      const project = sprintTab.dataset['project']
+      const sprintId = sprintTab.dataset['sprintId']
+      if (project != null) {
+        if (!sprintId) this.selectedSprintByProject.delete(project)
+        else this.selectedSprintByProject.set(project, sprintId)
+        this.render()
+      }
+      return
+    }
     const cardEl = closestEl(e.target, '.kanban-mcp-card')
     if (cardEl) {
       const cardId = cardEl.dataset['cardId']
       if (cardId) void this.openCardFile(cardId)
       return
     }
-  }
-
-  private readonly onChange = (e: Event): void => {
-    const target = e.target
-    if (!(target instanceof HTMLSelectElement)) return
-    if (!target.classList.contains('kanban-mcp-sprint-selector')) return
-    const project = target.dataset['project']
-    if (!project) return
-    const value = target.value
-    if (value === '') this.selectedSprintByProject.delete(project)
-    else this.selectedSprintByProject.set(project, value)
-    this.render()
   }
 
   /** Enter/Space on a focused card → open the .md (keyboard equivalent of
@@ -430,6 +450,47 @@ export class KanbanBoardView extends ItemView {
       return
     }
 
+    // Block forward movement when the card's sprint is not active. "Forward"
+    // is determined by the project's column order; lateral/backward moves
+    // (e.g. reopening a card) are always allowed.
+    if (original.sprint_id) {
+      const sprint = (this.sprintsByProject.get(original.project) ?? [])
+        .find((s) => s.id === original.sprint_id)
+      if (sprint && sprint.status !== 'active') {
+        const columns = this.projectShapes.find((p) => p.project === original.project)?.columns
+          ?? DEFAULT_COLUMN_ORDER
+        const fromIdx = columns.indexOf(original.status)
+        const toIdx = columns.indexOf(targetStatus)
+        const isForward = toIdx > fromIdx
+        if (isForward) {
+          const reason = sprint.status === 'planning'
+            ? `Sprint "${sprint.name}" hasn't started yet. Start the sprint before advancing cards.`
+            : `Sprint "${sprint.name}" is closed. Cards from closed sprints cannot be advanced.`
+          new Notice(reason, 6000)
+          return
+        }
+      }
+    }
+
+    // Check for pending blockers before hitting the server. A blocker is
+    // "pending" if it exists in the local card list and is not in "done".
+    if (original.blocked_by && original.blocked_by.length > 0) {
+      const pendingBlockers = original.blocked_by
+        .map((id) => this.cards.find((c) => c.id === id))
+        .filter((c) => c != null && c.status !== 'done')
+        .map((c) => ({ id: c!.id, title: c!.title, status: c!.status }))
+      if (pendingBlockers.length > 0) {
+        new BlockerWarningModal(this.app, original.title, pendingBlockers).open()
+        return
+      }
+    }
+
+    this.doMove(cardId, targetProject, targetStatus, original)
+  }
+
+  private async doMove(cardId: string, targetProject: string, targetStatus: string, original: CardSummary): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
     const snapshot = this.cards
     this.cards = patchCard(this.cards, cardId, {
       status: targetStatus,
@@ -726,6 +787,16 @@ export class KanbanBoardView extends ItemView {
     menu.addSeparator()
     menu.addItem((item) =>
       item
+        .setTitle('Past sprints…')
+        .setIcon('history')
+        .onClick(() => {
+          const client = this.plugin.client
+          if (client) new PastSprintsModal(this.app, project, client).open()
+        }),
+    )
+    menu.addSeparator()
+    menu.addItem((item) =>
+      item
         .setTitle(archived ? 'Unarchive project' : 'Archive project')
         .setIcon(archived ? 'archive-restore' : 'archive')
         .onClick(() => {
@@ -773,32 +844,67 @@ export class KanbanBoardView extends ItemView {
       new Notice(`Sprint ${sprintId} not found`)
       return
     }
-    // Obsidian-native confirm modal: `window.confirm` in Electron leaves the
-    // renderer focus-stuck so any subsequent modal (e.g. "New sprint") opens
-    // but rejects clicks/keys.
-    new ConfirmModal(this.app, {
-      title: 'Close sprint?',
-      body: `Close sprint "${sprint.name}". Unfinished cards lose their sprint_id and return to the backlog.`,
-      confirmLabel: 'Close sprint',
-      cancelLabel: 'Cancel',
-    }, async (ok) => {
-      if (!ok) return
-      const client = this.plugin.client
-      if (!client) return
-      const res = await client.closeSprint({ sprint_id: sprintId, rollover_to: null })
-      if (!res.ok) {
-        this.handleMutationError(res.error, 'Close sprint failed', () =>
-          this.promptCloseSprint(project, sprintId),
+
+    const unfinished = this.cards.filter(
+      (c) => c.sprint_id === sprintId && c.status !== 'done' && !c.archived,
+    )
+    const hasUnfinished = unfinished.length > 0
+
+    // Only ask for a rollover target when there are cards that aren't done.
+    const pickRollover = (onPicked: (rolloverSprintId: string | null) => void): void => {
+      if (!hasUnfinished) {
+        onPicked(null)
+        return
+      }
+      const planningSprints = sprints.filter((s) => s.id !== sprintId && s.status === 'planning')
+      if (planningSprints.length === 0) {
+        new Notice(
+          `Create a planning sprint first — ${unfinished.length} unfinished card(s) need somewhere to roll over to.`,
+          8000,
         )
         return
       }
-      new Notice(
-        `Sprint closed — ${res.data.finished.length} done, ` +
-        `${res.data.rolled_over.length} cards returned to backlog`,
-      )
-      this.selectedSprintByProject.delete(project)
-      void this.refresh()
-    }).open()
+      if (planningSprints.length === 1) {
+        onPicked(planningSprints[0]!.id)
+        return
+      }
+      new ChangeSprintModal(this.app, `Unfinished cards from "${sprint.name}"`, planningSprints, onPicked).open()
+    }
+
+    pickRollover((rolloverTo) => {
+      const rolloverSprint = rolloverTo
+        ? sprints.find((s) => s.id === rolloverTo)
+        : null
+      const body = rolloverSprint
+        ? `Close "${sprint.name}". Unfinished cards will roll over to "${rolloverSprint.name}".`
+        : `Close "${sprint.name}". All cards are done and will be archived.`
+      new ConfirmModal(this.app, {
+        title: 'Close sprint?',
+        body,
+        confirmLabel: 'Close sprint',
+        cancelLabel: 'Cancel',
+      }, async (ok) => {
+        if (!ok) return
+        const client = this.plugin.client
+        if (!client) return
+        const res = await client.closeSprint({
+          sprint_id: sprintId,
+          rollover_to: rolloverTo ?? undefined,
+        })
+        if (!res.ok) {
+          this.handleMutationError(res.error, 'Close sprint failed', () =>
+            this.promptCloseSprint(project, sprintId),
+          )
+          return
+        }
+        const msg = rolloverSprint
+          ? `Sprint closed — ${res.data.finished.length} cards archived, ${res.data.rolled_over.length} rolled over to "${rolloverSprint.name}"`
+          : `Sprint closed — ${res.data.finished.length} cards archived`
+        new Notice(msg)
+        this.selectedSprintByProject.delete(project)
+        void this.refresh()
+      }).open()
+    })
   }
 
   private async attemptArchiveProject(project: string): Promise<void> {

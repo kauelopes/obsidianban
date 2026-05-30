@@ -156,6 +156,22 @@ export class McpClient {
     return this.call('kanban_list_sprints', params)
   }
 
+  getSprint(params: { sprint_id: string }): Promise<McpResult<{
+    sprint: Sprint
+    project: string
+    cards: Array<{
+      id: string; title: string; status: string; priority: string
+      archived: boolean; type: string; assigned_to: string | null
+      file_basename: string | null
+    }>
+    aggregates: {
+      cards_total: number; cards_done: number; cards_in_progress: number
+      cards_todo: number; cards_other: number
+    }
+  }>> {
+    return this.call('kanban_get_sprint', params)
+  }
+
   createSprint(params: { project: string; name: string; goal?: string }): Promise<McpResult<Sprint>> {
     return this.call('kanban_create_sprint', params)
   }

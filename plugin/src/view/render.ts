@@ -149,37 +149,37 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string, 
   wrap.setAttr('role', 'region')
   wrap.setAttr('aria-label',
     group.archived ? `Project ${group.project} (archived)` : `Project ${group.project}`)
+  // ── Project header row ────────────────────────────────────────
   const header = wrap.createDiv({ cls: 'kanban-mcp-project-header' })
-  const title = header.createSpan({ cls: 'kanban-mcp-project-title', text: group.project })
+
+  const titleWrap = header.createDiv({ cls: 'kanban-mcp-project-title-wrap' })
+  const title = titleWrap.createSpan({ cls: 'kanban-mcp-project-title', text: group.project })
   if (group.archived) {
     title.createSpan({ cls: 'kanban-mcp-project-archived-badge', text: ' (archived)' })
   }
-  const total = group.columns.reduce((n, st) => n + (group.cards[st]?.length ?? 0), 0)
-  const counts = group.columns
-    .map((st) => `${st}:${group.cards[st]?.length ?? 0}`)
-    .join(' · ')
-  header.createSpan({
-    cls: 'kanban-mcp-project-counts',
-    text: `${total} cards — ${counts}`,
-  })
-  // Sprint selector — renders only when there's at least one active sprint.
-  // The board view attaches the change handler.
+
+  // Sprint tabs — pill buttons replacing the native <select>
   if (group.sprints.length > 0) {
-    const selector = header.createEl('select', {
-      cls: 'kanban-mcp-sprint-selector',
-      attr: { 'aria-label': `Sprint filter for ${group.project}` },
+    const tabs = header.createDiv({ cls: 'kanban-mcp-sprint-tabs' })
+    const allTab = tabs.createEl('button', {
+      cls: `kanban-mcp-sprint-tab${group.selectedSprint == null ? ' is-active' : ''}`,
+      text: 'All',
+      attr: { type: 'button' },
     })
-    selector.dataset['project'] = group.project
-    const allOpt = selector.createEl('option', { text: 'All sprints', value: '' })
-    if (group.selectedSprint == null) allOpt.setAttr('selected', 'true')
+    allTab.dataset['project'] = group.project
+    allTab.dataset['sprintId'] = ''
     for (const s of group.sprints) {
-      const opt = selector.createEl('option', { text: s.name, value: s.id })
-      if (s.id === group.selectedSprint) opt.setAttr('selected', 'true')
+      const tab = tabs.createEl('button', {
+        cls: `kanban-mcp-sprint-tab${s.id === group.selectedSprint ? ' is-active' : ''}`,
+        text: s.name,
+        attr: { type: 'button' },
+      })
+      tab.dataset['project'] = group.project
+      tab.dataset['sprintId'] = s.id
     }
   }
 
-  // Per-project actions menu. The board view attaches the click handler
-  // (it owns the Menu instance and the McpClient).
+  // Per-project actions menu
   const menuBtn = header.createEl('button', {
     cls: 'kanban-mcp-project-menu',
     text: '⋯',
@@ -187,6 +187,30 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string, 
   })
   menuBtn.dataset['project'] = group.project
   menuBtn.dataset['archived'] = group.archived ? 'true' : 'false'
+
+  // ── Project subtitle: card count + progress bar ───────────────
+  const total = group.columns.reduce((n, st) => n + (group.cards[st]?.length ?? 0), 0)
+  const done = group.cards['done']?.length ?? 0
+  const inProgress = group.cards['in-progress']?.length ?? 0
+  const review = group.cards['review']?.length ?? 0
+  const verboseCounts = group.columns
+    .map((st) => `${st}: ${group.cards[st]?.length ?? 0}`)
+    .join(' · ')
+  const subtitle = wrap.createDiv({ cls: 'kanban-mcp-project-subtitle' })
+  const countEl = subtitle.createSpan({
+    cls: 'kanban-mcp-project-counts',
+    text: `${total} card${total !== 1 ? 's' : ''}`,
+    attr: { title: verboseCounts },
+  })
+  if (total > 0) {
+    const bar = subtitle.createDiv({ cls: 'kanban-mcp-progress-bar', attr: { title: verboseCounts } })
+    const pctDone = (done / total) * 100
+    const pctReview = (review / total) * 100
+    const pctProgress = (inProgress / total) * 100
+    if (pctDone > 0) bar.createDiv({ cls: 'kanban-mcp-progress-done', attr: { style: `width:${pctDone}%` } })
+    if (pctReview > 0) bar.createDiv({ cls: 'kanban-mcp-progress-review', attr: { style: `width:${pctReview}%` } })
+    if (pctProgress > 0) bar.createDiv({ cls: 'kanban-mcp-progress-inprogress', attr: { style: `width:${pctProgress}%` } })
+  }
 
   // When a sprint is selected, render its goal + counts as a banner under
   // the header so the agent has the briefing visible.
@@ -261,6 +285,9 @@ function renderColumn(
   const body = col.createDiv({ cls: 'kanban-mcp-column-body' })
   body.dataset['project'] = project
   body.dataset['status'] = status
+  if (cards.length === 0) {
+    body.createDiv({ cls: 'kanban-mcp-column-empty', text: 'Drop cards here' })
+  }
   for (const c of cards) renderCard(body, c, today, cardTitles, sprintNames, sprintFiltered)
 }
 

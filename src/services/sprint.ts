@@ -380,29 +380,31 @@ export class SprintService {
     if (located.sprint.status === 'closed') {
       throw badRequest('invalid_field', { field: 'sprint_id', reason: 'already closed' })
     }
-    // rollover_to is mandatory now: under the "every card belongs to a
-    // sprint" rule, closing a sprint with unfinished cards must redirect
-    // them somewhere, not orphan them with sprint_id=null. The only way to
-    // discard cards is to archive them before closing.
+    // rollover_to is only required when there are unfinished cards. If all
+    // cards are done they will be auto-archived and no target sprint is needed.
+    const unfinishedCount = this.repo.findBySprint(sprintId).filter((r) => r.status !== 'done').length
     const rolloverToRaw = params['rollover_to']
-    if (typeof rolloverToRaw !== 'string') {
-      throw badRequest('invalid_field', {
-        field: 'rollover_to',
-        expected: 'string (sprint_id of a planning sprint in the same project)',
-      })
+    let rolloverTo: string | null = null
+    if (unfinishedCount > 0) {
+      if (typeof rolloverToRaw !== 'string') {
+        throw badRequest('invalid_field', {
+          field: 'rollover_to',
+          expected: 'string (sprint_id of a planning sprint in the same project) — required because there are unfinished cards',
+        })
+      }
+      const target = await this.findSprint(rolloverToRaw, claims)
+      if (target.project !== located.project) {
+        throw badRequest('invalid_field', {
+          field: 'rollover_to', reason: 'must be in same project',
+        })
+      }
+      if (target.sprint.status !== 'planning') {
+        throw badRequest('invalid_field', {
+          field: 'rollover_to', reason: 'rollover target must be in planning',
+        })
+      }
+      rolloverTo = rolloverToRaw
     }
-    const target = await this.findSprint(rolloverToRaw, claims)
-    if (target.project !== located.project) {
-      throw badRequest('invalid_field', {
-        field: 'rollover_to', reason: 'must be in same project',
-      })
-    }
-    if (target.sprint.status !== 'planning') {
-      throw badRequest('invalid_field', {
-        field: 'rollover_to', reason: 'rollover target must be in planning',
-      })
-    }
-    const rolloverTo: string = rolloverToRaw
 
     const closedAt = new Date().toISOString()
     located.sprint.status = 'closed'
@@ -414,9 +416,35 @@ export class SprintService {
     const cards = this.repo.findBySprint(sprintId)
     for (const row of cards) {
       if (row.status === 'done') {
+        // Archive completed cards automatically when the sprint closes.
+        const current = this.repo.toCard(row)
+        const archived: Omit<Card, 'body'> = {
+          ...current,
+          archived: true,
+          version: current.version + 1,
+          updated_at: closedAt,
+          updated_by: claims.actor,
+        }
+        const body = await this.readBody(row.project, row.file_basename)
+        await this.writer.write(archived, body, row.file_basename)
+        await this.audit.log({
+          ts: closedAt,
+          op: 'ARCHIVE',
+          project: row.project,
+          card_id: row.id,
+          version: archived.version,
+          actor: claims.actor,
+          changed_fields: ['archived'],
+          reason: `auto-archived on sprint close`,
+        })
+        this.sse.emit({
+          type: 'CARD_ARCHIVED',
+          payload: { card_id: row.id, project: row.project },
+        })
         finished.push(row.id)
         continue
       }
+      if (!rolloverTo) continue   // shouldn't happen — validated above
       const current = this.repo.toCard(row)
       const next: Omit<Card, 'body'> = {
         ...current,
