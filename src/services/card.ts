@@ -37,7 +37,7 @@ const UPDATE_ALLOWED_AGENT = [
   'due_date',
   'assigned_to',
   'agent_notes',
-  'body',
+  'log_entry',
   'blocked_by',
 ] as const
 const UPDATE_ALLOWED_MANAGER = [...UPDATE_ALLOWED_AGENT, 'owner'] as const
@@ -325,7 +325,21 @@ export class CardService {
     if (claims.role === 'manager' && 'owner' in params) {
       proposed.owner = optNullableString(params, 'owner').value
     }
-    if ('body' in params) proposed.body = optString(params, 'body') ?? ''
+    if ('log_entry' in params) {
+      const entry = optString(params, 'log_entry', 4000)
+      if (entry) {
+        const ts = new Date().toISOString().slice(0, 16).replace('T', ' ')
+        const block = `**${ts}**\n\n${entry.trimEnd()}`
+        const SECTION = '# Agent Log'
+        if (currentBody.includes(SECTION)) {
+          proposed.body = `${currentBody.trimEnd()}\n\n${block}`
+        } else {
+          proposed.body = currentBody
+            ? `${currentBody.trimEnd()}\n\n${SECTION}\n\n${block}`
+            : `${SECTION}\n\n${block}`
+        }
+      }
+    }
     if ('blocked_by' in params) {
       const next = this.normalizeBlockedBy(params['blocked_by'], current.id, row.project)
       proposed.blocked_by = next

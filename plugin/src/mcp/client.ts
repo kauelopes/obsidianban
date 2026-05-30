@@ -15,6 +15,9 @@ import type {
   UpdateCardParams,
 } from '../../../src/types.js'
 
+// UpdateCardParams re-export for plugin consumers that need the log_entry shape.
+export type { UpdateCardParams }
+
 export interface ConflictError {
   kind: 'conflict'
   status: 409

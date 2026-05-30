@@ -101,7 +101,8 @@ export interface UpdateCardParams extends TokenFields {
   due_date?: string | null
   assigned_to?: string | null
   agent_notes?: string
-  body?: string
+  /** Appends a timestamped entry to the card body. Body is write-once at creation; all subsequent writes must use log_entry. */
+  log_entry?: string
   owner?: string        // manager only
   request_id?: string
 }
