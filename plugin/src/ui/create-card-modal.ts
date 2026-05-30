@@ -135,7 +135,8 @@ export class CreateCardModal extends Modal {
       const due = dueInput.value.trim()
       const assigned = assignedInput.value.trim()
       const blockedBy = blockedSelect.value ? [blockedSelect.value] : []
-      this.close()
+      const body = bodyTextarea.value
+      this.close() // capture all values above before close() empties the DOM
       await this.onSubmit({
         title,
         type,
@@ -145,7 +146,7 @@ export class CreateCardModal extends Modal {
         assigned_to: assigned.length > 0 ? assigned : null,
         sprint_id: sprintId,
         blocked_by: blockedBy,
-        body: bodyTextarea.value,
+        body,
       })
     }
 
