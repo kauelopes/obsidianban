@@ -15,6 +15,7 @@ import type { McpError } from '../mcp/client.js'
 import type { SSEFrame, SseStatus } from '../mcp/sse-subscriber.js'
 import { ConflictModal } from '../ui/conflict-modal.js'
 import { ConfirmModal } from '../ui/confirm-modal.js'
+import { ChangeSprintModal } from '../ui/change-sprint-modal.js'
 import { HelpModal } from '../ui/help-modal.js'
 import { CreateCardModal } from '../ui/create-card-modal.js'
 import { DeleteProjectModal } from '../ui/delete-project-modal.js'
@@ -138,6 +139,11 @@ export class KanbanBoardView extends ItemView {
 
   private renderToolbar(): void {
     const bar = this.contentEl.createDiv({ cls: 'kanban-mcp-toolbar' })
+    bar.createEl('button', {
+      cls: 'kanban-mcp-toolbar-btn kanban-mcp-new-project-btn',
+      text: '+ New project',
+      attr: { type: 'button', 'aria-label': 'Create kanban project' },
+    })
     const helpBtn = bar.createEl('button', {
       cls: 'kanban-mcp-help-btn',
       text: '? Help',
@@ -323,6 +329,12 @@ export class KanbanBoardView extends ItemView {
       if (project) this.openProjectMenu(e, project, archived)
       return
     }
+    const newProjectBtn = closestEl(e.target, '.kanban-mcp-new-project-btn')
+    if (newProjectBtn) {
+      e.stopPropagation()
+      this.plugin.promptCreateProject()
+      return
+    }
     const helpBtn = closestEl(e.target, '.kanban-mcp-help-btn')
     if (helpBtn) {
       e.stopPropagation()
@@ -349,21 +361,13 @@ export class KanbanBoardView extends ItemView {
       if (project && status) this.promptCreate(project, status)
       return
     }
-    // Card-level action buttons must short-circuit before the card-open
-    // fallback below, otherwise the .md file would open every time the user
-    // clicks archive / restore.
-    const archiveBtn = closestEl(e.target, '.kanban-mcp-card-archive')
-    if (archiveBtn) {
+    // Card-level … menu must short-circuit before the card-open fallback so
+    // clicking the button doesn't also open the .md file.
+    const cardMenuBtn = closestEl(e.target, '.kanban-mcp-card-menu')
+    if (cardMenuBtn) {
       e.stopPropagation()
-      const cardId = archiveBtn.dataset['cardId']
-      if (cardId) void this.attemptArchive(cardId)
-      return
-    }
-    const unarchiveBtn = closestEl(e.target, '.kanban-mcp-card-unarchive')
-    if (unarchiveBtn) {
-      e.stopPropagation()
-      const cardId = unarchiveBtn.dataset['cardId']
-      if (cardId) void this.attemptUnarchive(cardId)
+      const cardId = cardMenuBtn.dataset['cardId']
+      if (cardId) this.openCardMenu(e, cardId)
       return
     }
     const cardEl = closestEl(e.target, '.kanban-mcp-card')
@@ -577,6 +581,118 @@ export class KanbanBoardView extends ItemView {
     }
     this.cards = replaceCard(removeCard(this.cards, tempId), result.data)
     this.render()
+  }
+
+  private openCardMenu(e: MouseEvent, cardId: string): void {
+    const card = this.cards.find((c) => c.id === cardId)
+    if (!card) return
+    const menu = new Menu()
+
+    if (card.archived) {
+      menu.addItem((item) =>
+        item
+          .setTitle('Restore card')
+          .setIcon('archive-restore')
+          .onClick(() => void this.attemptUnarchive(cardId)),
+      )
+    } else {
+      menu.addItem((item) =>
+        item
+          .setTitle('Archive card')
+          .setIcon('archive')
+          .onClick(() => void this.attemptArchive(cardId)),
+      )
+    }
+
+    // Change sprint — single item; opens a picker modal with all open sprints
+    // (planning + active) except the one the card already belongs to.
+    const availableSprints = (this.sprintsByProject.get(card.project) ?? [])
+      .filter((s) => s.id !== card.sprint_id)
+    if (availableSprints.length > 0) {
+      menu.addSeparator()
+      menu.addItem((item) =>
+        item
+          .setTitle('Change sprint…')
+          .setIcon('calendar-arrow-up')
+          .onClick(() => {
+            new ChangeSprintModal(this.app, card.title, availableSprints, (sprintId) => {
+              void this.attemptChangeSprint(card, sprintId)
+            }).open()
+          }),
+      )
+    }
+
+    menu.addSeparator()
+    menu.addItem((item) =>
+      item
+        .setTitle('Delete card…')
+        .setIcon('trash')
+        .onClick(() => void this.promptDeleteCard(cardId))
+        .setWarning(true),
+    )
+
+    menu.showAtMouseEvent(e)
+  }
+
+  private async promptDeleteCard(cardId: string): Promise<void> {
+    const card = this.cards.find((c) => c.id === cardId)
+    if (!card) return
+    new ConfirmModal(this.app, {
+      title: 'Delete card?',
+      body: `Permanently delete "${card.title}". This cannot be undone.`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+    }, async (ok) => {
+      if (!ok) return
+      const client = this.plugin.client
+      if (!client) return
+      const snapshot = this.cards
+      this.cards = removeCard(this.cards, cardId)
+      this.render()
+      const result = await client.deleteCard({
+        id: cardId,
+        version: card.version,
+        input_tokens: 0,
+        output_tokens: 0,
+        model: 'plugin',
+      })
+      if (!result.ok) {
+        this.cards = [...snapshot]
+        this.render()
+        this.handleMutationError(result.error, 'Delete failed', () =>
+          this.promptDeleteCard(cardId),
+        )
+      }
+    }).open()
+  }
+
+  private async attemptChangeSprint(
+    card: CardSummary,
+    targetSprintId: string,
+  ): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    if (!card.sprint_id) {
+      new Notice('Card has no source sprint — use "Add to sprint" instead')
+      return
+    }
+    const result = await client.moveBetweenSprints({
+      sprint_id: card.sprint_id,
+      target_sprint_id: targetSprintId,
+      card_ids: [card.id],
+    })
+    if (!result.ok) {
+      this.handleMutationError(result.error, 'Change sprint failed', () =>
+        this.attemptChangeSprint(card, targetSprintId),
+      )
+      return
+    }
+    const failed = result.data.failed
+    if (failed.length > 0) {
+      new Notice(`Could not move card: ${failed[0]?.reason ?? 'unknown reason'}`, 6000)
+      return
+    }
+    void this.refresh()
   }
 
   private openProjectMenu(e: MouseEvent, project: string, archived: boolean): void {

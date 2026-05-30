@@ -119,7 +119,7 @@ export default class KanbanPlugin extends Plugin {
     workspace.revealLeaf(leaf)
   }
 
-  private promptCreateProject(): void {
+  promptCreateProject(): void {
     this.openCreateProjectModal()
   }
 

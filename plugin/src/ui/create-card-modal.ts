@@ -78,38 +78,24 @@ export class CreateCardModal extends Modal {
       }
     }
 
-    // Predecessor picker: a <select multiple> populated reactively based on
-    // the current sprint selection. Hidden when no sprint is picked (the
-    // backlog of unbound cards has no shared sprint context to anchor the
-    // dependency in).
+    // Predecessor picker: shown only when the selected sprint has other cards.
+    // Hidden entirely otherwise — no empty/disabled state to confuse the user.
     const blockedWrap = form.createDiv({ cls: 'kanban-mcp-modal-field' })
     blockedWrap.createEl('label', { text: 'Blocked by', cls: 'kanban-mcp-modal-label' })
-    const blockedHint = blockedWrap.createEl('p', {
-      cls: 'kanban-mcp-modal-help kanban-mcp-modal-help-inline',
-      text: 'Pick a sprint above to choose predecessors.',
-    })
     const blockedSelect = blockedWrap.createEl('select', {
-      cls: 'kanban-mcp-modal-input kanban-mcp-blocked-select',
-      attr: { multiple: 'true', size: '4' },
+      cls: 'kanban-mcp-modal-input',
     })
-    blockedSelect.style.display = 'none'
 
     const refreshBlocked = (): void => {
       blockedSelect.empty()
       const sprintId = sprintSelect.value ?? ''
       const candidates = sprintId ? this.candidatesBySprint.get(sprintId) ?? [] : []
-      if (sprintId === '' || candidates.length === 0) {
-        blockedSelect.style.display = 'none'
-        blockedHint.style.display = ''
-        blockedHint.setText(
-          sprintId === ''
-            ? 'Pick a sprint above to choose predecessors.'
-            : 'No other cards in this sprint yet.',
-        )
+      if (candidates.length === 0) {
+        blockedWrap.style.display = 'none'
         return
       }
-      blockedSelect.style.display = ''
-      blockedHint.style.display = 'none'
+      blockedWrap.style.display = ''
+      blockedSelect.createEl('option', { text: '— None —', attr: { value: '' } })
       for (const c of candidates) {
         blockedSelect.createEl('option', {
           text: c.title,
@@ -140,7 +126,7 @@ export class CreateCardModal extends Modal {
         .split(',').map((t) => t.trim()).filter((t) => t.length > 0)
       const due = dueInput.value.trim()
       const assigned = assignedInput.value.trim()
-      const blockedBy = Array.from(blockedSelect.selectedOptions).map((o) => o.value)
+      const blockedBy = blockedSelect.value ? [blockedSelect.value] : []
       this.close()
       await this.onSubmit({
         title,

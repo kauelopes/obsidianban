@@ -134,10 +134,14 @@ export function renderBoard(
     )
     return
   }
-  for (const g of groups) renderProject(container, g, today)
+  const cardTitles = new Map(cards.map((c) => [c.id, c.title]))
+  for (const g of groups) {
+    const sprintNames = new Map(g.sprints.map((s) => [s.id, s.name]))
+    renderProject(container, g, today, cardTitles, sprintNames)
+  }
 }
 
-function renderProject(parent: HTMLElement, group: ProjectGroup, today: string): void {
+function renderProject(parent: HTMLElement, group: ProjectGroup, today: string, cardTitles: Map<string, string>, sprintNames: Map<string, string>): void {
   const wrapCls = group.archived
     ? 'kanban-mcp-project kanban-mcp-project-archived'
     : 'kanban-mcp-project'
@@ -225,7 +229,7 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string):
 
   const cols = wrap.createDiv({ cls: 'kanban-mcp-columns' })
   for (const st of group.columns) {
-    renderColumn(cols, group.project, st, group.cards[st] ?? [], today)
+    renderColumn(cols, group.project, st, group.cards[st] ?? [], today, cardTitles, sprintNames, group.selectedSprint != null)
   }
 }
 
@@ -235,6 +239,9 @@ function renderColumn(
   status: string,
   cards: readonly CardSummary[],
   today: string,
+  cardTitles: Map<string, string>,
+  sprintNames: Map<string, string>,
+  sprintFiltered: boolean,
 ): void {
   const col = parent.createDiv({ cls: 'kanban-mcp-column' })
   col.dataset['project'] = project
@@ -254,10 +261,10 @@ function renderColumn(
   const body = col.createDiv({ cls: 'kanban-mcp-column-body' })
   body.dataset['project'] = project
   body.dataset['status'] = status
-  for (const c of cards) renderCard(body, c, today)
+  for (const c of cards) renderCard(body, c, today, cardTitles, sprintNames, sprintFiltered)
 }
 
-function renderCard(parent: HTMLElement, card: CardSummary, today: string): void {
+function renderCard(parent: HTMLElement, card: CardSummary, today: string, cardTitles: Map<string, string>, sprintNames: Map<string, string>, sprintFiltered: boolean): void {
   const archived = card.archived === true
   const cls = archived ? 'kanban-mcp-card kanban-mcp-card-archived' : 'kanban-mcp-card'
   const el = parent.createDiv({ cls })
@@ -291,28 +298,25 @@ function renderCard(parent: HTMLElement, card: CardSummary, today: string): void
   if (card.blocked_by != null && card.blocked_by.length > 0) {
     const blockerEl = meta.createSpan({
       cls: 'kanban-mcp-blockers',
-      text: `blocked by ${card.blocked_by.length}`,
+      text: `⊘ blocked`,
     })
-    blockerEl.setAttr('title', card.blocked_by.join('\n'))
+    const names = card.blocked_by.map((id) => cardTitles.get(id) ?? id).join('\n')
+    blockerEl.setAttr('title', `Blocked by:\n${names}`)
   }
-  if (card.sprint_id != null) {
-    const pill = meta.createSpan({
-      cls: 'kanban-mcp-sprint-pill',
-      text: 'sprint',
-    })
-    pill.setAttr('title', card.sprint_id)
+  if (card.sprint_id != null && !sprintFiltered) {
+    const sprintName = sprintNames.get(card.sprint_id)
+    if (sprintName != null) {
+      meta.createSpan({ cls: 'kanban-mcp-sprint-pill', text: sprintName })
+    }
   }
 
-  const actionCls = archived
-    ? 'kanban-mcp-card-action kanban-mcp-card-unarchive'
-    : 'kanban-mcp-card-action kanban-mcp-card-archive'
-  const actionBtn = meta.createEl('button', {
-    cls: actionCls,
-    text: archived ? 'restore' : 'archive',
+  const menuBtn = meta.createEl('button', {
+    cls: 'kanban-mcp-card-action kanban-mcp-card-menu',
+    text: '…',
     attr: {
       'type': 'button',
-      'aria-label': archived ? `Restore ${card.title}` : `Archive ${card.title}`,
+      'aria-label': `Actions for ${card.title}`,
     },
   })
-  actionBtn.dataset['cardId'] = card.id
+  menuBtn.dataset['cardId'] = card.id
 }

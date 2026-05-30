@@ -165,9 +165,10 @@
 .kanban-mcp-blockers {
   padding: 0.05em 0.4em;
   border-radius: 3px;
-  background: var(--background-modifier-error-hover);
-  color: var(--text-error);
-  font-weight: 500;
+  background: transparent;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+  font-size: 0.8em;
   cursor: help;
 }
 
@@ -303,14 +304,29 @@
   font-style: italic;
 }
 
-.kanban-mcp-blocked-select {
-  min-height: 5em;
-}
-
 .kanban-mcp-toolbar {
   display: flex;
+  align-items: center;
+  gap: 0.5em;
   justify-content: flex-end;
   padding: 0.25em 0.5em 0.5em 0.5em;
+}
+
+.kanban-mcp-toolbar-btn {
+  padding: 0.2em 0.7em;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.kanban-mcp-new-project-btn {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+}
+
+.kanban-mcp-new-project-btn:hover {
+  background: var(--interactive-accent-hover);
 }
 
 .kanban-mcp-help-btn {
@@ -562,6 +578,18 @@
 .kanban-mcp-card-action:hover {
   color: var(--text-normal);
   border-color: var(--text-muted);
+}
+
+.kanban-mcp-card-menu {
+  font-size: 1em;
+  line-height: 1;
+  padding: 0 0.35em;
+  letter-spacing: 0.05em;
+}
+
+.kanban-mcp-change-sprint-select {
+  width: 100%;
+  margin-bottom: 1em;
 }
 
 .kanban-mcp-modal-help {

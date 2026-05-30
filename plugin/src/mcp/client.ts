@@ -176,6 +176,17 @@ export class McpClient {
     return this.call('kanban_add_to_sprint', params)
   }
 
+  moveBetweenSprints(params: {
+    sprint_id: string
+    target_sprint_id: string
+    card_ids: string[]
+  }): Promise<McpResult<{
+    updated: string[]
+    failed: Array<{ card_id: string; reason: string }>
+  }>> {
+    return this.call('kanban_move_between_sprints', params)
+  }
+
   closeSprint(params: { sprint_id: string; rollover_to?: string | null }): Promise<McpResult<{
     sprint_id: string
     closed_at: string
