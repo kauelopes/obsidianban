@@ -96,13 +96,22 @@ async function main() {
   try {
     console.log('=== Dependencies smoke ===')
 
+    // Every card now needs a sprint. Mint one per project and attach all
+    // creates to it so the dependency logic itself is what gets exercised.
+    const sprint = (await call('kanban_create_sprint',
+      { project: PROJECT, name: 'deps sprint', goal: 'test deps' }, mgr)).body
+    const otherSprint = (await call('kanban_create_sprint',
+      { project: 'otherproj', name: 'other sprint', goal: 'isolate' }, mgr)).body
+    const SP = { sprint_id: sprint.id }
+    const SP_OTHER = { sprint_id: otherSprint.id }
+
     // Bootstrap two cards in depsproj
     const a = (await call('kanban_create_card',
-      { title: 'A', type: 'task', ...TOK }, agt)).body
+      { title: 'A', type: 'task', ...SP, ...TOK }, agt)).body
     const b = (await call('kanban_create_card',
-      { title: 'B depends on A', type: 'task', ...TOK }, agt)).body
+      { title: 'B depends on A', type: 'task', ...SP, ...TOK }, agt)).body
     const otherCard = (await call('kanban_create_card',
-      { title: 'cross', type: 'task', ...TOK }, otherAgt)).body
+      { title: 'cross', type: 'task', ...SP_OTHER, ...TOK }, otherAgt)).body
 
     // ── validation ────────────────────────────────────────────────
     // self-reference
@@ -134,6 +143,22 @@ async function main() {
     check('blocked_by reflected on card',
       JSON.stringify(ok.body.blocked_by) === JSON.stringify([a.id]),
       `blocked_by=${JSON.stringify(ok.body.blocked_by)}`)
+
+    // ── create_card with blocked_by ───────────────────────────────
+    const createBlocked = await call('kanban_create_card',
+      { title: 'C depends on A', type: 'task', blocked_by: [a.id], ...SP, ...TOK }, agt)
+    check('create with blocked_by → 200',
+      createBlocked.status === 200, `status=${createBlocked.status}`)
+    check('created card carries blocked_by from create',
+      JSON.stringify(createBlocked.body.blocked_by) === JSON.stringify([a.id]),
+      `blocked_by=${JSON.stringify(createBlocked.body.blocked_by)}`)
+
+    const createBadBlocker = await call('kanban_create_card',
+      { title: 'D bad', type: 'task', blocked_by: ['card-DOESNOT'], ...SP, ...TOK }, agt)
+    check('create with unknown blocker rejected',
+      createBadBlocker.status === 400
+        && /unknown card id/.test(createBadBlocker.body.reason),
+      `status=${createBadBlocker.status}`)
 
     // ── cycle detection ──────────────────────────────────────────
     const cycle = await call('kanban_update_card',
@@ -213,11 +238,11 @@ async function main() {
     // ── pick_next ────────────────────────────────────────────────
     // Reset: create three fresh todo cards, two blocked, one ready
     const ready = (await call('kanban_create_card',
-      { title: 'ready', type: 'task', priority: 'high', ...TOK }, agt)).body
+      { title: 'ready', type: 'task', priority: 'high', ...SP, ...TOK }, agt)).body
     const blocker = (await call('kanban_create_card',
-      { title: 'blocker', type: 'task', ...TOK }, agt)).body
+      { title: 'blocker', type: 'task', ...SP, ...TOK }, agt)).body
     const blocked = (await call('kanban_create_card',
-      { title: 'blocked', type: 'task', priority: 'critical', ...TOK }, agt)).body
+      { title: 'blocked', type: 'task', priority: 'critical', ...SP, ...TOK }, agt)).body
     await call('kanban_update_card',
       { id: blocked.id, version: blocked.version, blocked_by: [blocker.id], ...TOK }, agt)
 

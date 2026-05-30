@@ -190,7 +190,33 @@ function renderProject(parent: HTMLElement, group: ProjectGroup, today: string):
     const sprint = group.sprints.find((s) => s.id === group.selectedSprint)
     if (sprint) {
       const banner = wrap.createDiv({ cls: 'kanban-mcp-sprint-banner' })
-      banner.createEl('strong', { text: sprint.name })
+      const top = banner.createDiv({ cls: 'kanban-mcp-sprint-banner-top' })
+      top.createEl('strong', { text: sprint.name })
+      top.createSpan({
+        cls: `kanban-mcp-sprint-status-pill kanban-mcp-sprint-status-${sprint.status}`,
+        text: sprint.status,
+      })
+      // Forward-only transition surfaced contextually: planning → Start,
+      // active → Close. Closed sprints render no button.
+      if (sprint.status === 'planning') {
+        const btn = top.createEl('button', {
+          cls: 'kanban-mcp-sprint-action mod-cta',
+          text: 'Start sprint',
+          attr: { type: 'button' },
+        })
+        btn.dataset['project'] = group.project
+        btn.dataset['sprint'] = sprint.id
+        btn.dataset['action'] = 'start'
+      } else if (sprint.status === 'active') {
+        const btn = top.createEl('button', {
+          cls: 'kanban-mcp-sprint-action',
+          text: 'Close sprint',
+          attr: { type: 'button' },
+        })
+        btn.dataset['project'] = group.project
+        btn.dataset['sprint'] = sprint.id
+        btn.dataset['action'] = 'close'
+      }
       if (sprint.goal) {
         banner.createEl('p', { cls: 'kanban-mcp-sprint-goal', text: sprint.goal })
       }

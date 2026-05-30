@@ -43,9 +43,10 @@ export interface Sprint {
   id: string                   // sprint-{nanoid(8)}
   name: string                 // human-readable, max 80 chars
   goal: string                 // sprint goal text, max 1000 chars
-  started_at: string           // ISO 8601 — when create_sprint was called
-  ended_at: string | null      // null while status==='active'
-  status: 'active' | 'closed'
+  created_at: string           // ISO 8601 — when create_sprint was called
+  started_at: string | null    // ISO 8601 — when start_sprint was called (null while planning)
+  ended_at: string | null      // null while status!=='closed'
+  status: 'planning' | 'active' | 'closed'
 }
 
 export type CardSummary = Omit<Card, 'body'>
@@ -85,6 +86,8 @@ export interface CreateCardParams extends TokenFields {
   assigned_to?: string
   body?: string
   agent_notes?: string
+  blocked_by?: string[]     // predecessor card ids (must be same project; validated server-side)
+  sprint_id: string         // REQUIRED — every new card must belong to a planning/active sprint
   request_id?: string
 }
 
@@ -161,6 +164,7 @@ export type SSEEventType =
   | 'PROJECT_UNARCHIVED'
   | 'PROJECT_DELETED'
   | 'SPRINT_CREATED'
+  | 'SPRINT_STARTED'
   | 'SPRINT_UPDATED'
   | 'SPRINT_CLOSED'
 
@@ -176,6 +180,7 @@ export interface ProjectArchivedPayload   { project: string }
 export interface ProjectUnarchivedPayload { project: string }
 export interface ProjectDeletedPayload    { project: string }
 export interface SprintCreatedPayload     { sprint_id: string; project: string }
+export interface SprintStartedPayload     { sprint_id: string; project: string }
 export interface SprintUpdatedPayload     { sprint_id: string; project: string }
 export interface SprintClosedPayload      { sprint_id: string; project: string }
 
@@ -192,6 +197,7 @@ export type SSEEventPayload =
   | ProjectUnarchivedPayload
   | ProjectDeletedPayload
   | SprintCreatedPayload
+  | SprintStartedPayload
   | SprintUpdatedPayload
   | SprintClosedPayload
 
@@ -209,7 +215,7 @@ export type AuditOp =
   | 'ARCHIVE' | 'UNARCHIVE'
   | 'CLAIM' | 'RELEASE'
   | 'PROJECT_ARCHIVED' | 'PROJECT_UNARCHIVED' | 'PROJECT_DELETED'
-  | 'SPRINT_CREATED' | 'SPRINT_CLOSED'
+  | 'SPRINT_CREATED' | 'SPRINT_STARTED' | 'SPRINT_CLOSED'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
 

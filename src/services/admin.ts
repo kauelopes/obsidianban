@@ -11,7 +11,6 @@ import {
 import type { CardRepository } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { SSEEventBus } from '../server/sse.js'
-import type { CardService } from './card.js'
 import { badRequest, HttpError } from './errors.js'
 
 // Project names map directly to directory names under kanban-data/, so they
@@ -39,13 +38,11 @@ export interface CreateProjectResult {
   token: string
   actor: string
   created_at: string
-  starter_card_id: string | null
 }
 
 export class AdminService {
   constructor(
     private readonly paths: Paths,
-    private readonly cards: CardService,
     private readonly repo: CardRepository,
     private readonly audit: AuditLogger,
     private readonly sse: SSEEventBus,
@@ -190,33 +187,10 @@ export class AdminService {
     const project = requireMatch(params, 'project', SAFE_PROJECT, '[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}')
     const actor = requireMatch(params, 'actor', SAFE_ACTOR, '[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}')
 
-    // Decide *before* minting so a re-mint into a project that already has
-    // tokens does not create a second starter card.
-    const isFirstMint = await loadProjectMeta(this.paths, project).then(
-      () => false,
-      () => true,
-    )
-
+    // Under the "every card belongs to a sprint" rule we no longer auto-create
+    // a starter card at project mint — there's no sprint yet to attach it to.
+    // The onboarding content lives in the plugin's Help button instead.
     const issued: IssuedToken = await createAgentToken(this.paths, project, actor)
-
-    let starterCardId: string | null = null
-    if (isFirstMint) {
-      const card = await this.cards.create(
-        {
-          project,
-          title: 'Agent setup — read this first',
-          type: 'task',
-          status: 'backlog',
-          priority: 'high',
-          body: starterCardBody(project, actor, issued.token_id),
-          input_tokens: 0,
-          output_tokens: 0,
-          model: 'system:bootstrap',
-        },
-        claims,
-      )
-      starterCardId = card.id
-    }
 
     return {
       project,
@@ -224,88 +198,8 @@ export class AdminService {
       token: issued.raw,
       actor: issued.actor,
       created_at: issued.created_at,
-      starter_card_id: starterCardId,
     }
   }
-}
-
-function starterCardBody(project: string, actor: string, tokenId: string): string {
-  return [
-    `Welcome to the **${project}** kanban project. This card is auto-generated`,
-    `when the project is first created and exists to bootstrap the agent that`,
-    `will work on this board.`,
-    '',
-    '## Your identity',
-    '',
-    `- **Project:** \`${project}\``,
-    `- **Actor:** \`${actor}\``,
-    `- **Token id:** \`${tokenId}\` (the raw token was shown to the manager once)`,
-    '',
-    '## What you can do',
-    '',
-    'The MCP server exposes these tools — call them via your configured',
-    'transport (stdio or HTTP):',
-    '',
-    '- `kanban_list_cards` — see the board (your token scopes you to this project)',
-    '- `kanban_get_card` — read a card including its markdown body',
-    '- `kanban_create_card` — add a card to any column',
-    '- `kanban_bulk_create_cards` — create up to 100 cards in one call',
-    '  (use this when parsing a PRD into a backlog so the cost is booked once)',
-    '- `kanban_update_card` — edit fields with optimistic locking',
-    '- `kanban_move_card` — change a card\'s column',
-    '- `kanban_reorder_card` — change ordering within a column',
-    '- `kanban_delete_card` — remove a card',
-    '- `kanban_archive_card` / `kanban_unarchive_card` — hide / restore',
-    '- `kanban_claim_card` / `kanban_release_card` — take or relinquish',
-    '  ownership of a card (see "Ownership" below)',
-    '- `kanban_pick_next` — return the next ready card (no unsatisfied',
-    '  blockers); filter by sprint_id or assigned_to',
-    '- `kanban_list_sprints` / `kanban_get_sprint` — see what sprint is',
-    '  active and read its goal + aggregates (use this as briefing)',
-    '',
-    'Every mutation must carry `input_tokens`, `output_tokens`, and `model`',
-    'so the human can see the cost of your work. Retries should reuse the',
-    'same `request_id` (UUIDv4) to stay idempotent.',
-    '',
-    '## Ownership',
-    '',
-    'Each card has an `assigned_to` field. Once it\'s set to an actor, only',
-    'that actor (or a manager) can mutate the card — everyone else gets',
-    '`403 not_assigned`. Before working on a card you don\'t own:',
-    '',
-    '1. Call `kanban_claim_card` — fails with `409 already_claimed` if',
-    '   another agent got there first.',
-    '2. Do the work.',
-    '3. Call `kanban_release_card` when you hand off to review, or just',
-    '   leave it claimed if you\'re continuing.',
-    '',
-    '## Suggested first steps',
-    '',
-    '1. Call `kanban_list_cards` to confirm you can read the board.',
-    '2. Claim this card with `kanban_claim_card`.',
-    '3. Move it to `in-progress` to acknowledge bootstrap.',
-    '4. Read any cards in `todo` — those are the work the manager prepared.',
-    '5. When you finish a card, move it to `review`. The manager promotes',
-    '   reviewed cards to `done`.',
-    '',
-    '## Dependencies',
-    '',
-    'A card can have a `blocked_by: [card_id, ...]` field. The server will',
-    'refuse to let you advance a blocked card past `todo` (you get a',
-    '`409 blocked { blockers }` with the unsatisfied ids). Use',
-    '`kanban_pick_next` to skip blocked cards automatically — it returns',
-    'the next ready card and tells you how many candidates are still gated.',
-    '',
-    '## Conflict handling',
-    '',
-    'Every update takes a `version` field. If the version is stale you get a',
-    '`409 conflict` with the current card embedded in the response — merge',
-    'or refetch and retry. Never overwrite without reading first.',
-    '',
-    'Once you understand all of this, move this card to `done` and start on',
-    'the real work.',
-    '',
-  ].join('\n')
 }
 
 function optBool(p: Record<string, unknown>, key: string, def: boolean): boolean {

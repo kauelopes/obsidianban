@@ -14,6 +14,8 @@ import type {
 import type { McpError } from '../mcp/client.js'
 import type { SSEFrame, SseStatus } from '../mcp/sse-subscriber.js'
 import { ConflictModal } from '../ui/conflict-modal.js'
+import { ConfirmModal } from '../ui/confirm-modal.js'
+import { HelpModal } from '../ui/help-modal.js'
 import { CreateCardModal } from '../ui/create-card-modal.js'
 import { DeleteProjectModal } from '../ui/delete-project-modal.js'
 import { showErrorToast, showRetryToast } from '../ui/toast.js'
@@ -98,7 +100,7 @@ export class KanbanBoardView extends ItemView {
     const projectsToFetch = this.projectShapes.map((p) => p.project)
     const sprintResults = await Promise.all(
       projectsToFetch.map(async (project) => {
-        const r = await client.listSprints({ project, status: 'active' })
+        const r = await client.listSprints({ project, status: 'open' })
         return { project, sprints: r.ok ? r.data.sprints : [] }
       }),
     )
@@ -110,6 +112,7 @@ export class KanbanBoardView extends ItemView {
 
   private render(): void {
     this.contentEl.empty()
+    this.renderToolbar()
     if (this.plugin.connectionStatus !== 'connected') {
       this.renderOfflineBanner(this.plugin.connectionStatus)
     }
@@ -131,6 +134,16 @@ export class KanbanBoardView extends ItemView {
       })
     }
     renderBoard(this.contentEl, this.cards, todayString(), shapes)
+  }
+
+  private renderToolbar(): void {
+    const bar = this.contentEl.createDiv({ cls: 'kanban-mcp-toolbar' })
+    const helpBtn = bar.createEl('button', {
+      cls: 'kanban-mcp-help-btn',
+      text: '? Help',
+      attr: { type: 'button', 'aria-label': 'Open agent onboarding help' },
+    })
+    helpBtn.dataset['action'] = 'open-help'
   }
 
   private renderOfflineBanner(status: SseStatus): void {
@@ -255,6 +268,7 @@ export class KanbanBoardView extends ItemView {
         return
       }
       case 'SPRINT_CREATED':
+      case 'SPRINT_STARTED':
       case 'SPRINT_UPDATED':
       case 'SPRINT_CLOSED': {
         // Sprint-shape changes (new sprint, membership change, close)
@@ -307,6 +321,25 @@ export class KanbanBoardView extends ItemView {
       const project = menuBtn.dataset['project']
       const archived = menuBtn.dataset['archived'] === 'true'
       if (project) this.openProjectMenu(e, project, archived)
+      return
+    }
+    const helpBtn = closestEl(e.target, '.kanban-mcp-help-btn')
+    if (helpBtn) {
+      e.stopPropagation()
+      new HelpModal(this.app, this).open()
+      return
+    }
+    const sprintActionBtn = closestEl(e.target, '.kanban-mcp-sprint-action')
+    if (sprintActionBtn) {
+      e.stopPropagation()
+      const project = sprintActionBtn.dataset['project']
+      const sprintId = sprintActionBtn.dataset['sprint']
+      const action = sprintActionBtn.dataset['action']
+      if (project && sprintId && action === 'start') {
+        void this.attemptStartSprint(project, sprintId)
+      } else if (project && sprintId && action === 'close') {
+        void this.promptCloseSprint(project, sprintId)
+      }
       return
     }
     const addBtn = closestEl(e.target, '.kanban-mcp-column-add')
@@ -452,12 +485,40 @@ export class KanbanBoardView extends ItemView {
   }
 
   private promptCreate(project: string, status: string): void {
-    new CreateCardModal(this.app, async (title) => {
-      await this.attemptCreate(project, status, title)
+    const sprints = this.sprintsByProject.get(project) ?? []
+    if (sprints.length === 0) {
+      new Notice(
+        `Project "${project}" has no open sprint. ` +
+        'Use the project menu (⋯) → "New sprint…" to create one before adding cards.',
+        8000,
+      )
+      return
+    }
+    // Build sprint_id → candidate cards lookup once, so the modal can
+    // populate the "Blocked by" picker reactively when the user changes
+    // sprints without us needing to refetch.
+    const candidatesBySprint = new Map<string, Array<{ id: string; title: string }>>()
+    for (const card of this.cards) {
+      if (card.project !== project) continue
+      if (card.sprint_id == null) continue
+      if (card.archived) continue
+      const arr = candidatesBySprint.get(card.sprint_id) ?? []
+      arr.push({ id: card.id, title: card.title })
+      candidatesBySprint.set(card.sprint_id, arr)
+    }
+    for (const arr of candidatesBySprint.values()) {
+      arr.sort((a, b) => a.title.localeCompare(b.title))
+    }
+    new CreateCardModal(this.app, sprints, candidatesBySprint, async (input) => {
+      await this.attemptCreate(project, status, input)
     }).open()
   }
 
-  private async attemptCreate(project: string, status: string, title: string): Promise<void> {
+  private async attemptCreate(
+    project: string,
+    status: string,
+    input: import('../ui/create-card-modal.js').CreateCardInput,
+  ): Promise<void> {
     const client = this.plugin.client
     if (!client) return
 
@@ -466,22 +527,22 @@ export class KanbanBoardView extends ItemView {
     const placeholder: CardSummary = {
       id: tempId,
       project,
-      title,
+      title: input.title,
       status,
-      type: 'task',
+      type: input.type,
       version: 0,
       position: OPTIMISTIC_POSITION,
-      priority: 'medium',
-      tags: [],
-      due_date: null,
-      assigned_to: null,
+      priority: input.priority,
+      tags: input.tags,
+      due_date: input.due_date,
+      assigned_to: input.assigned_to,
       owner: null,
       agent_notes: null,
       total_input_tokens: 0,
       total_output_tokens: 0,
       archived: false,
-      sprint_id: null,
-      blocked_by: [],
+      sprint_id: input.sprint_id,
+      blocked_by: input.blocked_by,
       created_at: now,
       updated_at: now,
       created_by: 'human:plugin',
@@ -492,24 +553,30 @@ export class KanbanBoardView extends ItemView {
     this.render()
 
     const result = await client.createCard({
-      title,
-      type: 'task',
+      title: input.title,
+      type: input.type,
       project,
       status,
+      priority: input.priority,
+      tags: input.tags.length > 0 ? input.tags : undefined,
+      due_date: input.due_date ?? undefined,
+      assigned_to: input.assigned_to ?? undefined,
+      blocked_by: input.blocked_by.length > 0 ? input.blocked_by : undefined,
+      sprint_id: input.sprint_id,
       input_tokens: 0,
       output_tokens: 0,
       model: 'plugin',
     })
-    if (result.ok) {
-      this.cards = replaceCard(removeCard(this.cards, tempId), result.data)
+    if (!result.ok) {
+      this.cards = [...snapshot]
       this.render()
+      this.handleMutationError(result.error, 'Create failed', () =>
+        this.attemptCreate(project, status, input),
+      )
       return
     }
-    this.cards = [...snapshot]
+    this.cards = replaceCard(removeCard(this.cards, tempId), result.data)
     this.render()
-    this.handleMutationError(result.error, 'Create failed', () =>
-      this.attemptCreate(project, status, title),
-    )
   }
 
   private openProjectMenu(e: MouseEvent, project: string, archived: boolean): void {
@@ -522,12 +589,23 @@ export class KanbanBoardView extends ItemView {
     )
     const selectedSprintId = this.selectedSprintByProject.get(project)
     if (selectedSprintId != null) {
-      menu.addItem((item) =>
-        item
-          .setTitle('Close current sprint…')
-          .setIcon('calendar-check')
-          .onClick(() => void this.promptCloseSprint(project, selectedSprintId)),
-      )
+      const sprint = (this.sprintsByProject.get(project) ?? [])
+        .find((s) => s.id === selectedSprintId)
+      if (sprint?.status === 'planning') {
+        menu.addItem((item) =>
+          item
+            .setTitle('Start sprint')
+            .setIcon('play')
+            .onClick(() => void this.attemptStartSprint(project, selectedSprintId)),
+        )
+      } else if (sprint?.status === 'active') {
+        menu.addItem((item) =>
+          item
+            .setTitle('Close current sprint…')
+            .setIcon('calendar-check')
+            .onClick(() => void this.promptCloseSprint(project, selectedSprintId)),
+        )
+      }
     }
     menu.addSeparator()
     menu.addItem((item) =>
@@ -558,6 +636,20 @@ export class KanbanBoardView extends ItemView {
     menu.showAtMouseEvent(e)
   }
 
+  async attemptStartSprint(project: string, sprintId: string): Promise<void> {
+    const client = this.plugin.client
+    if (!client) return
+    const res = await client.startSprint({ sprint_id: sprintId })
+    if (!res.ok) {
+      this.handleMutationError(res.error, 'Start sprint failed', () =>
+        this.attemptStartSprint(project, sprintId),
+      )
+      return
+    }
+    new Notice(`Sprint "${res.data.name}" is now active.`)
+    void this.refresh()
+  }
+
   private async promptCloseSprint(project: string, sprintId: string): Promise<void> {
     const sprints = this.sprintsByProject.get(project) ?? []
     const sprint = sprints.find((s) => s.id === sprintId)
@@ -565,26 +657,32 @@ export class KanbanBoardView extends ItemView {
       new Notice(`Sprint ${sprintId} not found`)
       return
     }
-    // Confirmation is intentionally lightweight — sprint close is reversible
-    // in spirit (you can create a new sprint and migrate unfinished cards via
-    // MCP), unlike project delete which is destructive.
-    const ok = confirm(`Close sprint "${sprint.name}"? Unfinished cards lose their sprint_id.`)
-    if (!ok) return
-    const client = this.plugin.client
-    if (!client) return
-    const res = await client.closeSprint({ sprint_id: sprintId, rollover_to: null })
-    if (!res.ok) {
-      this.handleMutationError(res.error, 'Close sprint failed', () =>
-        this.promptCloseSprint(project, sprintId),
+    // Obsidian-native confirm modal: `window.confirm` in Electron leaves the
+    // renderer focus-stuck so any subsequent modal (e.g. "New sprint") opens
+    // but rejects clicks/keys.
+    new ConfirmModal(this.app, {
+      title: 'Close sprint?',
+      body: `Close sprint "${sprint.name}". Unfinished cards lose their sprint_id and return to the backlog.`,
+      confirmLabel: 'Close sprint',
+      cancelLabel: 'Cancel',
+    }, async (ok) => {
+      if (!ok) return
+      const client = this.plugin.client
+      if (!client) return
+      const res = await client.closeSprint({ sprint_id: sprintId, rollover_to: null })
+      if (!res.ok) {
+        this.handleMutationError(res.error, 'Close sprint failed', () =>
+          this.promptCloseSprint(project, sprintId),
+        )
+        return
+      }
+      new Notice(
+        `Sprint closed — ${res.data.finished.length} done, ` +
+        `${res.data.rolled_over.length} cards returned to backlog`,
       )
-      return
-    }
-    new Notice(
-      `Sprint closed — ${res.data.finished.length} done, ` +
-      `${res.data.rolled_over.length} cards returned to backlog`,
-    )
-    this.selectedSprintByProject.delete(project)
-    void this.refresh()
+      this.selectedSprintByProject.delete(project)
+      void this.refresh()
+    }).open()
   }
 
   private async attemptArchiveProject(project: string): Promise<void> {

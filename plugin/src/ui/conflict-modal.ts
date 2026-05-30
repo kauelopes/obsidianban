@@ -14,6 +14,8 @@ export interface ConflictActions {
  * "Edit manually" path; left for a later iteration.
  */
 export class ConflictModal extends Modal {
+  private decided = false
+
   constructor(
     app: App,
     private readonly conflict: ConflictError,
@@ -49,14 +51,24 @@ export class ConflictModal extends Modal {
       cls: 'mod-cta',
     })
     keepMine.addEventListener('click', async () => {
+      this.decided = true
       this.close()
       await this.actions.keepMine()
     })
 
     const keepTheirs = row.createEl('button', { text: 'Use server version' })
     keepTheirs.addEventListener('click', async () => {
+      this.decided = true
       this.close()
       await this.actions.keepTheirs()
     })
+  }
+
+  override onClose(): void {
+    // Esc / outside-click should not leave the board in an inconsistent
+    // optimistic state. Default to the safer choice (server wins → refresh)
+    // so a stale placeholder doesn't survive on the board waiting for a
+    // 409 loop on the next mutation.
+    if (!this.decided) void this.actions.keepTheirs()
   }
 }

@@ -166,9 +166,9 @@ async function main() {
       sprintCreatedFrame?.payload?.project === PROJECT,
       `project=${sprintCreatedFrame?.payload?.project}`)
 
-    // ── 2. add_to_sprint should emit SPRINT_UPDATED + per-card CARD_UPDATED ──
+    // ── 2. add_to_sprint with move_to_todo flips status → CARD_UPDATED + SPRINT_UPDATED
     const c1 = await call('kanban_create_card',
-      { title: 'rt-card', type: 'task', ...TOK }, agt)
+      { title: 'rt-card', type: 'task', sprint_id: sprintId, ...TOK }, agt)
 
     const beforeAdd = s1.events.length
     await call('kanban_add_to_sprint',
@@ -193,7 +193,7 @@ async function main() {
 
     // ── 3. update_card setting blocked_by emits CARD_UPDATED with right field
     const c2 = await call('kanban_create_card',
-      { title: 'rt-blocker', type: 'task', ...TOK }, agt)
+      { title: 'rt-blocker', type: 'task', sprint_id: sprintId, ...TOK }, agt)
     const beforeBlock = s1.events.length
     await call('kanban_update_card',
       { id: c1.body.id, version: 2, blocked_by: [c2.body.id], ...TOK }, agt)
@@ -237,8 +237,12 @@ async function main() {
     s1.close()
     await sleep(150)
 
+    // close_sprint now requires a planning sprint as rollover target — the
+    // "no orphan cards" rule means we cannot strip sprint_id back to null.
+    const rollover = await call('kanban_create_sprint',
+      { project: PROJECT, name: 'rt-rollover', goal: 'catch leftovers' }, mgr)
     await call('kanban_close_sprint',
-      { sprint_id: sprintId, rollover_to: null }, mgr)
+      { sprint_id: sprintId, rollover_to: rollover.body.id }, mgr)
 
     const s2 = openSseStream(lastSeenId)
     const replayed = await s2.waitFor(

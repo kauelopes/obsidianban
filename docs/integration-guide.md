@@ -161,16 +161,17 @@ Paginate with `offset` until a page returns fewer rows than `limit`.
 **Creating new projects.** A manager token can call
 `kanban_create_project` with `{ project, actor }` to ensure the project
 folder exists under `kanban-data/` *and* mint a fresh agent token in one
-round trip. The response is `{ project, token, token_id, actor, created_at,
-starter_card_id }`; the raw `token` is only returned this once (the server
-keeps a SHA-256 hash). On the **first** call for a given project the server
-also seeds an onboarding card in `backlog` titled "Agent setup — read this
-first" — its id is returned as `starter_card_id` so the caller can link or
-move it. Re-calling with the same project name is additive: the folder is
-reused, a new token is appended, prior tokens stay valid until explicitly
-revoked, and `starter_card_id` comes back as `null` (no duplicate seed).
-Agent tokens calling this tool get `403 forbidden { reason:
-"manager_required" }`. Project and actor names are validated against
+round trip. The response is `{ project, token, token_id, actor, created_at }`;
+the raw `token` is only returned this once (the server keeps a SHA-256
+hash). The project starts empty — under the "every card belongs to a
+sprint" rule there is no auto-seeded starter card (there is no sprint to
+attach it to yet). The onboarding briefing that used to live in that card
+now ships with the plugin as a Help modal reachable from the board, and
+is mirrored in the agent's documentation. Re-calling with the same
+project name is additive: the folder is reused, a new token is appended,
+and prior tokens stay valid until explicitly revoked. Agent tokens
+calling this tool get `403 forbidden { reason: "manager_required" }`.
+Project and actor names are validated against
 `[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}` (actors also allow `:` for the
 conventional `agent:foo` / `human:bar` prefixes).
 
@@ -215,15 +216,21 @@ project lifecycle:
   "output_tokens": 350,
   "model": "claude-sonnet-4-6",
   "request_id": "<uuid v4>",
-  "project": "marketing"
+  "project": "marketing",
+  "sprint_id": "sprint-abc12345"
 }
 ```
 
 - Limit: 100 entries per call (over → `400 invalid_field max=100`).
 - The envelope owns `input_tokens` / `output_tokens` / `model` /
-  `request_id` (and optionally a default `project`). Including any
+  `request_id` (and optionally a default `project` and `sprint_id`
+  that get injected into any entry that omits its own). Including any
   of those four token-tracking fields *per-card* drops that card
   into `failed[]` with `error: "invalid_card"`.
+- `sprint_id` is required on every card (mandatory under the "no
+  sprintless cards" rule). Setting it on the envelope is the common
+  case when parsing a single PRD into one sprint; per-card overrides
+  are accepted so a manager can mix sprints in one batch.
 - Tokens are prorated evenly across cards; the remainder is added to
   the last card so totals reconcile (`envelope == sum(cards)`).
 - Response is `{ created: [{ index, card }], failed: [{ index,
@@ -239,15 +246,28 @@ project lifecycle:
   no separate "bulk" event type.
 
 **Sprints.** A project can hold any number of `Sprint` entities in its
-`_meta.json`, each with `{ id, name, goal, started_at, ended_at, status }`.
-Sprints are manager-managed and provide a structured way to group cards
-that should be worked on together:
+`_meta.json`, each with `{ id, name, goal, created_at, started_at, ended_at, status }`.
+Sprints have a forward-only lifecycle: `planning → active → closed`, with
+at most one `active` sprint per project. Sprints are manager-managed and
+provide a structured way to group cards that should be worked on together.
 
-- `kanban_create_sprint { project, name, goal? }` — declare a sprint.
-  Manager-only; returns the Sprint object including the generated
-  `sprint-<8 char>` id.
-- `kanban_list_sprints { project, status?: 'active' | 'closed' | 'all' }`
-  — agents scoped to their own project; managers can list any project.
+**Every card must belong to a sprint.** `kanban_create_card` requires
+`sprint_id` and rejects with `400 invalid_field` if it's missing, points
+to a closed sprint, or targets a sprint in a different project. There is
+no way to mint a sprintless card. Legacy cards from before this rule
+(`sprint_id: null` on disk) are grandfathered for reads/edits but no new
+card can be created without a sprint.
+
+- `kanban_create_sprint { project, name, goal? }` — declare a sprint in
+  `planning`. Manager-only; returns the Sprint object including the
+  generated `sprint-<8 char>` id and `created_at`.
+- `kanban_start_sprint { sprint_id }` — transition `planning → active`.
+  Refuses with `409 another_sprint_active` if the project already has a
+  different active sprint. Sets `started_at`.
+- `kanban_list_sprints { project, status?: 'planning' | 'active' | 'closed' | 'open' | 'all' }`
+  — `open` is sugar for "planning + active" (what the plugin and most
+  agent flows want). Agents scoped to their own project; managers can list
+  any project.
 - `kanban_get_sprint { sprint_id }` — returns
   `{ sprint, project, cards: CardSummary[], aggregates }` where
   aggregates carries per-status counts and total token spend. Useful
@@ -257,17 +277,22 @@ that should be worked on together:
   — bulk-attach. `move_to_todo: true` also moves the cards to the `todo`
   column in one pass, which is the canonical "start the sprint" gesture.
   Returns `{ updated[], failed[] }`.
-- `kanban_remove_from_sprint { sprint_id, card_ids[] }` — bulk-detach
-  without changing column.
-- `kanban_close_sprint { sprint_id, rollover_to?: string | null }` —
-  marks `status: 'closed'` and `ended_at`. Cards already `done` stay
-  attached (for retrospective accounting). Unfinished cards get their
-  `sprint_id` cleared (`rollover_to: null`, default) or reassigned to
-  another active sprint (`rollover_to: 'sprint-...'`). Returns
-  `{ rolled_over[], finished[] }`.
+- `kanban_move_between_sprints { sprint_id, target_sprint_id, card_ids[] }`
+  — bulk-reassign cards from a source sprint to a target sprint in the
+  same project. Asserts source membership (cards not in `sprint_id` go
+  to `failed[]` with `not_in_source_sprint`). Replaces the old
+  `remove_from_sprint`: under the "every card belongs to a sprint" rule
+  you cannot strip `sprint_id` back to null — archive the card instead.
+- `kanban_close_sprint { sprint_id, rollover_to: string }` — marks
+  `status: 'closed'` and `ended_at`. Cards already `done` stay attached
+  (for retrospective accounting). Unfinished cards are reassigned to
+  `rollover_to`, which **must** point at a `planning` sprint in the same
+  project. To discard a card instead of rolling it over, archive it before
+  closing. Returns `{ rolled_over[], finished[] }`.
 
-SSE event types: `SPRINT_CREATED`, `SPRINT_UPDATED` (membership change),
-`SPRINT_CLOSED`. Audit ops: `SPRINT_CREATED`, `SPRINT_CLOSED`.
+SSE event types: `SPRINT_CREATED`, `SPRINT_STARTED`, `SPRINT_UPDATED`
+(membership change), `SPRINT_CLOSED`. Audit ops: `SPRINT_CREATED`,
+`SPRINT_STARTED`, `SPRINT_CLOSED`.
 
 **Dependencies (`blocked_by`).** Cards have a `blocked_by: string[]`
 field — ids of other cards in the same project that must finish before

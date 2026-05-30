@@ -64,7 +64,18 @@ export async function ensureProject(paths: Paths, project: string): Promise<Proj
 
 export async function loadProjectMeta(paths: Paths, project: string): Promise<ProjectMeta> {
   const raw = await fs.readFile(metaPath(paths, project), 'utf8')
-  return JSON.parse(raw) as ProjectMeta
+  const meta = JSON.parse(raw) as ProjectMeta
+  // Backfill: pre-planning-status sprints had no `created_at` and always had
+  // `started_at` set on create. The new schema separates the two, so when
+  // reading legacy records we copy started_at into created_at.
+  if (meta.sprints) {
+    for (const s of meta.sprints) {
+      if (s.created_at == null && s.started_at != null) {
+        s.created_at = s.started_at
+      }
+    }
+  }
+  return meta
 }
 
 export async function saveProjectMeta(

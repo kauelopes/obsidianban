@@ -145,10 +145,32 @@ async function main() {
     check('sprint id starts with sprint-',
       typeof r2.body.id === 'string' && r2.body.id.startsWith('sprint-'),
       `id=${r2.body.id}`)
-    check('sprint starts active',
-      r2.body.status === 'active' && r2.body.ended_at === null,
-      `status=${r2.body.status} ended_at=${r2.body.ended_at}`)
+    check('sprint starts in planning',
+      r2.body.status === 'planning'
+        && r2.body.started_at === null
+        && r2.body.ended_at === null
+        && typeof r2.body.created_at === 'string',
+      `status=${r2.body.status} started=${r2.body.started_at} created=${r2.body.created_at}`)
     const sprintId = r2.body.id
+
+    // ── start sprint (planning → active) ──────────────────────────
+    const startForbidden = await call('kanban_start_sprint',
+      { sprint_id: sprintId }, agt)
+    check('agent cannot start sprint → 403',
+      startForbidden.status === 403, `status=${startForbidden.status}`)
+
+    const started = await call('kanban_start_sprint',
+      { sprint_id: sprintId }, mgr)
+    check('manager start sprint → 200', started.status === 200,
+      `status=${started.status}`)
+    check('sprint now active with started_at',
+      started.body.status === 'active' && typeof started.body.started_at === 'string',
+      `status=${started.body.status} started=${started.body.started_at}`)
+
+    const startTwice = await call('kanban_start_sprint',
+      { sprint_id: sprintId }, mgr)
+    check('start already-active → 400',
+      startTwice.status === 400, `status=${startTwice.status}`)
     // Resolve SSE collector with the actual id by waiting + checking length
     const sseHits = await ssePromise
     check('SPRINT_CREATED SSE emitted (any sprint)',
@@ -181,24 +203,31 @@ async function main() {
       ls4.status === 400 && Array.isArray(ls4.body.allowed),
       `status=${ls4.status}`)
 
-    // ── add_to_sprint + aggregates ────────────────────────────────
-    // Bootstrap 3 cards in backlog
+    // ── create_card requires sprint_id ────────────────────────────
+    const noSprint = await call('kanban_create_card',
+      { title: 'orphan', type: 'task', ...TOK }, agt)
+    check('create without sprint_id → 400',
+      noSprint.status === 400, `status=${noSprint.status}`)
+
+    // Bootstrap 3 cards inside the sprint (which is currently active)
     const cards = []
     for (let i = 0; i < 3; i++) {
       const c = await call('kanban_create_card',
-        { title: `card ${i}`, type: 'task', ...TOK }, agt)
+        { title: `card ${i}`, type: 'task', sprint_id: sprintId, ...TOK }, agt)
       cards.push(c.body.id)
     }
 
-    // Move one of the cards to done before adding to sprint, so aggregates
-    // reflect a mixed state.
+    // Move one of the cards to done so move_to_todo on add_to_sprint
+    // exercises the cross-column path even when the card is already in
+    // the sprint.
     const c0Done = await call('kanban_move_card',
       { id: cards[0], version: 1, to_status: 'done', ...TOK }, agt)
     check('bootstrap move-to-done worked', c0Done.status === 200, `status=${c0Done.status}`)
 
     const add = await call('kanban_add_to_sprint',
       { sprint_id: sprintId, card_ids: cards, move_to_todo: true }, mgr)
-    check('add_to_sprint → 200', add.status === 200, `status=${add.status}`)
+    check('add_to_sprint (re-confirm + move_to_todo) → 200',
+      add.status === 200, `status=${add.status}`)
     check('all three updated',
       add.body.updated?.length === 3 && add.body.failed.length === 0,
       `updated=${add.body.updated?.length} failed=${add.body.failed?.length}`)
@@ -222,22 +251,40 @@ async function main() {
         && getRes.body.aggregates?.cards_todo === 3,
       `aggs=${JSON.stringify(getRes.body.aggregates)}`)
 
-    // ── remove_from_sprint ────────────────────────────────────────
-    const rm1 = await call('kanban_remove_from_sprint',
-      { sprint_id: sprintId, card_ids: [cards[2]] }, mgr)
-    check('remove_from_sprint → 200', rm1.status === 200, `status=${rm1.status}`)
-    const c2After = await call('kanban_get_card', { id: cards[2] }, agt)
-    check('removed card has sprint_id=null',
-      c2After.body.sprint_id === null,
-      `sprint_id=${c2After.body.sprint_id}`)
-    const getAfterRm = await call('kanban_get_sprint', { sprint_id: sprintId }, mgr)
-    check('aggregates now show 2 cards', getAfterRm.body.cards?.length === 2,
-      `cards=${getAfterRm.body.cards?.length}`)
-
-    // ── close with rollover_to (active second sprint) ─────────────
+    // ── second sprint (planning) for move + rollover targets ──────
     const s2 = await call('kanban_create_sprint',
       { project: PROJECT, name: 'Sprint 2', goal: 'cleanup' }, mgr)
     const sprintId2 = s2.body.id
+
+    // ── move_between_sprints (replaces remove_from_sprint) ────────
+    const mvSame = await call('kanban_move_between_sprints',
+      { sprint_id: sprintId, target_sprint_id: sprintId, card_ids: [cards[2]] }, mgr)
+    check('source==target rejected', mvSame.status === 400, `status=${mvSame.status}`)
+
+    const mv = await call('kanban_move_between_sprints',
+      { sprint_id: sprintId, target_sprint_id: sprintId2, card_ids: [cards[2]] }, mgr)
+    check('move_between_sprints → 200', mv.status === 200, `status=${mv.status}`)
+    const c2After = await call('kanban_get_card', { id: cards[2] }, agt)
+    check('moved card now lives in sprint 2',
+      c2After.body.sprint_id === sprintId2,
+      `sprint_id=${c2After.body.sprint_id}`)
+    const getAfterMv = await call('kanban_get_sprint', { sprint_id: sprintId }, mgr)
+    check('source sprint now shows 2 cards', getAfterMv.body.cards?.length === 2,
+      `cards=${getAfterMv.body.cards?.length}`)
+
+    const mvNotInSource = await call('kanban_move_between_sprints',
+      { sprint_id: sprintId, target_sprint_id: sprintId2, card_ids: [cards[2]] }, mgr)
+    check('moving card already gone from source reports not_in_source_sprint',
+      mvNotInSource.body.failed?.[0]?.reason === 'not_in_source_sprint',
+      `failed=${JSON.stringify(mvNotInSource.body.failed)}`)
+
+    // Can't start a second sprint while sprintId is still active.
+    const twoActive = await call('kanban_start_sprint', { sprint_id: sprintId2 }, mgr)
+    check('start while another active → 409',
+      twoActive.status === 409
+        && twoActive.body.reason === 'another_sprint_active'
+        && twoActive.body.active_sprint_id === sprintId,
+      `status=${twoActive.status} reason=${twoActive.body?.reason}`)
     // Mark one of the sprint-1 cards as done so close+rollover ignores it
     const c1Done = await call('kanban_move_card',
       { id: cards[1], version: 2, to_status: 'in-progress', ...TOK }, agt)
@@ -267,8 +314,15 @@ async function main() {
       lsClosed.body.sprints?.some((s) => s.id === sprintId),
       `closed=${lsClosed.body.sprints?.length}`)
 
+    // close without rollover_to is rejected — the rule is no orphan cards
+    const noRoll = await call('kanban_close_sprint', { sprint_id: sprintId2 }, mgr)
+    check('close without rollover_to → 400 invalid_field',
+      noRoll.status === 400 && noRoll.body.field === 'rollover_to',
+      `status=${noRoll.status} field=${noRoll.body?.field}`)
+
     // Can't double-close
-    const dbl = await call('kanban_close_sprint', { sprint_id: sprintId }, mgr)
+    const dbl = await call('kanban_close_sprint',
+      { sprint_id: sprintId, rollover_to: sprintId2 }, mgr)
     check('double-close → 400', dbl.status === 400, `status=${dbl.status}`)
 
     // Can't add to closed sprint

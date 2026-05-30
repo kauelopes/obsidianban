@@ -149,14 +149,31 @@ export class McpClient {
     return this.call('kanban_delete_project', params)
   }
 
-  listSprints(params: { project: string; status?: 'active' | 'closed' | 'all' }): Promise<McpResult<{
-    sprints: Sprint[]
-  }>> {
+  listSprints(params: {
+    project: string
+    status?: 'planning' | 'active' | 'closed' | 'open' | 'all'
+  }): Promise<McpResult<{ sprints: Sprint[] }>> {
     return this.call('kanban_list_sprints', params)
   }
 
   createSprint(params: { project: string; name: string; goal?: string }): Promise<McpResult<Sprint>> {
     return this.call('kanban_create_sprint', params)
+  }
+
+  startSprint(params: { sprint_id: string }): Promise<McpResult<Sprint>> {
+    return this.call('kanban_start_sprint', params)
+  }
+
+  addToSprint(params: {
+    sprint_id: string
+    card_ids: string[]
+    move_to_todo?: boolean
+  }): Promise<McpResult<{
+    sprint_id: string
+    updated: string[]
+    failed: Array<{ card_id: string; reason: string }>
+  }>> {
+    return this.call('kanban_add_to_sprint', params)
   }
 
   closeSprint(params: { sprint_id: string; rollover_to?: string | null }): Promise<McpResult<{

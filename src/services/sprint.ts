@@ -52,18 +52,20 @@ export class SprintService {
     const meta = await loadProjectMeta(this.paths, project).catch(() => null)
     if (!meta) throw notFound()
 
+    const now = new Date().toISOString()
     const sprint: Sprint = {
       id: generateSprintId(),
       name,
       goal,
-      started_at: new Date().toISOString(),
+      created_at: now,
+      started_at: null,
       ended_at: null,
-      status: 'active',
+      status: 'planning',
     }
     meta.sprints = [...(meta.sprints ?? []), sprint]
     await saveProjectMeta(this.paths, project, meta)
     await this.audit.log({
-      ts: sprint.started_at,
+      ts: now,
       op: 'SPRINT_CREATED',
       project,
       actor: claims.actor,
@@ -71,6 +73,51 @@ export class SprintService {
     })
     this.sse.emit({ type: 'SPRINT_CREATED', payload: { sprint_id: sprint.id, project } })
     return sprint
+  }
+
+  /**
+   * Transition a sprint from planning → active. Refuses if another sprint
+   * in the same project is already active — the model is one active sprint
+   * per project, so the agent's "what should I work on" answer is unambiguous.
+   */
+  async startSprint(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<Sprint> {
+    if (claims.role !== 'manager') {
+      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
+    }
+    const sprintId = requireString(params, 'sprint_id')
+    const located = await this.findSprint(sprintId, claims)
+    if (located.sprint.status === 'active') {
+      throw badRequest('invalid_field', { field: 'sprint_id', reason: 'already active' })
+    }
+    if (located.sprint.status === 'closed') {
+      throw badRequest('invalid_field', { field: 'sprint_id', reason: 'sprint is closed' })
+    }
+    const otherActive = (located.meta.sprints ?? []).find(
+      (s) => s.id !== sprintId && s.status === 'active',
+    )
+    if (otherActive) {
+      throw new HttpError(409, {
+        error: 'conflict',
+        reason: 'another_sprint_active',
+        active_sprint_id: otherActive.id,
+      })
+    }
+    const startedAt = new Date().toISOString()
+    located.sprint.status = 'active'
+    located.sprint.started_at = startedAt
+    await saveProjectMeta(this.paths, located.project, located.meta)
+    await this.audit.log({
+      ts: startedAt,
+      op: 'SPRINT_STARTED',
+      project: located.project,
+      actor: claims.actor,
+      reason: `sprint_id=${sprintId}`,
+    })
+    this.sse.emit({ type: 'SPRINT_STARTED', payload: { sprint_id: sprintId, project: located.project } })
+    return located.sprint
   }
 
   /**
@@ -84,13 +131,18 @@ export class SprintService {
     const project =
       claims.role === 'agent' ? claims.project_id : requireString(params, 'project')
     const status = optString(params, 'status') ?? 'all'
-    if (status !== 'active' && status !== 'closed' && status !== 'all') {
-      throw badRequest('invalid_field', { field: 'status', allowed: ['active', 'closed', 'all'] })
+    const allowed = ['planning', 'active', 'closed', 'open', 'all']
+    if (!allowed.includes(status)) {
+      throw badRequest('invalid_field', { field: 'status', allowed })
     }
     const meta = await loadProjectMeta(this.paths, project).catch(() => null)
     if (!meta) return { sprints: [] }
     let sprints = meta.sprints ?? []
-    if (status !== 'all') sprints = sprints.filter((s) => s.status === status)
+    if (status === 'open') {
+      sprints = sprints.filter((s) => s.status === 'planning' || s.status === 'active')
+    } else if (status !== 'all') {
+      sprints = sprints.filter((s) => s.status === status)
+    }
     return { sprints }
   }
 
@@ -214,11 +266,23 @@ export class SprintService {
     return { sprint_id: sprintId, updated, failed }
   }
 
-  async removeFromSprint(
+  /**
+   * Move cards from one sprint to another (in the same project). Replaces
+   * the old remove_from_sprint: under the "every card belongs to a sprint"
+   * rule, you can no longer strip sprint_id back to null. To pull a card
+   * out of active work, archive it. To re-assign to a different sprint,
+   * use this tool.
+   *
+   * Asserts source membership so a careless call doesn't silently move
+   * cards from a sprint the caller didn't mean to touch (that's the role
+   * of add_to_sprint, which silently reassigns).
+   */
+  async moveBetweenSprints(
     params: Record<string, unknown>,
     claims: TokenClaims,
   ): Promise<{
     sprint_id: string
+    target_sprint_id: string
     updated: string[]
     failed: Array<{ card_id: string; reason: string }>
   }> {
@@ -226,7 +290,24 @@ export class SprintService {
       throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
     }
     const sprintId = requireString(params, 'sprint_id')
+    const targetSprintId = requireString(params, 'target_sprint_id')
+    if (sprintId === targetSprintId) {
+      throw badRequest('invalid_field', {
+        field: 'target_sprint_id', reason: 'source and target sprint must differ',
+      })
+    }
     const located = await this.findSprint(sprintId, claims)
+    const target = await this.findSprint(targetSprintId, claims)
+    if (target.project !== located.project) {
+      throw badRequest('invalid_field', {
+        field: 'target_sprint_id', reason: 'must be in same project',
+      })
+    }
+    if (target.sprint.status === 'closed') {
+      throw badRequest('invalid_field', {
+        field: 'target_sprint_id', reason: 'target sprint is closed',
+      })
+    }
     const cardIds = requireStringArray(params, 'card_ids')
 
     const updated: string[] = []
@@ -235,13 +316,13 @@ export class SprintService {
       const row = this.repo.findById(cardId)
       if (!row) { failed.push({ card_id: cardId, reason: 'not_found' }); continue }
       if (row.sprint_id !== sprintId) {
-        failed.push({ card_id: cardId, reason: 'not_in_sprint' })
+        failed.push({ card_id: cardId, reason: 'not_in_source_sprint' })
         continue
       }
       const current = this.repo.toCard(row)
       const next: Omit<Card, 'body'> = {
         ...current,
-        sprint_id: null,
+        sprint_id: targetSprintId,
         version: current.version + 1,
         updated_at: new Date().toISOString(),
         updated_by: claims.actor,
@@ -256,6 +337,7 @@ export class SprintService {
         version: next.version,
         actor: claims.actor,
         changed_fields: ['sprint_id'],
+        reason: `moved ${sprintId} → ${targetSprintId}`,
       })
       this.sse.emit({
         type: 'CARD_UPDATED',
@@ -267,7 +349,11 @@ export class SprintService {
       type: 'SPRINT_UPDATED',
       payload: { sprint_id: sprintId, project: located.project },
     })
-    return { sprint_id: sprintId, updated, failed }
+    this.sse.emit({
+      type: 'SPRINT_UPDATED',
+      payload: { sprint_id: targetSprintId, project: located.project },
+    })
+    return { sprint_id: sprintId, target_sprint_id: targetSprintId, updated, failed }
   }
 
   /**
@@ -294,28 +380,29 @@ export class SprintService {
     if (located.sprint.status === 'closed') {
       throw badRequest('invalid_field', { field: 'sprint_id', reason: 'already closed' })
     }
-    let rolloverTo: string | null = null
-    if ('rollover_to' in params) {
-      const v = params['rollover_to']
-      if (v !== null && typeof v !== 'string') {
-        throw badRequest('invalid_field', { field: 'rollover_to', expected: 'string or null' })
-      }
-      if (typeof v === 'string') {
-        // Validate target sprint exists in same project + is active.
-        const target = await this.findSprint(v, claims)
-        if (target.project !== located.project) {
-          throw badRequest('invalid_field', {
-            field: 'rollover_to', reason: 'must be in same project',
-          })
-        }
-        if (target.sprint.status !== 'active') {
-          throw badRequest('invalid_field', {
-            field: 'rollover_to', reason: 'rollover target must be active',
-          })
-        }
-        rolloverTo = v
-      }
+    // rollover_to is mandatory now: under the "every card belongs to a
+    // sprint" rule, closing a sprint with unfinished cards must redirect
+    // them somewhere, not orphan them with sprint_id=null. The only way to
+    // discard cards is to archive them before closing.
+    const rolloverToRaw = params['rollover_to']
+    if (typeof rolloverToRaw !== 'string') {
+      throw badRequest('invalid_field', {
+        field: 'rollover_to',
+        expected: 'string (sprint_id of a planning sprint in the same project)',
+      })
     }
+    const target = await this.findSprint(rolloverToRaw, claims)
+    if (target.project !== located.project) {
+      throw badRequest('invalid_field', {
+        field: 'rollover_to', reason: 'must be in same project',
+      })
+    }
+    if (target.sprint.status !== 'planning') {
+      throw badRequest('invalid_field', {
+        field: 'rollover_to', reason: 'rollover target must be in planning',
+      })
+    }
+    const rolloverTo: string = rolloverToRaw
 
     const closedAt = new Date().toISOString()
     located.sprint.status = 'closed'
@@ -348,7 +435,7 @@ export class SprintService {
         version: next.version,
         actor: claims.actor,
         changed_fields: ['sprint_id'],
-        reason: rolloverTo ? `rolled over to ${rolloverTo}` : 'sprint closed',
+        reason: `rolled over to ${rolloverTo}`,
       })
       this.sse.emit({
         type: 'CARD_UPDATED',
@@ -362,7 +449,7 @@ export class SprintService {
       op: 'SPRINT_CLOSED',
       project: located.project,
       actor: claims.actor,
-      reason: `sprint_id=${sprintId} rollover_to=${rolloverTo ?? 'null'} ` +
+      reason: `sprint_id=${sprintId} rollover_to=${rolloverTo} ` +
         `rolled=${rolledOver.length} finished=${finished.length}`,
     })
     this.sse.emit({

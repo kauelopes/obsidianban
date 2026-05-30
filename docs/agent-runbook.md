@@ -85,24 +85,25 @@ the next request with that token returns `401 token_revoked`.
 
 ## 3. Pick the transport
 
-Both transports expose the **same twenty-four tools** (`kanban_list_cards`,
+Both transports expose the **same twenty-five tools** (`kanban_list_cards`,
 `kanban_get_card`, `kanban_create_card`, `kanban_bulk_create_cards`,
 `kanban_pick_next`, `kanban_update_card`,
 `kanban_move_card`, `kanban_reorder_card`, `kanban_delete_card`,
 `kanban_archive_card`, `kanban_unarchive_card`, `kanban_claim_card`,
 `kanban_release_card`, `kanban_create_project`, `kanban_list_projects`,
 `kanban_archive_project`, `kanban_unarchive_project`,
-`kanban_delete_project`, `kanban_create_sprint`, `kanban_list_sprints`,
-`kanban_get_sprint`, `kanban_add_to_sprint`, `kanban_remove_from_sprint`,
-`kanban_close_sprint`). All `*_project` and `*_sprint` tools except
-`list_*` / `get_sprint` are manager-only; the read tools are scoped
-to the caller's project for agents and unscoped for managers.
-`delete_project` requires `confirm`
-to equal the project name. Cards are gated by `assigned_to`: mutating a
-card owned by another actor returns 403 — use `kanban_claim_card` to
-take ownership of an unassigned card, then `kanban_release_card` when
-you're done. Pick
-based on where the agent runs.
+`kanban_delete_project`, `kanban_create_sprint`, `kanban_start_sprint`,
+`kanban_list_sprints`, `kanban_get_sprint`, `kanban_add_to_sprint`,
+`kanban_move_between_sprints`, `kanban_close_sprint`). All `*_project`
+and `*_sprint` tools except `list_*` / `get_sprint` are manager-only;
+the read tools are scoped to the caller's project for agents and
+unscoped for managers. `delete_project` requires `confirm` to equal the
+project name. Cards are gated by `assigned_to`: mutating a card owned
+by another actor returns 403 — use `kanban_claim_card` to take
+ownership of an unassigned card, then `kanban_release_card` when you're
+done. **Every new card requires a `sprint_id`** in a planning or active
+sprint; call `kanban_list_sprints?status=open` first to find a valid
+target. Pick based on where the agent runs.
 
 | Transport | Best for                                                                                                          | Notes                                                                                  |
 | --------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -171,6 +172,7 @@ const res = await fetch('http://127.0.0.1:3000/mcp/tool/kanban_create_card', {
   body: JSON.stringify({
     title: 'task from agent',
     type: 'task',
+    sprint_id: 'sprint-abc12345', // required — get one from kanban_list_sprints?status=open
     input_tokens: 120, output_tokens: 8,
     model: 'claude-opus-4-7',
     request_id: crypto.randomUUID(),

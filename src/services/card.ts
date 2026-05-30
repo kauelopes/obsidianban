@@ -61,6 +61,7 @@ const CREATE_ALLOWED = [
   'request_id',
   'project',
   'blocked_by',
+  'sprint_id',
 ] as const
 
 const MOVE_ALLOWED = [
@@ -175,7 +176,33 @@ export class CardService {
       throw badRequest('invalid_field', { field: 'status', allowed: meta.columns })
     }
 
+    // sprint_id is mandatory on create: every new card belongs to a sprint.
+    // Validate it points to a sprint in the same project and is in a state
+    // that accepts new work (planning or active — closed sprints are frozen
+    // history). Legacy cards with sprint_id=null are grandfathered (created
+    // before this rule), but no new card can be born outside a sprint.
+    const sprintId = requireString(params, 'sprint_id')
+    const targetSprint = (meta.sprints ?? []).find((s) => s.id === sprintId)
+    if (!targetSprint) {
+      throw badRequest('invalid_field', {
+        field: 'sprint_id', reason: `sprint ${sprintId} not found in project ${project}`,
+      })
+    }
+    if (targetSprint.status === 'closed') {
+      throw badRequest('invalid_field', {
+        field: 'sprint_id', reason: 'sprint is closed; pick a planning or active sprint',
+      })
+    }
+
     const id = generateCardId()
+    // blocked_by on create: same validation as update (existence, same-project,
+    // dedup, sort). Self/cycle checks trivially pass since the new id isn't
+    // in the repo yet, but we still pass it so normalizeBlockedBy's contract
+    // stays consistent across create/update.
+    const blockedBy =
+      'blocked_by' in params
+        ? this.normalizeBlockedBy(params['blocked_by'], id, project)
+        : []
     const maxPos = this.repo.maxPosition(project, status)
     const position = (maxPos ?? 0) + 1000
     const now = new Date().toISOString()
@@ -197,8 +224,8 @@ export class CardService {
       total_input_tokens: inputTokens,
       total_output_tokens: outputTokens,
       archived: false,
-      sprint_id: null,
-      blocked_by: [],
+      sprint_id: sprintId,
+      blocked_by: blockedBy,
       created_at: now,
       updated_at: now,
       created_by: claims.actor,
@@ -907,6 +934,13 @@ export class CardService {
     if (envelopeProject != null && typeof envelopeProject !== 'string') {
       throw badRequest('invalid_field', { field: 'project', expected: 'string' })
     }
+    // sprint_id envelope sugar mirrors project: parsing a PRD into a backlog
+    // usually targets one sprint, so accepting it once at the envelope avoids
+    // repeating it on every entry.
+    const envelopeSprint = params['sprint_id']
+    if (envelopeSprint != null && typeof envelopeSprint !== 'string') {
+      throw badRequest('invalid_field', { field: 'sprint_id', expected: 'string' })
+    }
 
     const n = rawCards.length
     const perInputBase = Math.floor(envelopeInputTokens / n)
@@ -945,6 +979,9 @@ export class CardService {
       }
       if (envelopeProject != null && !('project' in inner)) {
         inner['project'] = envelopeProject
+      }
+      if (envelopeSprint != null && !('sprint_id' in inner)) {
+        inner['sprint_id'] = envelopeSprint
       }
 
       try {

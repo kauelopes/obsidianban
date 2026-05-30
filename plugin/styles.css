@@ -119,6 +119,44 @@
   color: var(--text-normal);
 }
 
+.kanban-mcp-sprint-banner-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.kanban-mcp-sprint-status-pill {
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.kanban-mcp-sprint-status-planning {
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+
+.kanban-mcp-sprint-status-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.kanban-mcp-sprint-status-closed {
+  background: var(--background-modifier-border);
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.kanban-mcp-sprint-action {
+  margin-left: auto;
+  padding: 0.15em 0.6em;
+  font-size: 0.8em;
+  cursor: pointer;
+}
+
 .kanban-mcp-sprint-goal {
   margin: 0.25em 0 0 0;
   color: var(--text-muted);
@@ -239,6 +277,51 @@
 .kanban-mcp-modal-input {
   width: 100%;
   padding: 0.4em 0.6em;
+}
+
+.kanban-mcp-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+
+.kanban-mcp-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+
+.kanban-mcp-modal-label {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.kanban-mcp-modal-help-inline {
+  margin: 0;
+  font-size: 0.8em;
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.kanban-mcp-blocked-select {
+  min-height: 5em;
+}
+
+.kanban-mcp-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.25em 0.5em 0.5em 0.5em;
+}
+
+.kanban-mcp-help-btn {
+  padding: 0.2em 0.7em;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.kanban-mcp-help-modal {
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
 .kanban-mcp-modal-buttons {

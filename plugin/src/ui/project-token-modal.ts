@@ -38,9 +38,23 @@ export class ProjectTokenModal extends Modal {
 
     const row = this.contentEl.createDiv({ cls: 'kanban-mcp-modal-buttons' })
     const copyBtn = row.createEl('button', { text: 'Copy token', cls: 'mod-cta' })
-    copyBtn.addEventListener('click', () => {
-      void navigator.clipboard.writeText(this.info.token)
-      new Notice('Token copied to clipboard')
+    copyBtn.addEventListener('click', async () => {
+      // navigator.clipboard can reject silently on Electron when the window
+      // doesn't have focus or permissions are restricted. Confirming the
+      // promise resolves before showing the success Notice prevents the
+      // user from thinking they captured the token when they didn't —
+      // raw tokens are only shown once.
+      try {
+        await navigator.clipboard.writeText(this.info.token)
+        new Notice('Token copied to clipboard')
+      } catch (err) {
+        new Notice(
+          'Clipboard copy failed — select the token text above and copy ' +
+          'manually before closing this modal. ' +
+          `(${(err as Error).message})`,
+          15000,
+        )
+      }
     })
     const closeBtn = row.createEl('button', { text: 'Done' })
     closeBtn.addEventListener('click', () => this.close())
