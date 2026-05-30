@@ -412,6 +412,13 @@
   padding: 0.4em 0.6em;
 }
 
+.kanban-mcp-modal-textarea {
+  resize: vertical;
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  min-height: 8em;
+}
+
 .kanban-mcp-modal-form {
   display: flex;
   flex-direction: column;

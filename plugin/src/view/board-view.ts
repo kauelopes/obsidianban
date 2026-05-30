@@ -628,6 +628,7 @@ export class KanbanBoardView extends ItemView {
       assigned_to: input.assigned_to ?? undefined,
       blocked_by: input.blocked_by.length > 0 ? input.blocked_by : undefined,
       sprint_id: input.sprint_id,
+      body: input.body.trim() || undefined,
       input_tokens: 0,
       output_tokens: 0,
       model: 'plugin',

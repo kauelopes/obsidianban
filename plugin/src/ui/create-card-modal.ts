@@ -15,6 +15,7 @@ export interface CreateCardInput {
   assigned_to: string | null
   sprint_id: string         // required — every new card must belong to a sprint
   blocked_by: string[]
+  body: string
 }
 
 const TYPE_SUGGESTIONS = ['task', 'bug', 'spike', 'chore', 'docs']
@@ -116,6 +117,13 @@ export class CreateCardModal extends Modal {
       type: 'text', placeholder: 'agent:alice (optional)',
     }) as HTMLInputElement
 
+    const bodyWrap = form.createDiv({ cls: 'kanban-mcp-modal-field' })
+    bodyWrap.createEl('label', { text: 'Description', cls: 'kanban-mcp-modal-label' })
+    const bodyTextarea = bodyWrap.createEl('textarea', {
+      cls: 'kanban-mcp-modal-input kanban-mcp-modal-textarea',
+      attr: { placeholder: 'Optional. Markdown supported.', rows: '6' },
+    })
+
     const submit = async (): Promise<void> => {
       const title = titleInput.value.trim()
       if (!title) { titleInput.focus(); return }
@@ -137,6 +145,7 @@ export class CreateCardModal extends Modal {
         assigned_to: assigned.length > 0 ? assigned : null,
         sprint_id: sprintId,
         blocked_by: blockedBy,
+        body: bodyTextarea.value,
       })
     }
 
