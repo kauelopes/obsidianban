@@ -11,7 +11,7 @@
 
 const args = process.argv.slice(2)
 const opts = {
-  url: 'http://127.0.0.1:3000',
+  url: 'http://127.0.0.1:9375',
   title: `lifecycle ${new Date().toISOString().slice(11, 19)}`,
   fromStatus: 'backlog',
   toStatus: 'todo',

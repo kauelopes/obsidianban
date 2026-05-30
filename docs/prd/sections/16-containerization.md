@@ -12,7 +12,7 @@ The MCP Server is the only containerized component. The Obsidian plugin runs ins
 
 | Inside container | Outside container (host) |
 | --- | --- |
-| MCP Server process (HTTP+SSE on port 3000) | Obsidian Desktop + Plugin |
+| MCP Server process (HTTP+SSE on port 9375) | Obsidian Desktop + Plugin |
 | File Watcher (chokidar, watching `/vault`) | Vault filesystem (mounted in) |
 | SQLite index (at `/vault/.kanban/db.sqlite`) | Agent processes (connect via HTTP or `podman exec`) |
 | Audit log (at `/vault/.kanban/audit.ndjson`) | |
@@ -27,7 +27,7 @@ The MCP Server is the only containerized component. The Obsidian plugin runs ins
 
 | Port | Protocol | Bound to | Purpose |
 | --- | --- | --- | --- |
-| 3000 | HTTP | `127.0.0.1` | Plugin board actions, remote agents, SSE event stream (`GET /events`), health check (`GET /health`), metrics (`GET /metrics`) |
+| 9375 | HTTP | `127.0.0.1` | Plugin board actions, remote agents, SSE event stream (`GET /events`), health check (`GET /health`), metrics (`GET /metrics`) |
 
 Bound to loopback only — not externally reachable. Configurable via `MCP_HTTP_PORT`.
 
@@ -36,7 +36,7 @@ Bound to loopback only — not externally reachable. Configurable via `MCP_HTTP_
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `VAULT_PATH` | Yes | — | Absolute path to the Obsidian vault on the host |
-| `MCP_HTTP_PORT` | No | `3000` | HTTP port inside the container (always mapped to same port on host) |
+| `MCP_HTTP_PORT` | No | `9375` | HTTP port inside the container (always mapped to same port on host) |
 | `LOG_LEVEL` | No | `info` | `debug \| info \| warn \| error` |
 | `NODE_ENV` | No | `production` | Node.js environment |
 

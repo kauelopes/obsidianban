@@ -18,7 +18,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 : "${VAULT_PATH:?VAULT_PATH is not set. Copy .env.example to .env and configure it.}"
-: "${MCP_HTTP_PORT:=3000}"
+: "${MCP_HTTP_PORT:=9375}"
 : "${LOG_LEVEL:=info}"
 
 # ---------------------------------------------------------------------------
@@ -45,10 +45,10 @@ case "$cmd" in
       --restart unless-stopped \
       --userns=keep-id \
       -v "${VAULT_PATH}:/vault:z" \
-      -p "127.0.0.1:${MCP_HTTP_PORT}:3000" \
+      -p "127.0.0.1:${MCP_HTTP_PORT}:9375" \
       -e NODE_ENV=production \
       -e VAULT_PATH=/vault \
-      -e MCP_HTTP_PORT=3000 \
+      -e MCP_HTTP_PORT=9375 \
       -e LOG_LEVEL="${LOG_LEVEL}"  \
       "$IMAGE"
     echo "MCP server running at http://localhost:${MCP_HTTP_PORT}"
@@ -103,7 +103,7 @@ Commands:
 
 Environment (set in .env, copied from .env.example):
   VAULT_PATH       Path to your Obsidian vault on the host  [required]
-  MCP_HTTP_PORT    HTTP port for the MCP server              [default: 3000]
+  MCP_HTTP_PORT    HTTP port for the MCP server              [default: 9375]
   LOG_LEVEL        debug | info | warn | error               [default: info]
 EOF
     ;;

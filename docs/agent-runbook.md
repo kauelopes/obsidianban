@@ -163,7 +163,7 @@ For agents you build yourself (or any service speaking HTTP), don't use
 stdio — connect to the running HTTP server instead:
 
 ```ts
-const res = await fetch('http://127.0.0.1:3000/mcp/tool/kanban_create_card', {
+const res = await fetch('http://127.0.0.1:9375/mcp/tool/kanban_create_card', {
   method: 'POST',
   headers: {
     authorization: `Bearer ${process.env.KANBAN_MCP_TOKEN}`,
@@ -193,7 +193,7 @@ The full integration pattern (idempotency, 409 handling, SSE) is in
 VAULT_PATH=/path/to/vault node_modules/.bin/tsx src/index.ts
 ```
 
-Default port `3000`, override with `MCP_HTTP_PORT`. The process logs
+Default port `9375`, override with `MCP_HTTP_PORT`. The process logs
 `[startup] vault=... ready` when the file watcher is armed.
 
 For stdio agents, **do not start a separate HTTP server** — each MCP
@@ -222,8 +222,8 @@ jq 'select(.actor=="agent:claude-marketing" and .op=="CREATE")' \
 For token consumption summaries, hit the metrics endpoint:
 
 ```bash
-curl http://127.0.0.1:3000/metrics | jq .summary
-curl 'http://127.0.0.1:3000/metrics?from_date=2026-05-01&to_date=2026-05-31' | jq .by_agent
+curl http://127.0.0.1:9375/metrics | jq .summary
+curl 'http://127.0.0.1:9375/metrics?from_date=2026-05-01&to_date=2026-05-31' | jq .by_agent
 ```
 
 `/metrics` is loopback-only and needs no auth.
@@ -266,7 +266,7 @@ VAULT_PATH=$V tsx src/auth/cli.ts create --role manager --actor human:NAME
 VAULT_PATH=$V tsx src/auth/cli.ts revoke --token-id tk_XXXXXXXX
 
 # Start (HTTP)
-VAULT_PATH=$V tsx src/index.ts                         # port 3000
+VAULT_PATH=$V tsx src/index.ts                         # port 9375
 VAULT_PATH=$V MCP_HTTP_PORT=4000 tsx src/index.ts      # custom port
 
 # Start (stdio — usually launched by the agent client)
@@ -274,6 +274,6 @@ VAULT_PATH=$V KANBAN_MCP_TOKEN=kbn_... tsx src/index.ts --stdio
 
 # Observe
 tail -f $V/.kanban/audit.ndjson
-curl http://127.0.0.1:3000/metrics | jq
-curl http://127.0.0.1:3000/health
+curl http://127.0.0.1:9375/metrics | jq
+curl http://127.0.0.1:9375/health
 ```

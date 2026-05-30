@@ -12,10 +12,10 @@ export class KanbanSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('MCP base URL')
-      .setDesc('Where the local MCP server listens (default port 3000).')
+      .setDesc('Where the local MCP server listens (default port 9375).')
       .addText((text) =>
         text
-          .setPlaceholder('http://127.0.0.1:3000')
+          .setPlaceholder('http://127.0.0.1:9375')
           .setValue(this.plugin.settings.baseUrl)
           .onChange(async (value) => {
             this.plugin.settings.baseUrl = value.trim()

@@ -23,7 +23,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   return {
     paths: pathsFor(vault),
-    httpPort: Number(env.MCP_HTTP_PORT ?? 3000),
+    httpPort: Number(env.MCP_HTTP_PORT ?? 9375),
     logLevel: (env.LOG_LEVEL as Config['logLevel']) ?? 'info',
   }
 }

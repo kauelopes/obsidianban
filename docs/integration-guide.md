@@ -19,8 +19,8 @@ based on where your agent runs.
 | Transport | Endpoint | When to use |
 |---|---|---|
 | `stdio` | spawn `node dist/index.js` as child process, framed JSON-RPC on stdin/stdout | Local agents bundled with the MCP (no network hop) |
-| `HTTP` | `POST http://127.0.0.1:3000/mcp/tool/<tool_name>` | Remote agents, polyglot stacks, debug tooling |
-| `SSE` | `GET http://127.0.0.1:3000/events` | Real-time mutation feed (no polling) |
+| `HTTP` | `POST http://127.0.0.1:9375/mcp/tool/<tool_name>` | Remote agents, polyglot stacks, debug tooling |
+| `SSE` | `GET http://127.0.0.1:9375/events` | Real-time mutation feed (no polling) |
 
 The HTTP and SSE servers bind to `127.0.0.1` only by default. `GET /metrics`
 is loopback-locked at the application layer too, so it never leaves the host.

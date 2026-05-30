@@ -11,7 +11,7 @@ export interface KanbanPluginSettings {
 }
 
 export const DEFAULT_SETTINGS: KanbanPluginSettings = {
-  baseUrl: 'http://127.0.0.1:3000',
+  baseUrl: 'http://127.0.0.1:9375',
   token: '',
   projectName: '',
   showArchived: false,

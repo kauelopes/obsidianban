@@ -5,13 +5,13 @@
 // Usage:
 //   node scripts/dev-create-card.mjs --token <bearer> [--title "Card title"]
 //                                    [--project P] [--status backlog]
-//                                    [--url http://127.0.0.1:3000]
+//                                    [--url http://127.0.0.1:9375]
 //
 // Token may also come from KANBAN_MCP_TOKEN env. Project may come from
 // KANBAN_MCP_PROJECT env (required for manager tokens).
 
 const args = process.argv.slice(2)
-const opts = { url: 'http://127.0.0.1:3000', title: `dev card ${new Date().toISOString().slice(11, 19)}` }
+const opts = { url: 'http://127.0.0.1:9375', title: `dev card ${new Date().toISOString().slice(11, 19)}` }
 for (let i = 0; i < args.length; i++) {
   const a = args[i]
   if (a === '--token') opts.token = args[++i]

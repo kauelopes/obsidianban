@@ -9,13 +9,13 @@
 //   node --import tsx scripts/example-agent-integration.ts
 //
 // Optional env:
-//   KANBAN_MCP_URL  (default http://127.0.0.1:3000)
+//   KANBAN_MCP_URL  (default http://127.0.0.1:9375)
 //   KANBAN_MCP_MODEL (default 'example-agent-1.0')
 
 import { randomUUID } from 'node:crypto'
 import http from 'node:http'
 
-const BASE = process.env.KANBAN_MCP_URL ?? 'http://127.0.0.1:3000'
+const BASE = process.env.KANBAN_MCP_URL ?? 'http://127.0.0.1:9375'
 const TOKEN = process.env.KANBAN_MCP_TOKEN
 const MODEL = process.env.KANBAN_MCP_MODEL ?? 'example-agent-1.0'
 
