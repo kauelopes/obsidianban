@@ -59,6 +59,15 @@ export function optNullableString(
   return { present: true, value: v }
 }
 
+export function optInt(p: Record<string, unknown>, key: string, def: number): number {
+  const v = p[key]
+  if (v == null) return def
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) {
+    throw badRequest('invalid_field', { field: key, expected: 'integer >= 0' })
+  }
+  return v
+}
+
 export function requireInt(
   p: Record<string, unknown>,
   key: string,

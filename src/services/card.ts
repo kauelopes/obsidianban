@@ -13,6 +13,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from './errors.j
 import {
   generateCardId,
   optDueDate,
+  optInt,
   optNullableString,
   optPriority,
   optString,
@@ -142,9 +143,9 @@ export class CardService {
 
     const title = requireString(params, 'title', 200, 'short card title, max 200 chars')
     const type = requireString(params, 'type', undefined, "card type — e.g. 'feature', 'bug', 'task', 'chore'")
-    const inputTokens = requireInt(params, 'input_tokens', 0, 'prompt token count from the API response that generated this card')
-    const outputTokens = requireInt(params, 'output_tokens', 0, 'completion token count from the API response that generated this card')
-    const model = requireString(params, 'model', undefined, "model that created this card — e.g. 'claude-sonnet-4-6'")
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
     const priority = optPriority(params) ?? 'medium'
     const tags = optTags(params) ?? []
     const dueDate = optDueDate(params).value
@@ -296,9 +297,9 @@ export class CardService {
 
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const inputTokens = requireInt(params, 'input_tokens', 0, 'input tokens spent by the LLM working on this card since the last update — from usage.input_tokens of the current API response')
+    const outputTokens = requireInt(params, 'output_tokens', 0, 'output tokens spent by the LLM working on this card since the last update — from usage.output_tokens of the current API response')
+    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -492,9 +493,9 @@ export class CardService {
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
     const toStatus = requireString(params, 'to_status')
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const inputTokens = requireInt(params, 'input_tokens', 0, 'input tokens spent by the LLM working on this card since the last update — from usage.input_tokens of the current API response')
+    const outputTokens = requireInt(params, 'output_tokens', 0, 'output tokens spent by the LLM working on this card since the last update — from usage.output_tokens of the current API response')
+    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -581,9 +582,9 @@ export class CardService {
     rejectDisallowed(params, REORDER_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const inputTokens = requireInt(params, 'input_tokens', 0, 'input tokens spent by the LLM working on this card since the last update — from usage.input_tokens of the current API response')
+    const outputTokens = requireInt(params, 'output_tokens', 0, 'output tokens spent by the LLM working on this card since the last update — from usage.output_tokens of the current API response')
+    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
 
     // after_card_id is required but may be null (insert at top)
     if (!('after_card_id' in params)) {
