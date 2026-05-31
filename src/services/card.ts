@@ -140,11 +140,11 @@ export class CardService {
   async create(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
     rejectDisallowed(params, CREATE_ALLOWED)
 
-    const title = requireString(params, 'title', 200)
-    const type = requireString(params, 'type')
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const title = requireString(params, 'title', 200, 'short card title, max 200 chars')
+    const type = requireString(params, 'type', undefined, "card type — e.g. 'feature', 'bug', 'task', 'chore'")
+    const inputTokens = requireInt(params, 'input_tokens', 0, 'prompt token count from the API response that generated this card')
+    const outputTokens = requireInt(params, 'output_tokens', 0, 'completion token count from the API response that generated this card')
+    const model = requireString(params, 'model', undefined, "model that created this card — e.g. 'claude-sonnet-4-6'")
     const priority = optPriority(params) ?? 'medium'
     const tags = optTags(params) ?? []
     const dueDate = optDueDate(params).value
@@ -181,16 +181,29 @@ export class CardService {
     // that accepts new work (planning or active — closed sprints are frozen
     // history). Legacy cards with sprint_id=null are grandfathered (created
     // before this rule), but no new card can be born outside a sprint.
-    const sprintId = requireString(params, 'sprint_id')
-    const targetSprint = (meta.sprints ?? []).find((s) => s.id === sprintId)
+    const sprintId = requireString(params, 'sprint_id', undefined, 'id of a planning or active sprint in this project — call kanban_list_sprints to see available options')
+    const allSprints = meta.sprints ?? []
+    const targetSprint = allSprints.find((s) => s.id === sprintId)
     if (!targetSprint) {
+      const available = allSprints
+        .filter((s) => s.status !== 'closed')
+        .map((s) => ({ id: s.id, name: s.name, status: s.status }))
       throw badRequest('invalid_field', {
-        field: 'sprint_id', reason: `sprint ${sprintId} not found in project ${project}`,
+        field: 'sprint_id',
+        reason: `sprint "${sprintId}" not found in project "${project}"`,
+        hint: 'use kanban_list_sprints to get valid sprint ids',
+        available_sprints: available.length > 0 ? available : 'none — create a sprint first with kanban_create_sprint',
       })
     }
     if (targetSprint.status === 'closed') {
+      const available = allSprints
+        .filter((s) => s.status !== 'closed')
+        .map((s) => ({ id: s.id, name: s.name, status: s.status }))
       throw badRequest('invalid_field', {
-        field: 'sprint_id', reason: 'sprint is closed; pick a planning or active sprint',
+        field: 'sprint_id',
+        reason: `sprint "${targetSprint.name}" is closed — cards cannot be added to a closed sprint`,
+        hint: 'pick a planning or active sprint',
+        available_sprints: available.length > 0 ? available : 'none — create a sprint first with kanban_create_sprint',
       })
     }
 

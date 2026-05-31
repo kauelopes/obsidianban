@@ -5,13 +5,26 @@ const PRIORITIES: readonly Priority[] = ['low', 'medium', 'high', 'critical']
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const NANOID_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 
-export function requireString(p: Record<string, unknown>, key: string, max?: number): string {
+export function requireString(
+  p: Record<string, unknown>,
+  key: string,
+  max?: number,
+  hint?: string,
+): string {
   const v = p[key]
   if (typeof v !== 'string' || v.length === 0) {
-    throw badRequest('invalid_field', { field: key, expected: 'non-empty string' })
+    throw badRequest('invalid_field', {
+      field: key,
+      expected: 'non-empty string',
+      ...(hint ? { hint } : {}),
+    })
   }
   if (max != null && v.length > max) {
-    throw badRequest('invalid_field', { field: key, max })
+    throw badRequest('invalid_field', {
+      field: key,
+      max_length: max,
+      ...(hint ? { hint } : {}),
+    })
   }
   return v
 }
@@ -46,10 +59,19 @@ export function optNullableString(
   return { present: true, value: v }
 }
 
-export function requireInt(p: Record<string, unknown>, key: string, min = 0): number {
+export function requireInt(
+  p: Record<string, unknown>,
+  key: string,
+  min = 0,
+  hint?: string,
+): number {
   const v = p[key]
   if (typeof v !== 'number' || !Number.isInteger(v) || v < min) {
-    throw badRequest('invalid_field', { field: key, expected: `integer >= ${min}` })
+    throw badRequest('invalid_field', {
+      field: key,
+      expected: `integer >= ${min}`,
+      ...(hint ? { hint } : {}),
+    })
   }
   return v
 }
