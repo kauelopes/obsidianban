@@ -127,16 +127,6 @@ export class KanbanBoardView extends ItemView {
       sprints: this.sprintsByProject.get(p.project) ?? [],
       selectedSprint: this.selectedSprintByProject.get(p.project),
     }))
-    // Surface the settings.projectName as a pseudo-project too so users can
-    // see a placeholder column layout before any first card is created and
-    // before the server learns about the project.
-    const settingsProject = this.plugin.settings.projectName
-    if (settingsProject && !shapes.some((s) => s.project === settingsProject)) {
-      shapes.push({
-        project: settingsProject, columns: DEFAULT_COLUMN_ORDER, archived: false,
-        sprints: [], selectedSprint: undefined,
-      })
-    }
     // Cards archived via sprint-close (archived + sprint_id pointing to a
     // closed sprint) must never appear on the board — they live in "Past
     // sprints" only. Build a set of open sprint IDs so we can detect them.

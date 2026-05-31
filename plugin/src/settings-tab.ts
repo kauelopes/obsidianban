@@ -24,22 +24,6 @@ export class KanbanSettingsTab extends PluginSettingTab {
       )
 
     new Setting(containerEl)
-      .setName('Project')
-      .setDesc(
-        'Project name to show on the board (required to create the first card). ' +
-          'For agent tokens, must match the token\'s project.',
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder('my-project')
-          .setValue(this.plugin.settings.projectName)
-          .onChange(async (value) => {
-            this.plugin.settings.projectName = value.trim()
-            await this.plugin.saveSettings()
-          }),
-      )
-
-    new Setting(containerEl)
       .setName('Bearer token')
       .setDesc('Token issued by `npm run kanban-token create ...`. Stored locally.')
       .addText((text) => {
