@@ -6,6 +6,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import type { TokenClaims } from '../types.js'
 import { HttpError } from '../services/errors.js'
+import { type ToolAccess, isToolVisible } from './tool-access.js'
 
 interface ToolHandler {
   (params: unknown, claims: TokenClaims): Promise<unknown>
@@ -19,7 +20,12 @@ interface ToolHandler {
  */
 export class StdioMcpServer {
   private readonly server: Server
-  private readonly tools = new Map<string, { description: string; inputSchema: Record<string, unknown>; handler: ToolHandler }>()
+  private readonly tools = new Map<string, {
+    description: string
+    inputSchema: Record<string, unknown>
+    access: ToolAccess
+    handler: ToolHandler
+  }>()
 
   constructor(private readonly claims: TokenClaims) {
     this.server = new Server(
@@ -28,11 +34,13 @@ export class StdioMcpServer {
     )
 
     this.server.setRequestHandler(ListToolsRequestSchema, () => ({
-      tools: [...this.tools.entries()].map(([name, t]) => ({
-        name,
-        description: t.description,
-        inputSchema: t.inputSchema,
-      })),
+      tools: [...this.tools.entries()]
+        .filter(([, t]) => isToolVisible(t.access, this.claims))
+        .map(([name, t]) => ({
+          name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        })),
     }))
 
     this.server.setRequestHandler(CallToolRequestSchema, async (req) => {
@@ -68,10 +76,17 @@ export class StdioMcpServer {
     })
   }
 
-  registerTool(name: string, description: string, handler: ToolHandler, inputSchema?: Record<string, unknown>): void {
+  registerTool(
+    name: string,
+    description: string,
+    handler: ToolHandler,
+    inputSchema?: Record<string, unknown>,
+    access: ToolAccess = 'all',
+  ): void {
     this.tools.set(name, {
       description,
       inputSchema: inputSchema ?? { type: 'object', additionalProperties: true },
+      access,
       handler,
     })
   }

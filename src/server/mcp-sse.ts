@@ -7,11 +7,13 @@ import {
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { TokenClaims } from '../types.js'
 import { HttpError } from '../services/errors.js'
+import { type ToolAccess, isToolVisible } from './tool-access.js'
 
 export interface SseTool {
   name: string
   description: string
   inputSchema?: Record<string, unknown>
+  access?: ToolAccess
   handler: (params: unknown, claims: TokenClaims) => Promise<unknown>
 }
 
@@ -88,11 +90,13 @@ export class McpSseManager {
     )
 
     server.setRequestHandler(ListToolsRequestSchema, () => ({
-      tools: this.tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema ?? { type: 'object', additionalProperties: true },
-      })),
+      tools: this.tools
+        .filter((t) => isToolVisible(t.access ?? 'all', claims))
+        .map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema ?? { type: 'object', additionalProperties: true },
+        })),
     }))
 
     server.setRequestHandler(CallToolRequestSchema, async (req) => {
