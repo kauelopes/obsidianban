@@ -41,10 +41,10 @@ export class SprintService {
     params: Record<string, unknown>,
     claims: TokenClaims,
   ): Promise<Sprint> {
-    if (claims.role !== 'manager') {
-      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
-    }
-    const project = requireString(params, 'project')
+    requirePmOrManager(claims)
+    const project = claims.role === 'agent'
+      ? claims.project_id
+      : requireString(params, 'project')
     const name = requireString(params, 'name', MAX_NAME)
     const goalRaw = optString(params, 'goal', MAX_GOAL)
     const goal = goalRaw ?? ''
@@ -84,9 +84,7 @@ export class SprintService {
     params: Record<string, unknown>,
     claims: TokenClaims,
   ): Promise<Sprint> {
-    if (claims.role !== 'manager') {
-      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
-    }
+    requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
     const located = await this.findSprint(sprintId, claims)
     if (located.sprint.status === 'active') {
@@ -192,9 +190,7 @@ export class SprintService {
     updated: string[]
     failed: Array<{ card_id: string; reason: string }>
   }> {
-    if (claims.role !== 'manager') {
-      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
-    }
+    requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
     const located = await this.findSprint(sprintId, claims)
     if (located.sprint.status === 'closed') {
@@ -286,9 +282,7 @@ export class SprintService {
     updated: string[]
     failed: Array<{ card_id: string; reason: string }>
   }> {
-    if (claims.role !== 'manager') {
-      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
-    }
+    requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
     const targetSprintId = requireString(params, 'target_sprint_id')
     if (sprintId === targetSprintId) {
@@ -372,9 +366,7 @@ export class SprintService {
     rolled_over: string[]
     finished: string[]
   }> {
-    if (claims.role !== 'manager') {
-      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
-    }
+    requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
     const located = await this.findSprint(sprintId, claims)
     if (located.sprint.status === 'closed') {
@@ -525,6 +517,12 @@ export class SprintService {
       .then((p) => p.body)
       .catch(() => '')
   }
+}
+
+function requirePmOrManager(claims: TokenClaims): void {
+  if (claims.role === 'manager') return
+  if (claims.role === 'agent' && claims.agent_type === 'pm') return
+  throw new HttpError(403, { error: 'forbidden', reason: 'pm_agent_or_manager_required' })
 }
 
 function requireStringArray(p: Record<string, unknown>, key: string): string[] {
