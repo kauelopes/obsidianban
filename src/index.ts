@@ -16,6 +16,7 @@ import { QueryService } from './services/query.js'
 import { MetricsService } from './services/metrics.js'
 import { AdminService } from './services/admin.js'
 import { createAgentToken } from './auth/tokens.js'
+import { McpSseManager } from './server/mcp-sse.js'
 import { SprintService } from './services/sprint.js'
 import type { TokenClaims } from './types.js'
 
@@ -124,7 +125,14 @@ async function main(): Promise<void> {
     db,
   }
 
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics })
+  const mcpSse = new McpSseManager(
+    tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      handler: (p, c) => t.handler(p as Record<string, unknown>, c),
+    })),
+  )
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcpSse })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }
