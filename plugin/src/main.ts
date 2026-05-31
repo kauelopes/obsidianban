@@ -183,6 +183,7 @@ export default class KanbanPlugin extends Plugin {
         new ProjectTokenModal(this.app, {
           ...res.data,
           secretNotePath,
+          serverUrl: this.settings.baseUrl,
         }).open()
         for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_KANBAN_BOARD)) {
           const view = leaf.view

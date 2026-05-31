@@ -7,6 +7,7 @@ export interface ProjectTokenInfo {
   actor: string
   created_at: string
   secretNotePath: string
+  serverUrl: string
 }
 
 export class ProjectTokenModal extends Modal {
@@ -36,8 +37,29 @@ export class ProjectTokenModal extends Modal {
     })
     tokenBox.setAttr('aria-label', 'agent token (copy this)')
 
+    // Claude Code CLI command — ready to paste into a terminal
+    const cliCommand = `claude mcp add obsidiankan --transport sse --scope user ${this.info.serverUrl}/mcp/sse -H "Authorization: Bearer ${this.info.token}"`
+    this.contentEl.createEl('p', {
+      cls: 'kanban-mcp-modal-label',
+      text: 'Claude Code — run in your project:',
+    })
+    const cliBox = this.contentEl.createEl('code', {
+      cls: 'kanban-mcp-token-box kanban-mcp-cli-box',
+      text: cliCommand,
+    })
+    cliBox.setAttr('aria-label', 'Claude Code CLI command')
+
     const row = this.contentEl.createDiv({ cls: 'kanban-mcp-modal-buttons' })
-    const copyBtn = row.createEl('button', { text: 'Copy token', cls: 'mod-cta' })
+    const copyCliBtn = row.createEl('button', { text: 'Copy command', cls: 'mod-cta' })
+    copyCliBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(cliCommand)
+        new Notice('Command copied to clipboard')
+      } catch (err) {
+        new Notice(`Clipboard copy failed — copy manually. (${(err as Error).message})`, 15000)
+      }
+    })
+    const copyBtn = row.createEl('button', { text: 'Copy token' })
     copyBtn.addEventListener('click', async () => {
       // navigator.clipboard can reject silently on Electron when the window
       // doesn't have focus or permissions are restricted. Confirming the

@@ -802,6 +802,12 @@
   user-select: all;
 }
 
+.kanban-mcp-cli-box {
+  font-size: 0.78em;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ── Past sprints modal ───────────────────────────────────────── */
 
 .kanban-mcp-past-sprints-modal {
