@@ -30,6 +30,7 @@ function applySchema(db: Database.Database): void {
     migrateAddFileBasename(db)
     migrateAddArchived(db)
     migrateAddSprintAndDeps(db)
+    migrateStatusHyphensToUnderscores(db)
   })
   tx()
 }
@@ -76,6 +77,15 @@ function migrateAddSprintAndDeps(db: Database.Database): void {
     db.exec(`ALTER TABLE cards ADD COLUMN blocked_by TEXT NOT NULL DEFAULT '[]'`)
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_project_sprint ON cards(project, sprint_id)`)
+}
+
+/**
+ * One-time migration: replace hyphenated column slugs with underscored ones.
+ * Specifically converts 'in-progress' → 'in_progress' for all existing rows.
+ * Idempotent — rows already using underscores are untouched.
+ */
+function migrateStatusHyphensToUnderscores(db: Database.Database): void {
+  db.exec(`UPDATE cards SET status = 'in_progress' WHERE status = 'in-progress'`)
 }
 
 function isFreshlyCreated(db: Database.Database): boolean {

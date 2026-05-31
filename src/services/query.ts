@@ -21,6 +21,7 @@ export class QueryService {
     claims: TokenClaims,
   ): Promise<{ cards: CardSummary[] }> {
     const status = optString(params, 'status')
+    const sprintId = optString(params, 'sprint_id')
     const assignedTo = optString(params, 'assigned_to')
     const tags = optStringArray(params, 'tags')
     const limit = clampInt(params['limit'], 50, 1, 200, 'limit')
@@ -35,6 +36,7 @@ export class QueryService {
     const rows = this.repo.query({
       project: project ?? undefined,
       status: status ?? undefined,
+      sprintId: sprintId ?? undefined,
       assignedTo: assignedTo ?? undefined,
       tags: tags ?? undefined,
       includeArchived,

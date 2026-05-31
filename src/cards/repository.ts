@@ -134,6 +134,7 @@ export class CardRepository {
   query(opts: {
     project?: string
     status?: string
+    sprintId?: string
     assignedTo?: string
     tags?: string[]
     includeArchived?: boolean
@@ -157,6 +158,10 @@ export class CardRepository {
     if (opts.status) {
       where.push('status = @status')
       params['status'] = opts.status
+    }
+    if (opts.sprintId) {
+      where.push('sprint_id = @sprintId')
+      params['sprintId'] = opts.sprintId
     }
     if (opts.assignedTo) {
       where.push('assigned_to = @assignedTo')
@@ -200,8 +205,15 @@ export class CardRepository {
       .run(entry)
   }
 
-  /** Cards in a column ordered by position. */
-  findByColumn(project: string, status: string): CardRow[] {
+  /** Cards in a column ordered by position, optionally scoped to a sprint. */
+  findByColumn(project: string, status: string, sprintId?: string | null): CardRow[] {
+    if (sprintId != null) {
+      return this.db
+        .prepare(
+          'SELECT * FROM cards WHERE project = ? AND status = ? AND sprint_id = ? ORDER BY position ASC',
+        )
+        .all(project, status, sprintId) as CardRow[]
+    }
     return this.db
       .prepare(
         'SELECT * FROM cards WHERE project = ? AND status = ? ORDER BY position ASC',

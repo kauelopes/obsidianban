@@ -170,12 +170,6 @@ export class CardService {
     const meta = await loadProjectMeta(this.paths, project).catch(() => {
       throw badRequest('invalid_project', { project })
     })
-    const requestedStatus = optString(params, 'status')
-    const status = requestedStatus ?? meta.columns[0]
-    if (!status) throw badRequest('invalid_project', { project, reason: 'no columns defined' })
-    if (!meta.columns.includes(status)) {
-      throw badRequest('invalid_field', { field: 'status', allowed: meta.columns })
-    }
 
     // sprint_id is mandatory on create: every new card belongs to a sprint.
     // Validate it points to a sprint in the same project and is in a state
@@ -206,6 +200,19 @@ export class CardService {
         hint: 'pick a planning or active sprint',
         available_sprints: available.length > 0 ? available : 'none — create a sprint first with kanban_create_sprint',
       })
+    }
+
+    const requestedStatus = optString(params, 'status')
+    // Active sprint: default to 'todo' — backlog has no meaning once the sprint
+    // has started and pick_next would never see a backlog card.
+    // Planning sprint: default to 'backlog' (first column).
+    const defaultStatus = targetSprint.status === 'active' && meta.columns.includes('todo')
+      ? 'todo'
+      : meta.columns[0]
+    const status = requestedStatus ?? defaultStatus
+    if (!status) throw badRequest('invalid_project', { project, reason: 'no columns defined' })
+    if (!meta.columns.includes(status)) {
+      throw badRequest('invalid_field', { field: 'status', allowed: meta.columns })
     }
 
     const id = generateCardId()
@@ -323,7 +330,7 @@ export class CardService {
     if ('status' in params) {
       const s = requireString(params, 'status')
       const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
-      const resolvedS = meta ? resolveColumn(s, meta.columns) : null
+      const resolvedS = meta?.columns.includes(s) ? s : null
       if (!meta || !resolvedS) {
         throw badRequest('invalid_field', { field: 'status', allowed: meta?.columns ?? [] })
       }
@@ -370,8 +377,12 @@ export class CardService {
       proposed.owner = optNullableString(params, 'owner').value
     }
     if ('log_entry' in params) {
-      const entry = optString(params, 'log_entry', 4000)
+      let entry = optString(params, 'log_entry', 4000)
       if (entry) {
+        // LLMs sometimes emit \n as two literal characters (backslash + n)
+        // instead of a real newline. Since log_entry is always Markdown,
+        // normalize both forms to actual newlines.
+        entry = entry.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
         const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
         const block = `**${ts}**\n\n${entry.trimEnd()}`
         const SECTION = '# Agent Log'
@@ -389,7 +400,7 @@ export class CardService {
       proposed.blocked_by = next
     }
 
-    // Status change: if we're advancing into "in-progress" or beyond, the
+    // Status change: if we're advancing into "in_progress" or beyond, the
     // card must not have unsatisfied blockers. We compare against `proposed`
     // so a single update can both rewrite blocked_by AND advance status,
     // as long as the new blocker list is satisfied.
@@ -503,7 +514,7 @@ export class CardService {
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
 
     const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
-    const resolvedStatus = meta ? resolveColumn(toStatus, meta.columns) : null
+    const resolvedStatus = meta?.columns.includes(toStatus) ? toStatus : null
     if (!meta || !resolvedStatus) {
       throw badRequest('invalid_field', { field: 'to_status', allowed: meta?.columns ?? [] })
     }
@@ -628,9 +639,9 @@ export class CardService {
       }
     }
 
-    // Build the new column order: take the existing column, remove the target,
-    // insert it after `afterCardId` (or at the top if null), then normalize.
-    const column = this.repo.findByColumn(row.project, current.status)
+    // Build the new column order: take the existing column scoped to the same
+    // sprint (so reordering in sprint A never touches cards in sprint B).
+    const column = this.repo.findByColumn(row.project, current.status, current.sprint_id)
     const withoutTarget = column.filter((r) => r.id !== id)
     let insertIdx: number
     if (afterCardId === null) insertIdx = 0
@@ -1091,7 +1102,7 @@ export class CardService {
 
   /**
    * Returns true when the status transition crosses the "ready to advance"
-   * boundary — anything past `todo` (in-progress, review, done) counts. The
+   * boundary — anything past `todo` (in_progress, review, done) counts. The
    * threshold is intentionally simple: it matches the kanban_create_project
    * default columns and stays valid for any project that follows the same
    * "earlier columns are unstarted" convention.
@@ -1205,7 +1216,7 @@ export class CardService {
   ): Promise<{
     card: Omit<Card, 'body'> | null
     blocked_candidates: number
-    reason?: 'no_todo_cards' | 'all_blocked' | 'empty'
+    reason?: 'no_todo_cards' | 'all_blocked' | 'empty' | 'no_active_sprint'
     backlog_count?: number
   }> {
     const project =
@@ -1226,18 +1237,24 @@ export class CardService {
       offset: 0,
     })
 
+    // Two-pass: first classify every candidate so blocked_candidates is the
+    // true count across the whole result set, not just the cards scanned
+    // before the first hit.
+    let firstPick: CardRow | null = null
     let blockedCandidates = 0
     for (const row of rows) {
       if (sprintIdFilter != null && row.sprint_id !== sprintIdFilter) continue
       const blockers = safeParseStringArray(row.blocked_by)
-      if (blockers.length === 0) {
-        return { card: this.repo.toCard(row), blocked_candidates: blockedCandidates }
+      const isBlocked =
+        blockers.length > 0 && this.unmetBlockers(blockers).length > 0
+      if (isBlocked) {
+        blockedCandidates += 1
+      } else if (firstPick === null) {
+        firstPick = row
       }
-      const unmet = this.unmetBlockers(blockers)
-      if (unmet.length === 0) {
-        return { card: this.repo.toCard(row), blocked_candidates: blockedCandidates }
-      }
-      blockedCandidates += 1
+    }
+    if (firstPick !== null) {
+      return { card: this.repo.toCard(firstPick), blocked_candidates: blockedCandidates }
     }
 
     // Compute backlog count to help agent diagnose why there's nothing to pick.
@@ -1253,11 +1270,20 @@ export class CardService {
       ? backlogRows.filter((r) => r.sprint_id === sprintIdFilter).length
       : backlogRows.length
 
-    let reason: 'no_todo_cards' | 'all_blocked' | 'empty'
-    if (backlogCount > 0) {
-      reason = 'no_todo_cards'
-    } else if (blockedCandidates > 0) {
+    let reason: 'no_todo_cards' | 'all_blocked' | 'empty' | 'no_active_sprint'
+    if (blockedCandidates > 0) {
       reason = 'all_blocked'
+    } else if (backlogCount > 0) {
+      // Backlog cards exist but haven't been promoted — check whether it's
+      // because no sprint is active (the most actionable diagnosis).
+      const meta = project
+        ? await loadProjectMeta(this.paths, project).catch(() => null)
+        : null
+      const sprints = meta?.sprints ?? []
+      const hasActiveSprint = sprintIdFilter
+        ? sprints.some((s) => s.id === sprintIdFilter && s.status === 'active')
+        : sprints.some((s) => s.status === 'active')
+      reason = hasActiveSprint ? 'no_todo_cards' : 'no_active_sprint'
     } else {
       reason = 'empty'
     }
@@ -1283,18 +1309,6 @@ export class CardService {
       : claims
     return this.update(params, elevatedClaims)
   }
-}
-
-/**
- * Find the column in `columns` that matches `input`, tolerating hyphen/underscore
- * variation (e.g. "in_progress" matches "in-progress" and vice versa).
- * Returns the canonical column name from the project, or null if not found.
- */
-function resolveColumn(input: string, columns: readonly string[]): string | null {
-  if (columns.includes(input)) return input
-  const alt = input.includes('_') ? input.replace(/_/g, '-') : input.replace(/-/g, '_')
-  const found = columns.find((c) => c === alt)
-  return found ?? null
 }
 
 function safeParseStringArray(raw: string | null | undefined): string[] {

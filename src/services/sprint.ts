@@ -83,7 +83,7 @@ export class SprintService {
   async startSprint(
     params: Record<string, unknown>,
     claims: TokenClaims,
-  ): Promise<Sprint> {
+  ): Promise<Sprint & { promoted_to_todo: string[] }> {
     requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
     const located = await this.findSprint(sprintId, claims)
@@ -107,15 +107,51 @@ export class SprintService {
     located.sprint.status = 'active'
     located.sprint.started_at = startedAt
     await saveProjectMeta(this.paths, located.project, located.meta)
+
+    // Promote all backlog cards in this sprint to todo.
+    const sprintCards = this.repo.findBySprint(sprintId)
+    const backlogCards = sprintCards.filter((r) => r.status === 'backlog')
+    const promotedToTodo: string[] = []
+    const todoCol = located.meta.columns.includes('todo') ? 'todo' : located.meta.columns[0] ?? 'todo'
+    for (const row of backlogCards) {
+      const current = this.repo.toCard(row)
+      const maxPos = this.repo.maxPosition(located.project, todoCol)
+      const promoted: Omit<Card, 'body'> = {
+        ...current,
+        status: todoCol,
+        position: (maxPos ?? 0) + 1000,
+        version: current.version + 1,
+        updated_at: startedAt,
+        updated_by: claims.actor,
+      }
+      const body = await this.readBody(located.project, row.file_basename)
+      await this.writer.write(promoted, body, row.file_basename)
+      await this.audit.log({
+        ts: startedAt,
+        op: 'UPDATE',
+        project: located.project,
+        card_id: row.id,
+        version: promoted.version,
+        actor: claims.actor,
+        changed_fields: ['status', 'position'],
+        reason: `promoted backlog→todo on sprint start`,
+      })
+      this.sse.emit({
+        type: 'CARD_UPDATED',
+        payload: { card_id: row.id, project: located.project, changed_fields: ['status', 'position'] },
+      })
+      promotedToTodo.push(row.id)
+    }
+
     await this.audit.log({
       ts: startedAt,
       op: 'SPRINT_STARTED',
       project: located.project,
       actor: claims.actor,
-      reason: `sprint_id=${sprintId}`,
+      reason: `sprint_id=${sprintId} promoted_to_todo=${promotedToTodo.length}`,
     })
     this.sse.emit({ type: 'SPRINT_STARTED', payload: { sprint_id: sprintId, project: located.project } })
-    return located.sprint
+    return { ...located.sprint, promoted_to_todo: promotedToTodo }
   }
 
   /**
@@ -169,7 +205,7 @@ export class SprintService {
       aggregates.total_input_tokens += c.total_input_tokens
       aggregates.total_output_tokens += c.total_output_tokens
       if (c.status === 'done') aggregates.cards_done += 1
-      else if (c.status === 'in-progress') aggregates.cards_in_progress += 1
+      else if (c.status === 'in_progress') aggregates.cards_in_progress += 1
       else if (c.status === 'todo') aggregates.cards_todo += 1
       else aggregates.cards_other += 1
     }
@@ -380,18 +416,14 @@ export class SprintService {
     if (located.sprint.status === 'closed') {
       throw badRequest('invalid_field', { field: 'sprint_id', reason: 'already closed' })
     }
-    // rollover_to is only required when there are unfinished cards. If all
-    // cards are done they will be auto-archived and no target sprint is needed.
+    // rollover_to may be:
+    //   - a sprint_id string: unfinished cards move to that planning sprint
+    //   - null (or absent): unfinished cards remain attached to the closed
+    //     sprint as historical record (no movement)
     const unfinishedCount = this.repo.findBySprint(sprintId).filter((r) => r.status !== 'done').length
     const rolloverToRaw = params['rollover_to']
     let rolloverTo: string | null = null
-    if (unfinishedCount > 0) {
-      if (typeof rolloverToRaw !== 'string') {
-        throw badRequest('invalid_field', {
-          field: 'rollover_to',
-          expected: 'string (sprint_id of a planning sprint in the same project) — required because there are unfinished cards',
-        })
-      }
+    if (typeof rolloverToRaw === 'string') {
       const target = await this.findSprint(rolloverToRaw, claims)
       if (target.project !== located.project) {
         throw badRequest('invalid_field', {
@@ -404,7 +436,13 @@ export class SprintService {
         })
       }
       rolloverTo = rolloverToRaw
+    } else if (rolloverToRaw !== undefined && rolloverToRaw !== null) {
+      throw badRequest('invalid_field', {
+        field: 'rollover_to',
+        expected: 'string (sprint_id of a planning sprint) or null to close without rollover',
+      })
     }
+    void unfinishedCount
 
     const closedAt = new Date().toISOString()
     located.sprint.status = 'closed'
