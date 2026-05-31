@@ -19,7 +19,7 @@ interface ToolHandler {
  */
 export class StdioMcpServer {
   private readonly server: Server
-  private readonly tools = new Map<string, { description: string; handler: ToolHandler }>()
+  private readonly tools = new Map<string, { description: string; inputSchema: Record<string, unknown>; handler: ToolHandler }>()
 
   constructor(private readonly claims: TokenClaims) {
     this.server = new Server(
@@ -31,7 +31,7 @@ export class StdioMcpServer {
       tools: [...this.tools.entries()].map(([name, t]) => ({
         name,
         description: t.description,
-        inputSchema: { type: 'object', additionalProperties: true },
+        inputSchema: t.inputSchema,
       })),
     }))
 
@@ -68,8 +68,12 @@ export class StdioMcpServer {
     })
   }
 
-  registerTool(name: string, description: string, handler: ToolHandler): void {
-    this.tools.set(name, { description, handler })
+  registerTool(name: string, description: string, handler: ToolHandler, inputSchema?: Record<string, unknown>): void {
+    this.tools.set(name, {
+      description,
+      inputSchema: inputSchema ?? { type: 'object', additionalProperties: true },
+      handler,
+    })
   }
 
   async start(): Promise<void> {

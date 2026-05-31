@@ -145,7 +145,7 @@ export class CardService {
     const type = requireString(params, 'type', undefined, "card type — e.g. 'feature', 'bug', 'task', 'chore'")
     const inputTokens = optInt(params, 'input_tokens', 0)
     const outputTokens = optInt(params, 'output_tokens', 0)
-    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
+    const model = optString(params, 'model') ?? 'unknown'
     const priority = optPriority(params) ?? 'medium'
     const tags = optTags(params) ?? []
     const dueDate = optDueDate(params).value
@@ -297,9 +297,9 @@ export class CardService {
 
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens', 0, 'input tokens spent by the LLM working on this card since the last update — from usage.input_tokens of the current API response')
-    const outputTokens = requireInt(params, 'output_tokens', 0, 'output tokens spent by the LLM working on this card since the last update — from usage.output_tokens of the current API response')
-    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -493,9 +493,9 @@ export class CardService {
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
     const toStatus = requireString(params, 'to_status')
-    const inputTokens = requireInt(params, 'input_tokens', 0, 'input tokens spent by the LLM working on this card since the last update — from usage.input_tokens of the current API response')
-    const outputTokens = requireInt(params, 'output_tokens', 0, 'output tokens spent by the LLM working on this card since the last update — from usage.output_tokens of the current API response')
-    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -582,9 +582,9 @@ export class CardService {
     rejectDisallowed(params, REORDER_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens', 0, 'input tokens spent by the LLM working on this card since the last update — from usage.input_tokens of the current API response')
-    const outputTokens = requireInt(params, 'output_tokens', 0, 'output tokens spent by the LLM working on this card since the last update — from usage.output_tokens of the current API response')
-    const model = requireString(params, 'model', undefined, "model identifier — e.g. 'claude-sonnet-4-6'")
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = optString(params, 'model') ?? 'unknown'
 
     // after_card_id is required but may be null (insert at top)
     if (!('after_card_id' in params)) {
@@ -706,9 +706,9 @@ export class CardService {
     rejectDisallowed(params, DELETE_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -768,9 +768,9 @@ export class CardService {
     rejectDisallowed(params, ARCHIVE_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -834,9 +834,9 @@ export class CardService {
     rejectDisallowed(params, CLAIM_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = optString(params, 'model') ?? 'unknown'
     // Managers can claim-on-behalf via explicit actor; agents always claim
     // for themselves regardless of the param.
     const requestedActor = optString(params, 'actor')
@@ -879,9 +879,9 @@ export class CardService {
     rejectDisallowed(params, RELEASE_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
-    const inputTokens = requireInt(params, 'input_tokens')
-    const outputTokens = requireInt(params, 'output_tokens')
-    const model = requireString(params, 'model')
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -998,9 +998,9 @@ export class CardService {
       })
     }
 
-    const envelopeInputTokens = requireInt(params, 'input_tokens')
-    const envelopeOutputTokens = requireInt(params, 'output_tokens')
-    const envelopeModel = requireString(params, 'model')
+    const envelopeInputTokens = optInt(params, 'input_tokens', 0)
+    const envelopeOutputTokens = optInt(params, 'output_tokens', 0)
+    const envelopeModel = optString(params, 'model') ?? 'unknown'
     // Optional project sugar — when set and the per-card entry omits its
     // own project, the envelope value is injected. Managers can still set
     // project per card to mix projects in one batch.

@@ -11,6 +11,7 @@ import { HttpError } from '../services/errors.js'
 export interface SseTool {
   name: string
   description: string
+  inputSchema?: Record<string, unknown>
   handler: (params: unknown, claims: TokenClaims) => Promise<unknown>
 }
 
@@ -90,7 +91,7 @@ export class McpSseManager {
       tools: this.tools.map((t) => ({
         name: t.name,
         description: t.description,
-        inputSchema: { type: 'object', additionalProperties: true },
+        inputSchema: t.inputSchema ?? { type: 'object', additionalProperties: true },
       })),
     }))
 
