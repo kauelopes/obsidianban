@@ -264,6 +264,20 @@ export class CardService {
   }
 
   async update(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    // Dev agents may not call update — they must use kanban_log_on_card.
+    if (claims.role === 'agent' && claims.agent_type === 'dev') {
+      throw forbidden('dev_agent_restricted', {
+        message: 'Dev agents cannot call kanban_update_card. Use kanban_log_on_card to append entries to the card.',
+        allowed_tool: 'kanban_log_on_card',
+      })
+    }
+    // body is write-once at creation — give a clear error before the generic disallowed-field check.
+    if ('body' in params) {
+      throw badRequest('body_immutable', {
+        message: 'body is write-once at creation. Use log_entry to append a timestamped entry to the # Agent Log section.',
+        use_instead: 'log_entry',
+      })
+    }
     const allowed = claims.role === 'manager' ? UPDATE_ALLOWED_MANAGER : UPDATE_ALLOWED_AGENT
     rejectDisallowed(params, allowed)
 
@@ -297,6 +311,21 @@ export class CardService {
       const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
       if (!meta || !meta.columns.includes(s)) {
         throw badRequest('invalid_field', { field: 'status', allowed: meta?.columns ?? [] })
+      }
+      // Sprint lock on status change via update — same rule as move().
+      if (claims.role === 'agent' && current.sprint_id != null) {
+        const sprint = (meta.sprints ?? []).find((sp) => sp.id === current.sprint_id)
+        if (sprint && sprint.status !== 'active') {
+          const fromIdx = meta.columns.indexOf(current.status)
+          const toIdx = meta.columns.indexOf(s)
+          if (toIdx > fromIdx) {
+            throw badRequest('sprint_not_active', {
+              message: `Cannot advance card status — sprint "${sprint.name}" is ${sprint.status}. Start the sprint first.`,
+              sprint_id: sprint.id,
+              sprint_status: sprint.status,
+            })
+          }
+        }
       }
       proposed.status = s
     }
@@ -465,6 +494,23 @@ export class CardService {
 
     const current = this.repo.toCard(row)
     this.assertWritable(current.assigned_to, claims)
+
+    // Sprint lock: agents cannot move a card forward unless its sprint is active.
+    if (claims.role === 'agent' && current.sprint_id != null) {
+      const sprint = (meta.sprints ?? []).find((s) => s.id === current.sprint_id)
+      if (sprint && sprint.status !== 'active') {
+        const fromIdx = meta.columns.indexOf(current.status)
+        const toIdx = meta.columns.indexOf(toStatus)
+        if (toIdx > fromIdx) {
+          throw badRequest('sprint_not_active', {
+            message: `Cannot move card forward — sprint "${sprint.name}" is ${sprint.status}. Start the sprint first.`,
+            sprint_id: sprint.id,
+            sprint_status: sprint.status,
+          })
+        }
+      }
+    }
+
     if (this.isAdvancingBeyondTodo(toStatus, current.status)) {
       const unmet = this.unmetBlockers(current.blocked_by)
       if (unmet.length > 0) throw this.blockedConflict(unmet)
@@ -1169,6 +1215,25 @@ export class CardService {
       blockedCandidates += 1
     }
     return { card: null, blocked_candidates: blockedCandidates }
+  }
+
+  /**
+   * Append-only log entry for Dev agents (and any agent). Accepts only
+   * id, version, log_entry, and token cost fields — no other mutations.
+   * Delegates to update() after stripping disallowed fields.
+   */
+  async logOnCard(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    const LOG_ONLY = ['id', 'version', 'log_entry', 'input_tokens', 'output_tokens', 'model', 'request_id'] as const
+    rejectDisallowed(params, LOG_ONLY)
+    if (!('log_entry' in params) || !params['log_entry']) {
+      throw badRequest('missing_field', { field: 'log_entry', message: 'log_entry is required for kanban_log_on_card.' })
+    }
+    // Temporarily elevate dev agents to pm for the duration of this delegated update
+    // so the pm-only guard in update() doesn't fire for a legitimate log call.
+    const elevatedClaims: TokenClaims = claims.role === 'agent' && claims.agent_type === 'dev'
+      ? { ...claims, agent_type: 'pm' }
+      : claims
+    return this.update(params, elevatedClaims)
   }
 }
 

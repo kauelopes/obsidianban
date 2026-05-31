@@ -807,6 +807,12 @@ export class KanbanBoardView extends ItemView {
     )
     menu.addItem((item) =>
       item
+        .setTitle('Show agent tokens')
+        .setIcon('lock')
+        .onClick(() => void this.openSecretsNote(project)),
+    )
+    menu.addItem((item) =>
+      item
         .setTitle('Mint new agent token')
         .setIcon('key')
         .onClick(() => this.plugin.promptMintToken(project)),
@@ -822,6 +828,16 @@ export class KanbanBoardView extends ItemView {
         .setWarning(true),
     )
     menu.showAtMouseEvent(e)
+  }
+
+  private async openSecretsNote(project: string): Promise<void> {
+    const notePath = `_kanban-secrets/${project}.md`
+    const file = this.app.vault.getAbstractFileByPath(notePath)
+    if (file instanceof TFile) {
+      await this.app.workspace.getLeaf(false).openFile(file)
+    } else {
+      showErrorToast(`No token note found for project "${project}". Create the project first or mint a token.`)
+    }
   }
 
   async attemptStartSprint(project: string, sprintId: string): Promise<void> {

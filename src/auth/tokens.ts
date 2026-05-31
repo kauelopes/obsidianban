@@ -14,12 +14,14 @@ export interface IssuedToken {
   raw: string
   sha256: string
   actor: string
+  agent_type: 'pm' | 'dev'
   created_at: string
 }
 
 export interface PublicTokenInfo {
   token_id: string
   actor: string
+  agent_type: 'pm' | 'dev'
   created_at: string
   revoked_at: string | null
 }
@@ -40,14 +42,15 @@ export async function createAgentToken(
   paths: Paths,
   project: string,
   actor: string,
+  agent_type: 'pm' | 'dev' = 'pm',
 ): Promise<IssuedToken> {
   await ensureProject(paths, project)
   const { raw, sha256: sha, token_id } = generateToken()
   const created_at = new Date().toISOString()
   const meta = await loadProjectMeta(paths, project)
-  meta.agent_tokens.push({ token_id, sha256: sha, actor, created_at, revoked_at: null })
+  meta.agent_tokens.push({ token_id, sha256: sha, actor, agent_type, created_at, revoked_at: null })
   await saveProjectMeta(paths, project, meta)
-  return { token_id, raw, sha256: sha, actor, created_at }
+  return { token_id, raw, sha256: sha, actor, agent_type, created_at }
 }
 
 export async function listAgentTokens(
@@ -98,7 +101,7 @@ export async function createManagerToken(paths: Paths, actor: string): Promise<I
   const created_at = new Date().toISOString()
   store.manager_tokens.push({ token_id, sha256: sha, actor, created_at, revoked_at: null })
   await saveManagerStore(paths, store)
-  return { token_id, raw, sha256: sha, actor, created_at }
+  return { token_id, raw, sha256: sha, actor, agent_type: 'pm', created_at }
 }
 
 export async function listManagerTokens(paths: Paths): Promise<PublicTokenInfo[]> {
@@ -145,6 +148,7 @@ function toPublic(r: TokenRecord): PublicTokenInfo {
   return {
     token_id: r.token_id,
     actor: r.actor,
+    agent_type: r.agent_type ?? 'pm',
     created_at: r.created_at,
     revoked_at: r.revoked_at,
   }

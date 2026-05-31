@@ -26,7 +26,12 @@ export class TokenValidator {
     if (hit.project_id) {
       return {
         ok: true,
-        claims: { role: 'agent', project_id: hit.project_id, actor: hit.record.actor },
+        claims: {
+          role: 'agent',
+          project_id: hit.project_id,
+          actor: hit.record.actor,
+          agent_type: hit.record.agent_type ?? 'pm',
+        },
       }
     }
     return { ok: true, claims: { role: 'manager', actor: hit.record.actor } }

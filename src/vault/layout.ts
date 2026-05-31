@@ -20,6 +20,8 @@ export interface TokenRecord {
   token_id: string
   sha256: string
   actor: string
+  /** 'pm' = project-manager agent (full write); 'dev' = developer agent (log-only). Absent on legacy records → treated as 'pm'. */
+  agent_type?: 'pm' | 'dev'
   created_at: string
   revoked_at: string | null
 }

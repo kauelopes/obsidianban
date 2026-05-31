@@ -57,6 +57,8 @@ export interface AgentToken {
   role: 'agent'
   project_id: string
   actor: string
+  /** 'pm' can call kanban_update_card; 'dev' is restricted to kanban_log_on_card. Legacy tokens without agent_type are treated as 'pm'. */
+  agent_type: 'pm' | 'dev'
 }
 
 export interface ManagerToken {
