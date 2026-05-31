@@ -34,8 +34,13 @@ export class CreateProjectModal extends Modal {
     const projectInput = this.contentEl.createEl('input', {
       type: 'text',
       cls: 'kanban-mcp-modal-input',
-      attr: { placeholder: 'Project name (e.g. marketing)' },
+      attr: { placeholder: 'Project name — letters, numbers, . _ - (e.g. marketing)' },
     })
+    const projectError = this.contentEl.createEl('p', {
+      cls: 'kanban-mcp-modal-error',
+      text: 'Name may only contain letters, numbers, dots, underscores, and hyphens — no spaces.',
+    })
+    projectError.style.display = 'none'
     if (reMint) {
       projectInput.value = this.opts.presetProject ?? ''
       projectInput.setAttr('readonly', 'true')
@@ -50,10 +55,21 @@ export class CreateProjectModal extends Modal {
     actorInput.value = 'agent:claude'
     if (reMint) actorInput.focus()
 
+    const VALID_PROJECT = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/
+    projectInput.addEventListener('input', () => {
+      const v = projectInput.value.trim()
+      projectError.style.display = v && !VALID_PROJECT.test(v) ? '' : 'none'
+    })
+
     const submit = async (): Promise<void> => {
       const project = projectInput.value.trim()
       const actor = actorInput.value.trim()
       if (!project || !actor) return
+      if (!VALID_PROJECT.test(project)) {
+        projectError.style.display = ''
+        projectInput.focus()
+        return
+      }
       this.close()
       await this.onSubmit({ project, actor })
     }
