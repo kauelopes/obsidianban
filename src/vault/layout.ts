@@ -3,7 +3,7 @@ import path from 'node:path'
 import type { Paths } from '../config.js'
 import type { Sprint } from '../types.js'
 
-export const DEFAULT_COLUMNS = ['backlog', 'todo', 'in-progress', 'review', 'done'] as const
+export const DEFAULT_COLUMNS = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const
 
 export interface ProjectMeta {
   project_id: string

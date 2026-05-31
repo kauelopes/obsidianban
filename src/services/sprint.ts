@@ -47,7 +47,7 @@ export class SprintService {
       : requireString(params, 'project')
     const name = requireString(params, 'name', MAX_NAME)
     const goalRaw = optString(params, 'goal', MAX_GOAL)
-    const goal = goalRaw ?? ''
+    const goal = goalRaw ?? null
 
     const meta = await loadProjectMeta(this.paths, project).catch(() => null)
     if (!meta) throw notFound()
@@ -188,6 +188,8 @@ export class SprintService {
   ): Promise<{
     sprint_id: string
     updated: string[]
+    added: string[]
+    moved_to_todo: string[]
     failed: Array<{ card_id: string; reason: string }>
   }> {
     requirePmOrManager(claims)
@@ -206,6 +208,8 @@ export class SprintService {
     const todoCol = targetMeta.columns.includes('todo') ? 'todo' : targetMeta.columns[0]
 
     const updated: string[] = []
+    const added: string[] = []
+    const movedToTodo: string[] = []
     const failed: Array<{ card_id: string; reason: string }> = []
     for (const cardId of cardIds) {
       const row = this.repo.findById(cardId)
@@ -214,7 +218,8 @@ export class SprintService {
         failed.push({ card_id: cardId, reason: 'cross_project' })
         continue
       }
-      if (row.sprint_id === sprintId && (!moveToTodo || row.status === todoCol)) {
+      const alreadyInSprint = row.sprint_id === sprintId
+      if (alreadyInSprint && (!moveToTodo || row.status === todoCol)) {
         // No-op short-circuit.
         updated.push(cardId)
         continue
@@ -253,13 +258,15 @@ export class SprintService {
           changed_fields: ['sprint_id'],
         },
       })
+      if (!alreadyInSprint) added.push(cardId)
+      else if (moveToTodo && current.status !== todoCol) movedToTodo.push(cardId)
       updated.push(cardId)
     }
     this.sse.emit({
       type: 'SPRINT_UPDATED',
       payload: { sprint_id: sprintId, project: located.project },
     })
-    return { sprint_id: sprintId, updated, failed }
+    return { sprint_id: sprintId, updated, added, moved_to_todo: movedToTodo, failed }
   }
 
   /**
@@ -365,6 +372,7 @@ export class SprintService {
     closed_at: string
     rolled_over: string[]
     finished: string[]
+    archived: string[]
   }> {
     requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
@@ -405,12 +413,13 @@ export class SprintService {
 
     const rolledOver: string[] = []
     const finished: string[] = []
+    const archived: string[] = []
     const cards = this.repo.findBySprint(sprintId)
     for (const row of cards) {
       if (row.status === 'done') {
         // Archive completed cards automatically when the sprint closes.
         const current = this.repo.toCard(row)
-        const archived: Omit<Card, 'body'> = {
+        const archivedCard: Omit<Card, 'body'> = {
           ...current,
           archived: true,
           version: current.version + 1,
@@ -418,13 +427,13 @@ export class SprintService {
           updated_by: claims.actor,
         }
         const body = await this.readBody(row.project, row.file_basename)
-        await this.writer.write(archived, body, row.file_basename)
+        await this.writer.write(archivedCard, body, row.file_basename)
         await this.audit.log({
           ts: closedAt,
           op: 'ARCHIVE',
           project: row.project,
           card_id: row.id,
-          version: archived.version,
+          version: archivedCard.version,
           actor: claims.actor,
           changed_fields: ['archived'],
           reason: `auto-archived on sprint close`,
@@ -434,6 +443,7 @@ export class SprintService {
           payload: { card_id: row.id, project: row.project },
         })
         finished.push(row.id)
+        archived.push(row.id)
         continue
       }
       if (!rolloverTo) continue   // shouldn't happen — validated above
@@ -476,7 +486,7 @@ export class SprintService {
       type: 'SPRINT_CLOSED',
       payload: { sprint_id: sprintId, project: located.project },
     })
-    return { sprint_id: sprintId, closed_at: closedAt, rolled_over: rolledOver, finished }
+    return { sprint_id: sprintId, closed_at: closedAt, rolled_over: rolledOver, finished, archived }
   }
 
   // ── Internals ──────────────────────────────────────────────────────────

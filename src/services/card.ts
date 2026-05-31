@@ -323,7 +323,8 @@ export class CardService {
     if ('status' in params) {
       const s = requireString(params, 'status')
       const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
-      if (!meta || !meta.columns.includes(s)) {
+      const resolvedS = meta ? resolveColumn(s, meta.columns) : null
+      if (!meta || !resolvedS) {
         throw badRequest('invalid_field', { field: 'status', allowed: meta?.columns ?? [] })
       }
       // Sprint lock on status change via update — same rule as move().
@@ -331,7 +332,7 @@ export class CardService {
         const sprint = (meta.sprints ?? []).find((sp) => sp.id === current.sprint_id)
         if (sprint && sprint.status !== 'active') {
           const fromIdx = meta.columns.indexOf(current.status)
-          const toIdx = meta.columns.indexOf(s)
+          const toIdx = meta.columns.indexOf(resolvedS)
           if (toIdx > fromIdx) {
             throw badRequest('sprint_not_active', {
               message: `Cannot advance card status — sprint "${sprint.name}" is ${sprint.status}. Start the sprint first.`,
@@ -341,7 +342,7 @@ export class CardService {
           }
         }
       }
-      proposed.status = s
+      proposed.status = resolvedS
     }
     if ('priority' in params) {
       const pr = optPriority(params)
@@ -371,7 +372,7 @@ export class CardService {
     if ('log_entry' in params) {
       const entry = optString(params, 'log_entry', 4000)
       if (entry) {
-        const ts = new Date().toISOString().slice(0, 16).replace('T', ' ')
+        const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
         const block = `**${ts}**\n\n${entry.trimEnd()}`
         const SECTION = '# Agent Log'
         if (currentBody.includes(SECTION)) {
@@ -502,7 +503,8 @@ export class CardService {
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
 
     const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
-    if (!meta || !meta.columns.includes(toStatus)) {
+    const resolvedStatus = meta ? resolveColumn(toStatus, meta.columns) : null
+    if (!meta || !resolvedStatus) {
       throw badRequest('invalid_field', { field: 'to_status', allowed: meta?.columns ?? [] })
     }
 
@@ -514,7 +516,7 @@ export class CardService {
       const sprint = (meta.sprints ?? []).find((s) => s.id === current.sprint_id)
       if (sprint && sprint.status !== 'active') {
         const fromIdx = meta.columns.indexOf(current.status)
-        const toIdx = meta.columns.indexOf(toStatus)
+        const toIdx = meta.columns.indexOf(resolvedStatus)
         if (toIdx > fromIdx) {
           throw badRequest('sprint_not_active', {
             message: `Cannot move card forward — sprint "${sprint.name}" is ${sprint.status}. Start the sprint first.`,
@@ -525,7 +527,7 @@ export class CardService {
       }
     }
 
-    if (this.isAdvancingBeyondTodo(toStatus, current.status)) {
+    if (this.isAdvancingBeyondTodo(resolvedStatus, current.status)) {
       const unmet = this.unmetBlockers(current.blocked_by)
       if (unmet.length > 0) throw this.blockedConflict(unmet)
     }
@@ -534,7 +536,7 @@ export class CardService {
     const body = parsedFile.body
 
     if (claimedVersion !== current.version) {
-      const conflicting = current.status === toStatus ? [] : ['status']
+      const conflicting = current.status === resolvedStatus ? [] : ['status']
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
         your_version: claimedVersion,
@@ -545,12 +547,12 @@ export class CardService {
     }
 
     const fromStatus = current.status
-    const maxPos = this.repo.maxPosition(row.project, toStatus)
+    const maxPos = this.repo.maxPosition(row.project, resolvedStatus)
     const newPosition = (maxPos ?? 0) + 1000
     const now = new Date().toISOString()
     const merged: Omit<Card, 'body'> = {
       ...current,
-      status: toStatus,
+      status: resolvedStatus,
       position: newPosition,
       version: current.version + 1,
       updated_at: now,
@@ -568,11 +570,11 @@ export class CardService {
     await this.audit.log({
       ts: now, op: 'MOVE', project: row.project, card_id: id, version: merged.version,
       actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
-      from_status: fromStatus, to_status: toStatus,
+      from_status: fromStatus, to_status: resolvedStatus,
     })
     this.sse.emit({
       type: 'CARD_MOVED',
-      payload: { card_id: id, project: row.project, from_status: fromStatus, to_status: toStatus, new_position: newPosition },
+      payload: { card_id: id, project: row.project, from_status: fromStatus, to_status: resolvedStatus, new_position: newPosition },
     })
 
     return { ...merged, body, file_basename: row.file_basename }
@@ -855,6 +857,13 @@ export class CardService {
         current_assigned_to: current.assigned_to,
         current_version: current.version,
       })
+    }
+
+    // Idempotent re-claim by the same actor: return current state without bumping version.
+    if (current.assigned_to === targetActor) {
+      const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
+      const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
+      return { ...current, body }
     }
 
     return this.applyAssignedTo({
@@ -1196,6 +1205,8 @@ export class CardService {
   ): Promise<{
     card: Omit<Card, 'body'> | null
     blocked_candidates: number
+    reason?: 'no_todo_cards' | 'all_blocked' | 'empty'
+    backlog_count?: number
   }> {
     const project =
       claims.role === 'agent' ? claims.project_id : optString(params, 'project') ?? undefined
@@ -1228,7 +1239,30 @@ export class CardService {
       }
       blockedCandidates += 1
     }
-    return { card: null, blocked_candidates: blockedCandidates }
+
+    // Compute backlog count to help agent diagnose why there's nothing to pick.
+    const backlogRows = this.repo.query({
+      project,
+      status: 'backlog',
+      includeArchived: false,
+      orderBy: 'priority',
+      limit: 200,
+      offset: 0,
+    })
+    const backlogCount = sprintIdFilter
+      ? backlogRows.filter((r) => r.sprint_id === sprintIdFilter).length
+      : backlogRows.length
+
+    let reason: 'no_todo_cards' | 'all_blocked' | 'empty'
+    if (backlogCount > 0) {
+      reason = 'no_todo_cards'
+    } else if (blockedCandidates > 0) {
+      reason = 'all_blocked'
+    } else {
+      reason = 'empty'
+    }
+
+    return { card: null, blocked_candidates: blockedCandidates, reason, backlog_count: backlogCount }
   }
 
   /**
@@ -1249,6 +1283,18 @@ export class CardService {
       : claims
     return this.update(params, elevatedClaims)
   }
+}
+
+/**
+ * Find the column in `columns` that matches `input`, tolerating hyphen/underscore
+ * variation (e.g. "in_progress" matches "in-progress" and vice versa).
+ * Returns the canonical column name from the project, or null if not found.
+ */
+function resolveColumn(input: string, columns: readonly string[]): string | null {
+  if (columns.includes(input)) return input
+  const alt = input.includes('_') ? input.replace(/_/g, '-') : input.replace(/-/g, '_')
+  const found = columns.find((c) => c === alt)
+  return found ?? null
 }
 
 function safeParseStringArray(raw: string | null | undefined): string[] {

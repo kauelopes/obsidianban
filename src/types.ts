@@ -42,7 +42,7 @@ export interface Card {
 export interface Sprint {
   id: string                   // sprint-{nanoid(8)}
   name: string                 // human-readable, max 80 chars
-  goal: string                 // sprint goal text, max 1000 chars
+  goal: string | null          // sprint goal text, max 1000 chars; null when not provided
   created_at: string           // ISO 8601 — when create_sprint was called
   started_at: string | null    // ISO 8601 — when start_sprint was called (null while planning)
   ended_at: string | null      // null while status!=='closed'
