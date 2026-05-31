@@ -74,7 +74,8 @@ async function main(): Promise<void> {
         const project = p['project'] as string
         const actor = p['actor'] as string
         const agent_type = (p['agent_type'] as 'pm' | 'dev' | undefined) ?? 'pm'
-        return createAgentToken(config.paths, project, actor, agent_type)
+        const issued = await createAgentToken(config.paths, project, actor, agent_type)
+        return { project, token: issued.raw, token_id: issued.token_id, actor: issued.actor, agent_type: issued.agent_type, created_at: issued.created_at }
       },
     },
     { name: 'kanban_list_projects',        access: 'manager', inputSchema: s['kanban_list_projects'],        description: 'Manager-only — list all projects with archive filters', handler: async (p, c) => admin.listProjects(p, c) },

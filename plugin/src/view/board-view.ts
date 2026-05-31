@@ -803,9 +803,15 @@ export class KanbanBoardView extends ItemView {
     )
     menu.addItem((item) =>
       item
-        .setTitle('Mint new agent token')
+        .setTitle('Mint new PM token')
         .setIcon('key')
-        .onClick(() => this.plugin.promptMintToken(project)),
+        .onClick(() => this.plugin.promptMintPmToken(project)),
+    )
+    menu.addItem((item) =>
+      item
+        .setTitle('Mint new Dev token')
+        .setIcon('pencil')
+        .onClick(() => this.plugin.promptMintDevToken(project)),
     )
     menu.addSeparator()
     menu.addItem((item) =>

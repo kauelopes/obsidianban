@@ -128,6 +128,17 @@ export class McpClient {
     return this.call('kanban_create_project', params)
   }
 
+  createAgentToken(params: { project: string; actor: string; agent_type: 'pm' | 'dev' }): Promise<McpResult<{
+    project: string
+    token: string
+    token_id: string
+    actor: string
+    agent_type: 'pm' | 'dev'
+    created_at: string
+  }>> {
+    return this.call('kanban_create_agent_token', params)
+  }
+
   listProjects(opts: { include_archived?: boolean; archived_only?: boolean } = {}): Promise<McpResult<{
     projects: Array<{ project: string; columns: string[]; archived: boolean }>
   }>> {

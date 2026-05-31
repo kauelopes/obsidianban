@@ -6,6 +6,7 @@ import { KanbanSettingsTab } from './settings-tab.js'
 import { registerCardBanner } from './editor/card-banner.js'
 import { CreateProjectModal } from './ui/create-project-modal.js'
 import { CreateSprintModal } from './ui/create-sprint-modal.js'
+import { MintAgentTokenModal } from './ui/mint-agent-token-modal.js'
 import { ProjectTokenModal } from './ui/project-token-modal.js'
 import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
 import { KanbanMetricsView, VIEW_TYPE_KANBAN_METRICS } from './view/metrics-view.js'
@@ -123,10 +124,37 @@ export default class KanbanPlugin extends Plugin {
     this.openCreateProjectModal()
   }
 
-  /** Opens the same create/re-mint flow with the project pre-filled — used
-   *  by the per-project menu's "Mint new agent token" action. */
-  promptMintToken(project: string): void {
-    this.openCreateProjectModal(project)
+  promptMintPmToken(project: string): void {
+    this.openMintTokenModal(project, 'pm')
+  }
+
+  promptMintDevToken(project: string): void {
+    this.openMintTokenModal(project, 'dev')
+  }
+
+  private openMintTokenModal(project: string, agentType: 'pm' | 'dev'): void {
+    if (!this.client) { new Notice('Plugin not initialized'); return }
+    new MintAgentTokenModal(this.app, project, agentType, async ({ actor }) => {
+      const client = this.client
+      if (!client) return
+      const res = await client.createAgentToken({ project, actor, agent_type: agentType })
+      if (!res.ok) {
+        const err = res.error
+        const detail = err.kind === 'server' && err.status === 403
+          ? 'Manager token required — set it in plugin settings.'
+          : `${err.kind}: ${err.message}`
+        new Notice(`Mint token failed — ${detail}`, 8000)
+        return
+      }
+      const secretNotePath = `_kanban-secrets/${project}.md`
+      await this.writeSecretNote(secretNotePath, { ...res.data, project })
+      new ProjectTokenModal(this.app, {
+        ...res.data,
+        project,
+        secretNotePath,
+        serverUrl: this.settings.baseUrl,
+      }).open()
+    }).open()
   }
 
   /** Per-project "New sprint…" menu item entry point. */
@@ -196,7 +224,7 @@ export default class KanbanPlugin extends Plugin {
 
   private async writeSecretNote(
     relativePath: string,
-    info: { project: string; token: string; token_id: string; actor: string; created_at: string },
+    info: { project: string; token: string; token_id: string; actor: string; created_at: string; agent_type?: 'pm' | 'dev' },
   ): Promise<void> {
     const folder = relativePath.slice(0, relativePath.lastIndexOf('/'))
     // adapter.exists/mkdir handle the case where _kanban-secrets/ already
@@ -204,8 +232,9 @@ export default class KanbanPlugin extends Plugin {
     if (!(await this.app.vault.adapter.exists(folder))) {
       await this.app.vault.adapter.mkdir(folder)
     }
+    const typeLabel = info.agent_type ? ` (${info.agent_type.toUpperCase()})` : ''
     const entry = [
-      `## Token ${info.token_id} — ${info.created_at}`,
+      `## Token ${info.token_id}${typeLabel} — ${info.created_at}`,
       '',
       `- **Actor:** ${info.actor}`,
       '',
