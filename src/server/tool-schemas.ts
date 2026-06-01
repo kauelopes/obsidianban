@@ -10,7 +10,7 @@ const TOKEN_FIELDS = {
   input_tokens:  { type: 'integer', minimum: 0, default: 0, description: 'usage.input_tokens from the API response — omit or pass 0 if unavailable' },
   output_tokens: { type: 'integer', minimum: 0, default: 0, description: 'usage.output_tokens from the API response — omit or pass 0 if unavailable' },
   model:         { type: 'string', description: "model identifier — e.g. 'claude-sonnet-4-6'" },
-  request_id:    { type: 'string', description: 'idempotency key — safe to retry with the same id' },
+  request_id:    { type: 'string', description: 'idempotency key — use a UUID or nanoid generated once per logical operation. Retrying with the same id returns the cached response without side effects. Recommended whenever the network may be unreliable.' },
 } as const
 
 const CARD_ITEM_SCHEMA = {
@@ -201,8 +201,9 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     type: 'object',
     required: ['id', 'version'],
     properties: {
-      id:      { type: 'string' },
-      version: { type: 'integer', minimum: 1 },
+      id:               { type: 'string' },
+      version:          { type: 'integer', minimum: 1 },
+      revert_to_status: { type: ['string', 'null'], description: "column to move the card back to when releasing from a forward status (in_progress, review…). Defaults to 'todo' so the card is immediately visible to pick_next. Pass null to keep the current status unchanged." },
       ...TOKEN_FIELDS,
     },
     additionalProperties: false,

@@ -79,7 +79,7 @@ const CLAIM_ALLOWED = [
 ] as const
 
 const RELEASE_ALLOWED = [
-  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+  'id', 'version', 'revert_to_status', 'input_tokens', 'output_tokens', 'model', 'request_id',
 ] as const
 
 // Per-card entries in bulk_create payloads cannot carry these — they're
@@ -887,6 +887,9 @@ export class CardService {
 
   /**
    * Release a card you currently own. Manager tokens can release any card.
+   * revert_to_status (default 'todo'): if the card is beyond todo (e.g.
+   * in_progress), it is moved back to this status so pick_next can find it.
+   * Pass null to keep the current status unchanged.
    */
   async release(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
     rejectDisallowed(params, RELEASE_ALLOWED)
@@ -895,6 +898,10 @@ export class CardService {
     const inputTokens = optInt(params, 'input_tokens', 0)
     const outputTokens = optInt(params, 'output_tokens', 0)
     const model = optString(params, 'model') ?? 'unknown'
+    // null = keep status as-is; string = revert to that column; absent = default 'todo'
+    const revertToStatus = 'revert_to_status' in params
+      ? (params['revert_to_status'] === null ? null : requireString(params, 'revert_to_status'))
+      : 'todo'
 
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -918,6 +925,7 @@ export class CardService {
       row,
       current,
       targetActor: null,
+      revertToStatus,
       op: 'RELEASE',
       sseFields: ['assigned_to'],
       claims,
@@ -933,11 +941,12 @@ export class CardService {
     row: CardRow
     current: Omit<Card, 'body'>
     targetActor: string | null
+    revertToStatus?: string | null
     op: 'CLAIM' | 'RELEASE'
     sseFields: string[]
     claims: TokenClaims
   }): Promise<Card> {
-    const { id, claimedVersion, inputTokens, outputTokens, model, row, current, targetActor, op, sseFields, claims } = args
+    const { id, claimedVersion, inputTokens, outputTokens, model, row, current, targetActor, op, claims } = args
     const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
 
@@ -951,10 +960,26 @@ export class CardService {
       })
     }
 
+    // Revert status: only when releasing and the card is in a forward column.
+    const unstarted = new Set(['backlog', 'todo'])
+    let newStatus = current.status
+    let newPosition = current.position
+    const sseFields = [...args.sseFields]
+    if (args.revertToStatus && !unstarted.has(current.status)) {
+      const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
+      if (meta?.columns.includes(args.revertToStatus)) {
+        newStatus = args.revertToStatus
+        newPosition = (this.repo.maxPosition(row.project, args.revertToStatus) ?? 0) + 1000
+        if (!sseFields.includes('status')) sseFields.push('status', 'position')
+      }
+    }
+
     const now = new Date().toISOString()
     const next: Omit<Card, 'body'> = {
       ...current,
       assigned_to: targetActor,
+      status: newStatus,
+      position: newPosition,
       version: current.version + 1,
       total_input_tokens: current.total_input_tokens + inputTokens,
       total_output_tokens: current.total_output_tokens + outputTokens,
