@@ -214,6 +214,11 @@ export class CardService {
     if (!meta.columns.includes(status)) {
       throw badRequest('invalid_field', { field: 'status', allowed: meta.columns })
     }
+    // Sprint lock on create: forward statuses (in_progress, review, done) require
+    // an active sprint. Planning sprints only accept backlog and todo.
+    if (targetSprint.status !== 'active' && this.isAdvancingBeyondTodo(status, 'todo')) {
+      throw sprintNotActiveError(targetSprint)
+    }
 
     const id = generateCardId()
     // blocked_by on create: same validation as update (existence, same-project,
@@ -334,19 +339,13 @@ export class CardService {
       if (!meta || !resolvedS) {
         throw badRequest('invalid_field', { field: 'status', allowed: meta?.columns ?? [] })
       }
-      // Sprint lock on status change via update — same rule as move().
-      if (claims.role === 'agent' && current.sprint_id != null) {
+      // Sprint lock on status change: forward movement requires an active sprint.
+      if (current.sprint_id != null) {
         const sprint = (meta.sprints ?? []).find((sp) => sp.id === current.sprint_id)
         if (sprint && sprint.status !== 'active') {
           const fromIdx = meta.columns.indexOf(current.status)
           const toIdx = meta.columns.indexOf(resolvedS)
-          if (toIdx > fromIdx) {
-            throw badRequest('sprint_not_active', {
-              message: `Cannot advance card status — sprint "${sprint.name}" is ${sprint.status}. Start the sprint first.`,
-              sprint_id: sprint.id,
-              sprint_status: sprint.status,
-            })
-          }
+          if (toIdx > fromIdx) throw sprintNotActiveError(sprint)
         }
       }
       proposed.status = resolvedS
@@ -522,19 +521,13 @@ export class CardService {
     const current = this.repo.toCard(row)
     this.assertWritable(current.assigned_to, claims)
 
-    // Sprint lock: agents cannot move a card forward unless its sprint is active.
-    if (claims.role === 'agent' && current.sprint_id != null) {
+    // Sprint lock: forward movement requires an active sprint.
+    if (current.sprint_id != null) {
       const sprint = (meta.sprints ?? []).find((s) => s.id === current.sprint_id)
       if (sprint && sprint.status !== 'active') {
         const fromIdx = meta.columns.indexOf(current.status)
         const toIdx = meta.columns.indexOf(resolvedStatus)
-        if (toIdx > fromIdx) {
-          throw badRequest('sprint_not_active', {
-            message: `Cannot move card forward — sprint "${sprint.name}" is ${sprint.status}. Start the sprint first.`,
-            sprint_id: sprint.id,
-            sprint_status: sprint.status,
-          })
-        }
+        if (toIdx > fromIdx) throw sprintNotActiveError(sprint)
       }
     }
 
@@ -1309,6 +1302,28 @@ export class CardService {
       : claims
     return this.update(params, elevatedClaims)
   }
+}
+
+/**
+ * Builds an actionable sprint_not_active error.
+ * - planning: agent should call kanban_start_sprint
+ * - closed:   agent should move the card to a different sprint
+ */
+function sprintNotActiveError(sprint: { id: string; name: string; status: string }): HttpError {
+  const isPlanning = sprint.status === 'planning'
+  return badRequest('sprint_not_active', {
+    message: isPlanning
+      ? `Sprint "${sprint.name}" is still in planning — start it before advancing cards.`
+      : `Sprint "${sprint.name}" is closed — cards in a closed sprint cannot move forward.`,
+    sprint_id: sprint.id,
+    sprint_status: sprint.status,
+    hint: isPlanning
+      ? 'Call kanban_start_sprint to activate this sprint.'
+      : 'Use kanban_move_between_sprints to move the card to an active or planning sprint.',
+    next_action: isPlanning
+      ? { tool: 'kanban_start_sprint', params: { sprint_id: sprint.id } }
+      : { tool: 'kanban_move_between_sprints' },
+  })
 }
 
 function safeParseStringArray(raw: string | null | undefined): string[] {

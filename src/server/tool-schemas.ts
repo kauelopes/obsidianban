@@ -275,9 +275,9 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
 
   kanban_create_sprint: {
     type: 'object',
-    required: ['project', 'name'],
+    required: ['name'],
     properties: {
-      project: { type: 'string' },
+      project: { type: 'string', description: 'required for manager tokens; omit for agent tokens (project is inferred from the token)' },
       name:    { type: 'string', maxLength: 80 },
       goal:    { type: 'string', maxLength: 1000 },
     },
@@ -293,9 +293,8 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
 
   kanban_list_sprints: {
     type: 'object',
-    required: ['project'],
     properties: {
-      project: { type: 'string', description: 'for agent tokens: always uses the token project — this parameter is accepted but ignored (the response always reflects the token project, never a different project)' },
+      project: { type: 'string', description: 'required for manager tokens; omit for agent tokens (project is inferred from the token)' },
       status:  { type: 'string', enum: ['planning', 'active', 'closed', 'open', 'all'] },
     },
     additionalProperties: false,
