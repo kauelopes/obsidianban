@@ -26,7 +26,7 @@ Served directly from SQLite — zero .md file reads. Returns card summaries with
 | id | string, required | Card ID to retrieve. |
 Reads .md file from disk (not SQLite) to ensure latest state including body text. Returns 404 for cards in other projects.
 
-### 6.4  kanban_create_card
+### 6.4  kanban_create_card _(PM/manager only)_
 | Parameter | Type | Description |
 | --- | --- | --- |
 | title | string, required | Non-empty, max 200 chars. |

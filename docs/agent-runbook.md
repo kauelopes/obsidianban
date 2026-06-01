@@ -85,25 +85,62 @@ the next request with that token returns `401 token_revoked`.
 
 ## 3. Pick the transport
 
-Both transports expose the **same twenty-five tools** (`kanban_list_cards`,
-`kanban_get_card`, `kanban_create_card`, `kanban_bulk_create_cards`,
-`kanban_pick_next`, `kanban_update_card`,
-`kanban_move_card`, `kanban_reorder_card`, `kanban_delete_card`,
-`kanban_archive_card`, `kanban_unarchive_card`, `kanban_claim_card`,
-`kanban_release_card`, `kanban_create_project`, `kanban_list_projects`,
-`kanban_archive_project`, `kanban_unarchive_project`,
-`kanban_delete_project`, `kanban_create_sprint`, `kanban_start_sprint`,
-`kanban_list_sprints`, `kanban_get_sprint`, `kanban_add_to_sprint`,
-`kanban_move_between_sprints`, `kanban_close_sprint`). All `*_project`
-and `*_sprint` tools except `list_*` / `get_sprint` are manager-only;
-the read tools are scoped to the caller's project for agents and
-unscoped for managers. `delete_project` requires `confirm` to equal the
-project name. Cards are gated by `assigned_to`: mutating a card owned
+Both transports expose the **same twenty-seven tools**, but which ones are
+**visible** depends on the token's `agent_type`:
+
+| Tool | Dev agent | PM agent | Manager |
+|------|-----------|----------|---------|
+| `kanban_list_cards` | ✅ | ✅ | ✅ |
+| `kanban_get_card` | ✅ | ✅ | ✅ |
+| `kanban_log_on_card` | ✅ | ✅ | ✅ |
+| `kanban_move_card` | ✅ | ✅ | ✅ |
+| `kanban_claim_card` | ✅ | ✅ | ✅ |
+| `kanban_release_card` | ✅ | ✅ | ✅ |
+| `kanban_pick_next` | ✅ | ✅ | ✅ |
+| `kanban_list_sprints` | ✅ | ✅ | ✅ |
+| `kanban_get_sprint` | ✅ | ✅ | ✅ |
+| `kanban_create_card` | ❌ | ✅ | ✅ |
+| `kanban_bulk_create_cards` | ❌ | ✅ | ✅ |
+| `kanban_update_card` | ❌ | ✅ | ✅ |
+| `kanban_reorder_card` | ❌ | ✅ | ✅ |
+| `kanban_delete_card` | ❌ | ✅ | ✅ |
+| `kanban_archive_card` | ❌ | ✅ | ✅ |
+| `kanban_unarchive_card` | ❌ | ✅ | ✅ |
+| `kanban_create_sprint` | ❌ | ✅ | ✅ |
+| `kanban_start_sprint` | ❌ | ✅ | ✅ |
+| `kanban_add_to_sprint` | ❌ | ✅ | ✅ |
+| `kanban_move_between_sprints` | ❌ | ✅ | ✅ |
+| `kanban_close_sprint` | ❌ | ✅ | ✅ |
+| `kanban_create_project` | ❌ | ❌ | ✅ |
+| `kanban_create_agent_token` | ❌ | ❌ | ✅ |
+| `kanban_list_projects` | ❌ | ❌ | ✅ |
+| `kanban_archive_project` | ❌ | ❌ | ✅ |
+| `kanban_unarchive_project` | ❌ | ❌ | ✅ |
+| `kanban_delete_project` | ❌ | ❌ | ✅ |
+
+`ListTools` only returns the tools the caller can actually invoke — an agent
+never sees tools it can't use. `delete_project` requires `confirm` to equal
+the project name. Cards are gated by `assigned_to`: mutating a card owned
 by another actor returns 403 — use `kanban_claim_card` to take
 ownership of an unassigned card, then `kanban_release_card` when you're
 done. **Every new card requires a `sprint_id`** in a planning or active
 sprint; call `kanban_list_sprints?status=open` first to find a valid
-target. Pick based on where the agent runs.
+target.
+
+### Dev agent escalation protocol
+
+Dev agents cannot create cards. When a dev agent is **blocked** or wants to
+**propose** new work, it must communicate through the card in `review`:
+
+1. `kanban_log_on_card` — write a clear explanation of the blockage or
+   proposal (what you tried, what failed, what you recommend).
+2. `kanban_move_card { to_status: "review" }` — hand the card to the PM.
+3. `kanban_pick_next` — continue with the next available task.
+
+The PM reads cards in `review` and decides whether to close the task, create
+a follow-up card, or resolve the blocker and return the card to `todo`.
+
+Pick based on where the agent runs.
 
 | Transport | Best for                                                                                                          | Notes                                                                                  |
 | --------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |

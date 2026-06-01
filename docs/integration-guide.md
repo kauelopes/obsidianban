@@ -201,7 +201,9 @@ project lifecycle:
   project name as a typo guard; mismatched or missing `confirm` returns
   400. Returns `{ project, cards_deleted }`. SSE: `PROJECT_DELETED`.
 
-**Bulk-creating cards.** When one LLM round produces several cards
+**Bulk-creating cards.** `kanban_create_card` and `kanban_bulk_create_cards`
+are **PM/manager only**. Dev agents cannot create cards — see "Dev agent
+escalation" below. When one LLM round produces several cards
 (parsing a PRD into a backlog is the canonical case), call
 `kanban_bulk_create_cards` instead of looping over `create_card`:
 
@@ -382,6 +384,20 @@ buffer).
 the title but is also exposed as `card.file_basename` in API responses for
 clients that need it. Renaming the file in Obsidian is honored; renaming with
 a non-existent project folder is rejected by the watcher.
+
+**Dev agent escalation.** Dev agents cannot create cards, update card fields,
+or manage sprints. When a dev agent is **blocked** or needs to **propose**
+something (a new card, change of scope, an impediment), the protocol is:
+
+1. Call `kanban_log_on_card` — document the blockage or proposal clearly
+   enough that a PM can act without asking questions.
+2. Call `kanban_move_card { to_status: "review" }` — hand the card to the PM.
+3. Call `kanban_pick_next` — continue with the next available task.
+
+The PM agent reads cards in `review`, inspects the Agent Log, and decides:
+- Move to `done` or archive (task no longer needed).
+- Create a new card for the proposed work and return the original to `todo`.
+- Resolve the blocker directly and return the card to `todo`.
 
 **Health.** `GET /health` returns `{"status":"ok"}` without auth — use it as
 your reachability probe and to drive an "offline" indicator while the SSE

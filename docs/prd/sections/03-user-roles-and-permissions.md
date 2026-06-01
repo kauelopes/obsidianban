@@ -2,27 +2,46 @@
 
 
 ### 3.1  Role Matrix
-| Action | Manager | Agent |
-| --- | --- | --- |
-| Create card | Via plugin board (→ MCP) or directly creating .md file | Via MCP only |
-| Read card | Direct file or plugin board | Via MCP only |
-| Edit card content (body, allowed fields) | Obsidian editor directly or via plugin | Via MCP only (agent-writable fields) |
-| Edit immutable fields (id, project, etc.) | Silently reverted by file watcher | Not applicable — MCP rejects |
-| Move card (status change) | Drag in plugin board (→ MCP) or edit status field directly | Via kanban_move_card |
-| Reorder cards | Drag in plugin board (→ MCP) | Via kanban_reorder_card |
-| Hard delete card | Yes (delete file) | Never |
-| Create / configure project | Yes (CLI + plugin) | No |
-| Token provisioning | Yes (CLI) | No |
+
+Agent tokens carry an `agent_type` claim (`pm` or `dev`) that further restricts which tools are visible.
+
+| Action | Manager | PM Agent | Dev Agent |
+| --- | --- | --- | --- |
+| Create card | Via plugin board (→ MCP) or directly creating .md file | Via MCP (`kanban_create_card`, `kanban_bulk_create_cards`) | **No** — dev agents never create cards |
+| Read card | Direct file or plugin board | Via MCP | Via MCP |
+| Log progress on card | Via plugin | Via `kanban_log_on_card` | Via `kanban_log_on_card` (primary write tool) |
+| Update card fields | Obsidian editor directly or via plugin | Via `kanban_update_card` | **No** — use log + escalate instead |
+| Move card (status change) | Drag in plugin board (→ MCP) or edit status field directly | Via `kanban_move_card` | Via `kanban_move_card` (also used to escalate to `review`) |
+| Reorder cards | Drag in plugin board (→ MCP) | Via `kanban_reorder_card` | **No** |
+| Archive / unarchive card | Yes | Via MCP | **No** |
+| Manage sprints (create, start, add, close) | Yes | Via MCP | **No** |
+| Hard delete card | Yes (delete file) | Via `kanban_delete_card` | **No** |
+| Create / configure project | Yes (CLI + plugin) | No | No |
+| Token provisioning | Yes (CLI + `kanban_create_agent_token`) | No | No |
+
+### 3.1b  Dev Agent Communication Protocol
+
+Dev agents cannot create cards, update card fields, or manage sprints. When a dev agent is **blocked** or needs to **propose** something (new scope, a follow-up card, an impediment), the protocol is:
+
+1. Call `kanban_log_on_card` — document the blockage or proposal with enough detail for a PM to act without asking questions.
+2. Call `kanban_move_card` to move the card to `review`.
+3. Stop work on this card and call `kanban_pick_next` for the next task.
+
+The PM agent reads cards in `review`, inspects the log, and decides:
+- **Close the task** — move it to `done` or archive it.
+- **Create a follow-up card** — mint a new card for the proposed work and return the original to `todo`.
+- **Execute directly** — if the action is minor enough, the PM resolves the blocker and returns the card to `todo`.
 
 ### 3.2  Token Structure
-There are two distinct token types, differing in scope:
+There are two distinct token types, differing in scope and agent type:
 
-| Claim | Agent Token | Manager Token |
-| --- | --- | --- |
-| `role` | `agent` | `manager` |
-| `project_id` | Required — bound to exactly one project at issuance, immutable | Absent — manager token is project-unscoped (access to all projects in the vault) |
+| Claim | Agent Token (PM) | Agent Token (Dev) | Manager Token |
+| --- | --- | --- | --- |
+| `role` | `agent` | `agent` | `manager` |
+| `agent_type` | `pm` | `dev` | n/a |
+| `project_id` | Required — bound to exactly one project at issuance, immutable | Required — bound to exactly one project at issuance, immutable | Absent — manager token is project-unscoped (access to all projects in the vault) |
 
-Agent tokens are issued per project and scoped to it. Manager tokens are issued once per vault and grant access to all projects. Both use the same MCP endpoints — `role` is the enforcement boundary for field-level access control. Manager tokens are never shared with agents.
+Agent tokens are issued per project and scoped to it. Manager tokens are issued once per vault and grant access to all projects. Both use the same MCP endpoints — `role` and `agent_type` are the enforcement boundaries for tool-level access control. Manager tokens are never shared with agents.
 
 ### 3.3  Agent Constraints
 - Each agent token is bound to exactly one project_id at issuance. Immutable.
