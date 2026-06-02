@@ -1,6 +1,6 @@
 /**
  * JSON Schema definitions for every MCP tool.
- * Consumed by StdioMcpServer and McpSseManager to populate ListTools.
+ * Consumed by StdioMcpServer and McpHttpManager to populate ListTools.
  * Proper types prevent MCP clients from serialising integers/arrays as strings.
  */
 

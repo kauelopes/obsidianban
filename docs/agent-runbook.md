@@ -97,8 +97,8 @@ Both transports expose the **same twenty-seven tools**, but which ones are
 | `kanban_claim_card` | ✅ | ✅ | ✅ |
 | `kanban_release_card` | ✅ | ✅ | ✅ |
 | `kanban_pick_next` | ✅ | ✅ | ✅ |
-| `kanban_list_sprints` | ✅ | ✅ | ✅ |
-| `kanban_get_sprint` | ✅ | ✅ | ✅ |
+| `kanban_list_sprints` | ❌ | ✅ | ✅ |
+| `kanban_get_sprint` | ❌ | ✅ | ✅ |
 | `kanban_create_card` | ❌ | ✅ | ✅ |
 | `kanban_bulk_create_cards` | ❌ | ✅ | ✅ |
 | `kanban_update_card` | ❌ | ✅ | ✅ |
@@ -124,8 +124,14 @@ the project name. Cards are gated by `assigned_to`: mutating a card owned
 by another actor returns 403 — use `kanban_claim_card` to take
 ownership of an unassigned card, then `kanban_release_card` when you're
 done. **Every new card requires a `sprint_id`** in a planning or active
-sprint; call `kanban_list_sprints?status=open` first to find a valid
-target.
+sprint; PM agents can call `kanban_list_sprints?status=open` first to find a
+valid target.
+
+**Dev agents and the active sprint.** All tools available to a dev agent
+require an active sprint in the project. If no sprint is active, every call
+returns `409 no_active_sprint`. Additionally, `kanban_list_cards` and
+`kanban_pick_next` automatically scope their results to the active sprint —
+passing a different `sprint_id` is not allowed and will be overridden.
 
 ### Dev agent escalation protocol
 
@@ -222,7 +228,136 @@ The full integration pattern (idempotency, 409 handling, SSE) is in
 
 ---
 
-## 5. Operating the server
+## 5. Orchestrating a PM → dev agent (headless)
+
+The common topology: **one PM agent that plans and supervises, and at least one
+dev agent that executes the board.** The PM dispatches the dev, the dev works,
+the PM reads back the result and decides what's next.
+
+### Why a separate process, not a subagent
+
+The token **is** the identity. `kanban_claim_card` infers `assigned_to` from the
+token (not a parameter), cost attribution follows the token, and the dev-vs-pm
+tool scope is enforced server-side from the token's `agent_type`. A Claude Code
+**subagent** (`.claude/agents/*.md`) gets a separate *context window* but
+**shares the parent session's MCP connection — and therefore the parent's
+token.** A subagent dev would act on the board as the PM: wrong `assigned_to`,
+wrong cost attribution, and the server-side dev restriction never applies.
+
+So the dev runs as its **own headless process** with its **own dev token**. The
+token boundary is the process boundary — exactly the "one MCP process per agent,
+token via env var" rule from §3.
+
+### The three files — bundled in the PM skill
+
+These live **inside the `kanban-pm-agent` skill** (not at the repo root) so the
+whole capability travels with a copy/paste of the skill folder into any project.
+Paths resolve relative to the script, never to the host repo.
+
+| File (in `.claude/skills/kanban-pm-agent/`) | Purpose |
+|------|---------|
+| `dev.mcp.json` | MCP config exposing **only** the kanban server over **HTTP** (`url: http://127.0.0.1:9375/mcp`), with `Authorization: Bearer ${KANBAN_DEV_TOKEN}`. No path to the MCP build — the server is a shared service, external to the project. |
+| `dev-settings.json` | `permissions.deny` for `Skill(kanban-pm-agent)` and `Skill(kanban-manager-agent)` — stops the dev from loading PM/manager guidance it can't act on |
+| `spawn-dev.sh` | Wrapper the PM calls via Bash: checks prerequisites, pings the server, launches the dev, parses the JSON result |
+
+The launch isolates the dev on three independent planes:
+
+- `--strict-mcp-config --mcp-config <skill>/dev.mcp.json` — the dev sees **only**
+  the kanban server, ignoring the project `.mcp.json` and any other MCP config.
+- `--settings <skill>/dev-settings.json` — denies the PM/manager skills (client
+  plane, anti-confusion).
+- the **dev token** in the `Bearer` header — restricts the tool surface
+  server-side (authoritative plane).
+
+Because the connection is HTTP to a shared server, the only per-project input is
+the **dev token** (an env var) — nothing in the bundle is repo-specific, which
+is what makes the skill portable across every new project.
+
+### Dispatch and read the result
+
+The PM (running with its own PM token) calls, from the project root:
+
+```bash
+KANBAN_DEV_TOKEN=kbn_t_<dev raw token> \
+  .claude/skills/kanban-pm-agent/spawn-dev.sh "Implement the auth cards in the active sprint"
+```
+
+(The dev process inherits the project cwd, so it auto-discovers that project's
+`kanban-dev-agent` skill. The shared HTTP server must be running — `spawn-dev.sh`
+pings `KANBAN_URL/health` first and aborts with a clear message if it isn't.)
+
+`spawn-dev.sh` runs `claude -p ... --output-format json`, which prints a single
+result object on stdout when the dev finishes:
+
+```json
+{
+  "is_error": false,
+  "result": "Finished 3 auth cards. Moved AUTH-204 to review: needs a client secret — escalated.",
+  "session_id": "9f2c…-uuid",
+  "num_turns": 14,
+  "total_cost_usd": 0.4127,
+  "usage": { "input_tokens": 38211, "output_tokens": 5904 },
+  "duration_ms": 92344
+}
+```
+
+The wrapper reads it with `jq`: `is_error` (→ exit 1 on failure), `result` (the
+dev's prose summary), `session_id` (for resume), and the cost/usage fields —
+attributed correctly because the dev ran as its own process and token.
+
+### The handoff goes through the board, not the prompt
+
+The PM does **not** pass tasks to the dev as arguments. The contract is the
+board itself:
+
+1. PM creates cards + `kanban_start_sprint` (promotes `backlog → todo`).
+2. PM dispatches the dev with a generic instruction ("work the active sprint").
+3. Dev loops `pick_next → claim → in_progress → log → done`, and on a blocker
+   follows the escalation protocol (§3): log + move to `review`.
+4. Dev exits; PM reads the result JSON to know it finished and what it cost.
+5. PM — with its **own** token — calls `kanban_get_sprint` / lists `review` to
+   see the *authoritative* state, and decides: close, follow-up, or unblock.
+
+`result` is just a summary; the source of truth is the board, which the dev
+already updated via `kanban_move_card` / `kanban_log_on_card`.
+
+### Resume — continue the same dev
+
+The wrapper echoes the `session_id`. To continue the **same** dev (preserving
+its context) instead of starting fresh, set `RESUME_SESSION_ID`:
+
+```bash
+RESUME_SESSION_ID=9f2c…-uuid \
+KANBAN_DEV_TOKEN=kbn_t_<dev raw token> \
+  .claude/skills/kanban-pm-agent/spawn-dev.sh "AUTH-204 is unblocked: the client secret is on the card. Continue."
+```
+
+When set, the wrapper adds `--resume <id>` so the dev picks up with full memory
+of the previous round.
+
+| Situation | PM action |
+|-----------|-----------|
+| Continuation of the same work (unblocked a card, asked for a tweak) | **resume** — reuses context, cheaper and coherent |
+| New independent batch (other feature, board changed a lot) | **fresh** — clean context, no irrelevant history dragged along |
+| Previous dev failed (`is_error`) | **fresh** |
+
+Rule of thumb: **resume preserves reasoning, fresh preserves focus.** Because
+the authoritative work state lives on the board (not in the dev's context), a
+fresh spawn never *loses* work — the dev just re-reads the board via
+`pick_next`. When in doubt, fresh is safe; resume is an optimization for genuine
+continuity.
+
+### Scaling to N devs
+
+Because the dev connects over HTTP to one shared server, parallelism is free:
+dispatch `spawn-dev.sh` several times (each with its own dev token) and every
+dev process connects to the same URL. No extra server processes, no port
+juggling — the server already handles concurrent agents and the board's
+`assigned_to` / version checks keep them from colliding.
+
+---
+
+## 6. Operating the server
 
 ### Start (HTTP mode, for remote / multiple agents)
 
@@ -267,7 +402,7 @@ curl 'http://127.0.0.1:9375/metrics?from_date=2026-05-01&to_date=2026-05-31' | j
 
 ---
 
-## 6. Common failure modes
+## 7. Common failure modes
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -282,7 +417,7 @@ curl 'http://127.0.0.1:9375/metrics?from_date=2026-05-01&to_date=2026-05-31' | j
 
 ---
 
-## 7. Security checklist before granting access
+## 8. Security checklist before granting access
 
 - [ ] Token role matches the agent's blast radius (`agent` unless you need vault-wide)
 - [ ] `--actor` string identifies the agent clearly enough that you can revoke the right one in 6 months
@@ -292,7 +427,7 @@ curl 'http://127.0.0.1:9375/metrics?from_date=2026-05-01&to_date=2026-05-31' | j
 
 ---
 
-## 8. Quick reference
+## 9. Quick reference
 
 ```
 # Mint
@@ -308,6 +443,12 @@ VAULT_PATH=$V MCP_HTTP_PORT=4000 tsx src/index.ts      # custom port
 
 # Start (stdio — usually launched by the agent client)
 VAULT_PATH=$V KANBAN_MCP_TOKEN=kbn_... tsx src/index.ts --stdio
+
+# Dispatch a dev agent (headless) — PM calls this, reads the JSON result
+#   (needs the shared HTTP server running + a dev token; script lives in the PM skill)
+KANBAN_DEV_TOKEN=kbn_... .claude/skills/kanban-pm-agent/spawn-dev.sh "work the active sprint"
+# Resume the same dev session
+RESUME_SESSION_ID=<id> KANBAN_DEV_TOKEN=kbn_... .claude/skills/kanban-pm-agent/spawn-dev.sh "continue"
 
 # Observe
 tail -f $V/.kanban/audit.ndjson

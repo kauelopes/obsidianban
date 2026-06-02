@@ -103,6 +103,11 @@ export async function saveProjectMeta(
   await fs.writeFile(metaPath(paths, project), JSON.stringify(meta, null, 2) + '\n', 'utf8')
 }
 
+export async function findActiveSprint(paths: Paths, project: string): Promise<Sprint | null> {
+  const meta = await loadProjectMeta(paths, project).catch(() => null)
+  return (meta?.sprints ?? []).find((s) => s.status === 'active') ?? null
+}
+
 export async function cleanupOrphanTmpFiles(paths: Paths): Promise<number> {
   let removed = 0
   const projects = await listProjects(paths).catch(() => [])

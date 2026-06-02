@@ -15,13 +15,16 @@ Agent tokens carry an `agent_type` claim (`pm` or `dev`) that further restricts 
 | Reorder cards | Drag in plugin board (→ MCP) | Via `kanban_reorder_card` | **No** |
 | Archive / unarchive card | Yes | Via MCP | **No** |
 | Manage sprints (create, start, add, close) | Yes | Via MCP | **No** |
+| View sprints (`kanban_list_sprints`, `kanban_get_sprint`) | Yes | Via MCP | **No** — sprint context is implicit; all tools require an active sprint and scope automatically to it |
 | Hard delete card | Yes (delete file) | Via `kanban_delete_card` | **No** |
 | Create / configure project | Yes (CLI + plugin) | No | No |
 | Token provisioning | Yes (CLI + `kanban_create_agent_token`) | No | No |
 
 ### 3.1b  Dev Agent Communication Protocol
 
-Dev agents cannot create cards, update card fields, or manage sprints. When a dev agent is **blocked** or needs to **propose** something (new scope, a follow-up card, an impediment), the protocol is:
+Dev agents cannot create cards, update card fields, manage sprints, or query sprint information. All tools available to a dev agent require an active sprint in the project — any call with no active sprint returns `409 no_active_sprint`. `kanban_list_cards` and `kanban_pick_next` automatically scope their results to the active sprint; the `sprint_id` parameter is ignored for dev agents.
+
+When a dev agent is **blocked** or needs to **propose** something (new scope, a follow-up card, an impediment), the protocol is:
 
 1. Call `kanban_log_on_card` — document the blockage or proposal with enough detail for a PM to act without asking questions.
 2. Call `kanban_move_card` to move the card to `review`.

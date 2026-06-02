@@ -8,7 +8,7 @@ import type { SSEEventBus } from './sse.js'
 import type { TokenClaims } from '../types.js'
 import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
-import type { McpSseManager } from './mcp-sse.js'
+import type { McpHttpManager } from './mcp-http.js'
 
 export interface ServerState {
   startedAt: number
@@ -25,7 +25,7 @@ export interface HttpServerDeps {
   idempotency: IdempotencyStore
   sse: SSEEventBus
   metrics: MetricsService
-  mcpSse: McpSseManager
+  mcp: McpHttpManager
 }
 
 interface ToolHandler {
@@ -81,11 +81,8 @@ export class HttpServer {
       return this.handleToolCall(req, res, toolMatch[1]!)
     }
 
-    if (req.method === 'GET' && url.split('?')[0] === '/mcp/sse') {
-      return this.handleMcpSse(req, res)
-    }
-    if (req.method === 'POST' && url.split('?')[0] === '/mcp/message') {
-      return this.handleMcpMessage(req, res, url)
+    if (url.split('?')[0] === '/mcp') {
+      return this.handleMcp(req, res)
     }
 
     sendJson(res, 404, { error: 'not_found' })
@@ -193,20 +190,25 @@ export class HttpServer {
     }
   }
 
-  private async handleMcpSse(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Stateless Streamable HTTP: the client drives everything over POST. There
+    // is no server-initiated stream to open, so GET/DELETE are not supported.
+    if (req.method !== 'POST') {
+      res.setHeader('allow', 'POST')
+      sendJson(res, 405, {
+        error: 'method_not_allowed',
+        hint: 'the /mcp endpoint is stateless Streamable HTTP — use POST',
+      })
+      return
+    }
     const claims = await this.authenticate(req, res)
     if (!claims) return
-    this.deps.mcpSse.handleSse(req, res, claims)
-  }
-
-  private async handleMcpMessage(
-    req: IncomingMessage,
-    res: ServerResponse,
-    url: string,
-  ): Promise<void> {
-    const sessionId = new URL(url, 'http://localhost').searchParams.get('sessionId') ?? ''
-    const handled = await this.deps.mcpSse.handleMessage(req, res, sessionId)
-    if (!handled) sendJson(res, 404, { error: 'session_not_found', sessionId })
+    const body = await readJsonBody(req).catch(() => null)
+    if (body === null) {
+      sendJson(res, 400, { error: 'invalid_json' })
+      return
+    }
+    await this.deps.mcp.handleRequest(req, res, claims, body)
   }
 
   private async authenticate(

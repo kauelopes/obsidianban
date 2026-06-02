@@ -16,9 +16,10 @@ import { QueryService } from './services/query.js'
 import { MetricsService } from './services/metrics.js'
 import { AdminService } from './services/admin.js'
 import { createAgentToken } from './auth/tokens.js'
-import { McpSseManager } from './server/mcp-sse.js'
+import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
 import { TOOL_SCHEMAS } from './server/tool-schemas.js'
+import { TOOL_CATALOG } from './server/tool-catalog.js'
 import type { ToolAccess } from './server/tool-access.js'
 import type { TokenClaims } from './types.js'
 
@@ -43,53 +44,55 @@ async function main(): Promise<void> {
   const metrics = new MetricsService(db)
   const admin = new AdminService(config.paths, repo, audit, sse)
   const sprints = new SprintService(config.paths, repo, writer, audit, sse)
-  const queries = new QueryService(repo, () => admin.getArchivedProjects())
+  const queries = new QueryService(repo, config.paths, () => admin.getArchivedProjects())
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   type ToolDef = { name: string; description: string; inputSchema?: Record<string, unknown>; access: ToolAccess; handler: ToolFn }
-  const s = TOOL_SCHEMAS
-  const tools: ToolDef[] = [
-    { name: 'kanban_list_cards',           access: 'all',     inputSchema: s['kanban_list_cards'],           description: 'List cards in the project, with optional filters', handler: async (p, c) => queries.list(p, c) },
-    { name: 'kanban_get_card',             access: 'all',     inputSchema: s['kanban_get_card'],             description: 'Get a card by id including body', handler: async (p, c) => cards.get(p, c) },
-    { name: 'kanban_create_card',          access: 'pm',      inputSchema: s['kanban_create_card'],          description: "PM/manager only — create a new card. Required: title, type, sprint_id. body is write-once; use kanban_log_on_card afterwards. IMPORTANT: the response includes file_basename — a URL-style slug derived from the title (lowercase, accents removed, non-alphanumeric sequences replaced by hyphens). Always read file_basename from the response rather than deriving it yourself.", handler: async (p, c) => cards.create(p, c) },
-    { name: 'kanban_bulk_create_cards',    access: 'pm',      inputSchema: s['kanban_bulk_create_cards'],    description: 'PM/manager only — create up to 100 cards in one call (partial success). cards is a typed array.', handler: async (p, c) => cards.bulkCreate(p, c) },
-    { name: 'kanban_update_card',          access: 'pm',      inputSchema: s['kanban_update_card'],          description: 'Update fields of an existing card (optimistic locking). pm agent or manager only.', handler: async (p, c) => cards.update(p, c) },
-    { name: 'kanban_log_on_card',          access: 'all',     inputSchema: s['kanban_log_on_card'],          description: "Append a timestamped log entry to the # Agent Log section. Available to all agent types (including dev). Supports markdown and mermaid diagrams. DEV AGENT ESCALATION PROTOCOL: if you are blocked or want to propose something (new card, change of scope, etc.), log your reasoning here and then call kanban_move_card to move the card to 'review' — the PM agent will read it and decide. PM agents: prefer kanban_update_card when you need to update other fields at the same time as logging.", handler: async (p, c) => cards.logOnCard(p, c) },
-    { name: 'kanban_move_card',            access: 'all',     inputSchema: s['kanban_move_card'],            description: 'Move a card to another column. Default columns: backlog, todo, in_progress, review, done. Pass input_tokens/output_tokens to record cost.', handler: async (p, c) => cards.move(p, c) },
-    { name: 'kanban_reorder_card',         access: 'pm',      inputSchema: s['kanban_reorder_card'],         description: 'Reorder a card within its column. WARNING: bumps the version of every other card in the same column — check affected_cards in the response to update cached versions.', handler: async (p, c) => cards.reorder(p, c) },
-    { name: 'kanban_delete_card',          access: 'pm',      inputSchema: s['kanban_delete_card'],          description: 'Delete a card (optimistic locking)', handler: async (p, c) => cards.delete(p, c) },
-    { name: 'kanban_archive_card',         access: 'pm',      inputSchema: s['kanban_archive_card'],         description: 'Archive a card so it stops appearing in default listings', handler: async (p, c) => cards.archive(p, c) },
-    { name: 'kanban_unarchive_card',       access: 'pm',      inputSchema: s['kanban_unarchive_card'],       description: 'Restore an archived card to the default listing', handler: async (p, c) => cards.unarchive(p, c) },
-    { name: 'kanban_claim_card',           access: 'all',     inputSchema: s['kanban_claim_card'],           description: "Claim a card for yourself — sets assigned_to to your actor (inferred from the token, not a parameter). Idempotent: calling it on a card you already own returns success without changing version. 409 already_claimed if held by another agent. Does NOT change the card status — call kanban_move_card separately if needed.", handler: async (p, c) => cards.claim(p, c) },
-    { name: 'kanban_release_card',         access: 'all',     inputSchema: s['kanban_release_card'],         description: "Release a card you own so another agent can claim it. By default moves the card back to 'todo' (revert_to_status) so pick_next can find it — pass revert_to_status: null to keep the current status unchanged.", handler: async (p, c) => cards.release(p, c) },
-    { name: 'kanban_pick_next',            access: 'all',     inputSchema: s['kanban_pick_next'],            description: "Return the next card ready to work on (no unsatisfied blockers). Only considers cards in 'todo' by default — backlog cards are promoted to todo automatically when the sprint starts. When card is null, check reason: 'no_active_sprint' = start the sprint first, 'all_blocked' = all candidates have unmet dependencies, 'empty' = no cards in sprint. The blocked_candidates count tells you how many candidates exist but are gated by unmet dependencies — log this and escalate to a PM agent if it stays > 0.", handler: async (p, c) => cards.pickNext(p, c) },
-    { name: 'kanban_create_project',       access: 'manager', inputSchema: s['kanban_create_project'],       description: 'Manager-only — create a project folder and mint an initial pm agent token', handler: async (p, c) => admin.createProject(p, c) },
-    {
-      name: 'kanban_create_agent_token',
-      access: 'manager' as ToolAccess,
-      inputSchema: s['kanban_create_agent_token'],
-      description: 'Manager-only — mint a new agent token. agent_type: "pm" = planning + execution (create/update cards, manage sprints); "dev" = execution-only (pick work, claim, log progress, move cards, escalate to review — cannot create cards or manage sprints).',
-      handler: async (p, c) => {
-        if (c.role !== 'manager') throw new Error('forbidden')
-        const project = p['project'] as string
-        const actor = p['actor'] as string
-        const agent_type = (p['agent_type'] as 'pm' | 'dev' | undefined) ?? 'pm'
-        const issued = await createAgentToken(config.paths, project, actor, agent_type)
-        return { project, token: issued.raw, token_id: issued.token_id, actor: issued.actor, agent_type: issued.agent_type, created_at: issued.created_at }
-      },
+
+  // Handlers keyed by name. Metadata (name, access, category, description) lives
+  // in TOOL_CATALOG so docs/tool_list.md can be generated from the same source.
+  const handlers: Record<string, ToolFn> = {
+    kanban_list_cards: async (p, c) => queries.list(p, c),
+    kanban_get_card: async (p, c) => cards.get(p, c),
+    kanban_create_card: async (p, c) => cards.create(p, c),
+    kanban_bulk_create_cards: async (p, c) => cards.bulkCreate(p, c),
+    kanban_update_card: async (p, c) => cards.update(p, c),
+    kanban_log_on_card: async (p, c) => cards.logOnCard(p, c),
+    kanban_move_card: async (p, c) => cards.move(p, c),
+    kanban_reorder_card: async (p, c) => cards.reorder(p, c),
+    kanban_delete_card: async (p, c) => cards.delete(p, c),
+    kanban_archive_card: async (p, c) => cards.archive(p, c),
+    kanban_unarchive_card: async (p, c) => cards.unarchive(p, c),
+    kanban_claim_card: async (p, c) => cards.claim(p, c),
+    kanban_release_card: async (p, c) => cards.release(p, c),
+    kanban_pick_next: async (p, c) => cards.pickNext(p, c),
+    kanban_create_project: async (p, c) => admin.createProject(p, c),
+    kanban_create_agent_token: async (p, c) => {
+      if (c.role !== 'manager') throw new Error('forbidden')
+      const project = p['project'] as string
+      const actor = p['actor'] as string
+      const agent_type = (p['agent_type'] as 'pm' | 'dev' | undefined) ?? 'pm'
+      const issued = await createAgentToken(config.paths, project, actor, agent_type)
+      return { project, token: issued.raw, token_id: issued.token_id, actor: issued.actor, agent_type: issued.agent_type, created_at: issued.created_at }
     },
-    { name: 'kanban_list_projects',        access: 'manager', inputSchema: s['kanban_list_projects'],        description: 'Manager-only — list all projects with archive filters', handler: async (p, c) => admin.listProjects(p, c) },
-    { name: 'kanban_archive_project',      access: 'manager', inputSchema: s['kanban_archive_project'],      description: 'Manager-only — hide a project from default listings', handler: async (p, c) => admin.archiveProject(p, c) },
-    { name: 'kanban_unarchive_project',    access: 'manager', inputSchema: s['kanban_unarchive_project'],    description: 'Manager-only — restore a previously archived project', handler: async (p, c) => admin.unarchiveProject(p, c) },
-    { name: 'kanban_delete_project',       access: 'manager', inputSchema: s['kanban_delete_project'],       description: 'Manager-only — permanently delete a project (requires confirm=<project>)', handler: async (p, c) => admin.deleteProject(p, c) },
-    { name: 'kanban_create_sprint',        access: 'pm',      inputSchema: s['kanban_create_sprint'],        description: 'Create a sprint in planning state. Manager or pm agent.', handler: async (p, c) => sprints.createSprint(p, c) },
-    { name: 'kanban_start_sprint',         access: 'pm',      inputSchema: s['kanban_start_sprint'],         description: 'Activate a planning sprint; refuses if another is already active. Manager or pm agent.', handler: async (p, c) => sprints.startSprint(p, c) },
-    { name: 'kanban_list_sprints',         access: 'all',     inputSchema: s['kanban_list_sprints'],         description: 'List sprints filtered by status: planning|active|closed|open|all', handler: async (p, c) => sprints.listSprints(p, c) },
-    { name: 'kanban_get_sprint',           access: 'all',     inputSchema: s['kanban_get_sprint'],           description: 'Get a sprint with its cards and token aggregates', handler: async (p, c) => sprints.getSprint(p, c) },
-    { name: 'kanban_add_to_sprint',        access: 'pm',      inputSchema: s['kanban_add_to_sprint'],        description: 'Attach cards to a sprint; optionally move_to_todo. Manager or pm agent.', handler: async (p, c) => sprints.addToSprint(p, c) },
-    { name: 'kanban_move_between_sprints', access: 'pm',      inputSchema: s['kanban_move_between_sprints'], description: 'Move cards between sprints in the same project. Manager or pm agent.', handler: async (p, c) => sprints.moveBetweenSprints(p, c) },
-    { name: 'kanban_close_sprint',         access: 'pm',      inputSchema: s['kanban_close_sprint'],         description: "Close a sprint. rollover_to: sprint_id moves unfinished cards to a planning sprint; rollover_to: null keeps them in the closed sprint as history. IMPORTANT: cards in 'done' are automatically archived. Manager or pm agent.", handler: async (p, c) => sprints.closeSprint(p, c) },
-  ]
+    kanban_list_projects: async (p, c) => admin.listProjects(p, c),
+    kanban_archive_project: async (p, c) => admin.archiveProject(p, c),
+    kanban_unarchive_project: async (p, c) => admin.unarchiveProject(p, c),
+    kanban_delete_project: async (p, c) => admin.deleteProject(p, c),
+    kanban_create_sprint: async (p, c) => sprints.createSprint(p, c),
+    kanban_start_sprint: async (p, c) => sprints.startSprint(p, c),
+    kanban_list_sprints: async (p, c) => sprints.listSprints(p, c),
+    kanban_get_sprint: async (p, c) => sprints.getSprint(p, c),
+    kanban_add_to_sprint: async (p, c) => sprints.addToSprint(p, c),
+    kanban_move_between_sprints: async (p, c) => sprints.moveBetweenSprints(p, c),
+    kanban_close_sprint: async (p, c) => sprints.closeSprint(p, c),
+  }
+
+  const tools: ToolDef[] = TOOL_CATALOG.map((m) => {
+    const handler = handlers[m.name]
+    if (!handler) throw new Error(`no handler registered for tool ${m.name}`)
+    return { name: m.name, access: m.access, inputSchema: TOOL_SCHEMAS[m.name], description: m.description, handler }
+  })
 
   if (stdioMode) {
     const rawToken = process.env['KANBAN_MCP_TOKEN']
@@ -132,7 +135,7 @@ async function main(): Promise<void> {
     db,
   }
 
-  const mcpSse = new McpSseManager(
+  const mcp = new McpHttpManager(
     tools.map((t) => ({
       name: t.name,
       description: t.description,
@@ -141,7 +144,7 @@ async function main(): Promise<void> {
       handler: (p, c) => t.handler(p as Record<string, unknown>, c),
     })),
   )
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcpSse })
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcp })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }

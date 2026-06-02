@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "Skill(kanban-pm-agent)",
+      "Skill(kanban-manager-agent)"
+    ]
+  }
+}

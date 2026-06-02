@@ -28,7 +28,7 @@ Humans keep using Obsidian as they always have. Agents call MCP tools. Both writ
 ```
 AI Agents                       Humans
     │                               │
-    │  MCP (stdio / HTTP+SSE)       ├─ Kanban board (plugin)
+    │  MCP (stdio / HTTP)           ├─ Kanban board (plugin)
     ▼                               └─ Native Obsidian editor
  MCP Server ────────────────────────────────────────────────►
     │  atomic writes, versioning, audit log                  │
@@ -91,7 +91,7 @@ Every mutation — agent writes, human edits, field reversions, external sync ev
 ## Tech stack
 
 - **MCP Server:** Node.js / TypeScript
-- **Transports:** stdio (local agents) + HTTP+SSE (remote agents and plugin)
+- **Transports:** stdio (local agents) + Streamable HTTP at `/mcp` (remote agents); plugin uses HTTP + a `/events` stream for live board updates
 - **Storage:** `.md` files as source of truth + SQLite index (`better-sqlite3`)
 - **File watching:** chokidar with 500ms debounce per file
 - **Plugin:** Obsidian Desktop (TypeScript)

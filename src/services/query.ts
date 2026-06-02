@@ -1,6 +1,8 @@
 import type { CardRepository } from '../cards/repository.js'
 import type { CardSummary, TokenClaims } from '../types.js'
-import { badRequest } from './errors.js'
+import type { Paths } from '../config.js'
+import { badRequest, HttpError } from './errors.js'
+import { findActiveSprint } from '../vault/layout.js'
 
 const VALID_ORDER = ['position', 'updated_at', 'priority', 'due_date'] as const
 type OrderBy = (typeof VALID_ORDER)[number]
@@ -13,6 +15,7 @@ type OrderBy = (typeof VALID_ORDER)[number]
 export class QueryService {
   constructor(
     private readonly repo: CardRepository,
+    private readonly paths: Paths,
     private readonly getArchivedProjects: () => Promise<Set<string>>,
   ) {}
 
@@ -20,6 +23,18 @@ export class QueryService {
     params: Record<string, unknown>,
     claims: TokenClaims,
   ): Promise<{ cards: CardSummary[] }> {
+    if (claims.role === 'agent' && claims.agent_type === 'dev') {
+      const active = await findActiveSprint(this.paths, claims.project_id)
+      if (!active) {
+        throw new HttpError(409, {
+          error: 'no_active_sprint',
+          reason: 'no sprint is currently active in this project',
+          hint: 'PM/manager: start a sprint with kanban_start_sprint. Dev agents must wait for an active sprint before any card operation.',
+        })
+      }
+      params = { ...params, sprint_id: active.id }
+    }
+
     const status = optString(params, 'status')
     const sprintId = optString(params, 'sprint_id')
     const assignedTo = optString(params, 'assigned_to')

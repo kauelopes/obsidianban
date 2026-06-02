@@ -38,7 +38,7 @@ export class ProjectTokenModal extends Modal {
     tokenBox.setAttr('aria-label', 'agent token (copy this)')
 
     // Claude Code CLI command — ready to paste into a terminal
-    const cliCommand = `claude mcp add obsidiankan --transport sse --scope project ${this.info.serverUrl}/mcp/sse -H "Authorization: Bearer ${this.info.token}"`
+    const cliCommand = `claude mcp add obsidiankan --transport http --scope project ${this.info.serverUrl}/mcp -H "Authorization: Bearer ${this.info.token}"`
     this.contentEl.createEl('p', {
       cls: 'kanban-mcp-modal-label',
       text: 'Claude Code — run in your project:',

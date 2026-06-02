@@ -11,6 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
+    "gen:tools": "tsx scripts/generate-tool-list.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test --import tsx dist/**/*.test.js",
     "build:plugin": "node plugin/esbuild.config.mjs",

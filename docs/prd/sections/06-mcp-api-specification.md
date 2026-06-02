@@ -15,10 +15,11 @@
 | status | string, optional | Filter by status. |
 | tags | string[], optional | AND filter: all specified tags must be present. |
 | assigned_to | string, optional | Filter by assignee. |
+| sprint_id | string, optional | Filter by sprint. Ignored for dev agents — always scoped to the active sprint. |
 | limit | integer, optional | Max results. Default 50. Max 200. |
 | offset | integer, optional | Pagination offset. Default 0. |
 | order_by | string, optional | position (default) | updated_at | priority | due_date |
-Served directly from SQLite — zero .md file reads. Returns card summaries without body text.
+Served directly from SQLite — zero .md file reads. Returns card summaries without body text. **Dev agents:** the active sprint filter is always applied automatically; a `409 no_active_sprint` is returned if no sprint is active.
 
 ### 6.3  kanban_get_card
 | Parameter | Type | Description |

@@ -5,8 +5,8 @@ import type { CardRepository, CardRow } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
-import { loadProjectMeta } from '../vault/layout.js'
-import type { Card, ReorderResult, TokenClaims } from '../types.js'
+import { loadProjectMeta, findActiveSprint } from '../vault/layout.js'
+import type { Card, ReorderResult, Sprint, TokenClaims } from '../types.js'
 import { cardFromFrontmatter, parseCardFile } from '../cards/serialize.js'
 import { slugifyTitle, uniqueBasename } from '../cards/slug.js'
 import { badRequest, conflict, forbidden, HttpError, notFound } from './errors.js'
@@ -107,6 +107,21 @@ export class CardService {
     private readonly sse: SSEEventBus,
   ) {}
 
+  private async requireDevActiveSprint(claims: TokenClaims): Promise<Sprint> {
+    if (claims.role !== 'agent' || claims.agent_type !== 'dev') {
+      throw new HttpError(500, { error: 'internal', reason: 'requireDevActiveSprint called for non-dev' })
+    }
+    const active = await findActiveSprint(this.paths, claims.project_id)
+    if (!active) {
+      throw new HttpError(409, {
+        error: 'no_active_sprint',
+        reason: 'no sprint is currently active in this project',
+        hint: 'PM/manager: start a sprint with kanban_start_sprint. Dev agents must wait for an active sprint before any card operation.',
+      })
+    }
+    return active
+  }
+
   /**
    * Throw 403 if the caller is an agent and the card is owned by someone
    * else. Manager passes through; unassigned cards pass through (an agent
@@ -121,6 +136,7 @@ export class CardService {
   }
 
   async get(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
     const id = requireString(params, 'id')
     const row = this.repo.findById(id)
     if (!row) throw notFound()
@@ -424,6 +440,7 @@ export class CardService {
       }
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
+        hint: 'the card changed since you last read it — re-read it with kanban_get_card and retry with the current version',
         your_version: claimedVersion,
         current_version: current.version,
         conflicting_fields: conflicting,
@@ -500,6 +517,7 @@ export class CardService {
   }
 
   async move(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
     rejectDisallowed(params, MOVE_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
@@ -543,6 +561,7 @@ export class CardService {
       const conflicting = current.status === resolvedStatus ? [] : ['status']
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
+        hint: 'the card changed since you last read it — re-read it with kanban_get_card and retry with the current version',
         your_version: claimedVersion,
         current_version: current.version,
         conflicting_fields: conflicting,
@@ -615,6 +634,7 @@ export class CardService {
     if (claimedVersion !== current.version) {
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
+        hint: 'the card changed since you last read it — re-read it with kanban_get_card and retry with the current version',
         your_version: claimedVersion,
         current_version: current.version,
         conflicting_fields: [],
@@ -727,6 +747,7 @@ export class CardService {
       const body = await fs.readFile(filePath, 'utf8').then(parseCardFile).then((p) => p.body).catch(() => '')
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${row.version}`,
+        hint: 'the card changed since you last read it — re-read it with kanban_get_card and retry with the current version',
         your_version: claimedVersion,
         current_version: row.version,
         conflicting_fields: [],
@@ -790,6 +811,7 @@ export class CardService {
     if (claimedVersion !== current.version) {
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
+        hint: 'the card changed since you last read it — re-read it with kanban_get_card and retry with the current version',
         your_version: claimedVersion,
         current_version: current.version,
         conflicting_fields: [],
@@ -837,6 +859,7 @@ export class CardService {
    * (defaults to claims.actor).
    */
   async claim(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
     rejectDisallowed(params, CLAIM_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
@@ -892,6 +915,7 @@ export class CardService {
    * Pass null to keep the current status unchanged.
    */
   async release(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
     rejectDisallowed(params, RELEASE_ALLOWED)
     const id = requireString(params, 'id')
     const claimedVersion = requireInt(params, 'version', 1)
@@ -953,6 +977,7 @@ export class CardService {
     if (claimedVersion !== current.version) {
       throw conflict({
         message: `Version mismatch: expected ${claimedVersion}, found ${current.version}`,
+        hint: 'the card changed since you last read it — re-read it with kanban_get_card and retry with the current version',
         your_version: claimedVersion,
         current_version: current.version,
         conflicting_fields: current.assigned_to !== targetActor ? ['assigned_to'] : [],
@@ -1239,7 +1264,11 @@ export class CardService {
   }> {
     const project =
       claims.role === 'agent' ? claims.project_id : optString(params, 'project') ?? undefined
-    const sprintIdFilter = optString(params, 'sprint_id')
+    let sprintIdFilter = optString(params, 'sprint_id')
+    if (claims.role === 'agent' && claims.agent_type === 'dev') {
+      const active = await this.requireDevActiveSprint(claims)
+      sprintIdFilter = active.id
+    }
     const assignedToFilter = optString(params, 'assigned_to')
     const statusFilter = optString(params, 'status') ?? 'todo'
 
@@ -1315,6 +1344,7 @@ export class CardService {
    * Delegates to update() after stripping disallowed fields.
    */
   async logOnCard(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
     const LOG_ONLY = ['id', 'version', 'log_entry', 'input_tokens', 'output_tokens', 'model', 'request_id'] as const
     rejectDisallowed(params, LOG_ONLY)
     if (!('log_entry' in params) || !params['log_entry']) {

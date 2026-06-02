@@ -13,20 +13,23 @@ exact byte-level shape of each request and response.
 
 ## 1. Transports
 
-The MCP server exposes the same tool surface over three transports. Pick
-based on where your agent runs.
+The MCP server exposes the same tool surface over two transports, plus a
+read-only event feed and a REST shortcut. Pick based on where your agent runs.
 
-| Transport | Endpoint | When to use |
+| Channel | Endpoint | When to use |
 |---|---|---|
-| `stdio` | spawn `node dist/index.js` as child process, framed JSON-RPC on stdin/stdout | Local agents bundled with the MCP (no network hop) |
-| `HTTP` | `POST http://127.0.0.1:9375/mcp/tool/<tool_name>` | Remote agents, polyglot stacks, debug tooling |
-| `SSE` | `GET http://127.0.0.1:9375/events` | Real-time mutation feed (no polling) |
+| `stdio` | spawn `node dist/index.js --stdio` as child process, framed JSON-RPC on stdin/stdout | Local agents bundled with the MCP (no network hop). Token via `KANBAN_MCP_TOKEN` env. |
+| Streamable HTTP | `POST http://127.0.0.1:9375/mcp` (stateless MCP protocol) | MCP-protocol clients over the network: Claude Code (`--transport http`), MCP-aware IDEs. Token via `Authorization: Bearer`. |
+| REST shortcut | `POST http://127.0.0.1:9375/mcp/tool/<tool_name>` | Hand-built agents / polyglot stacks / debug tooling that want plain request→response JSON without speaking the MCP wire protocol. |
+| Event feed | `GET http://127.0.0.1:9375/events` (SSE) | Real-time mutation feed for live UIs (the plugin board). Not a tool-call transport. |
 
-The HTTP and SSE servers bind to `127.0.0.1` only by default. `GET /metrics`
-is loopback-locked at the application layer too, so it never leaves the host.
+The server binds to `127.0.0.1` only by default. `GET /metrics` is
+loopback-locked at the application layer too, so it never leaves the host.
 
-All examples below use the HTTP transport because it's the easiest to inspect
-with `curl`; the JSON payloads are identical across transports.
+`/mcp` speaks the MCP protocol (initialize → tools/list → tools/call). The
+examples below use the **REST shortcut** instead, because it's the easiest to
+inspect with `curl`; the tool arguments and result JSON are identical to what a
+`tools/call` over `/mcp` carries.
 
 ---
 
@@ -267,10 +270,10 @@ card can be created without a sprint.
   Refuses with `409 another_sprint_active` if the project already has a
   different active sprint. Sets `started_at`.
 - `kanban_list_sprints { project, status?: 'planning' | 'active' | 'closed' | 'open' | 'all' }`
-  — `open` is sugar for "planning + active" (what the plugin and most
-  agent flows want). Agents scoped to their own project; managers can list
+  — **PM/manager only.** `open` is sugar for "planning + active" (what the plugin and most
+  agent flows want). PM agents scoped to their own project; managers can list
   any project.
-- `kanban_get_sprint { sprint_id }` — returns
+- `kanban_get_sprint { sprint_id }` — **PM/manager only.** Returns
   `{ sprint, project, cards: CardSummary[], aggregates }` where
   aggregates carries per-status counts and total token spend. Useful
   as the briefing card for an agent: "what's the goal, how many cards
@@ -320,7 +323,8 @@ assigned_to?, status? }`. It returns the highest-priority card in
 `status` (default `todo`) that matches the optional filters and has
 all its blockers satisfied. The response also carries
 `blocked_candidates: number` so an agent can see whether the queue is
-empty or just gated.
+empty or just gated. **For dev agents, `sprint_id` is always set to the
+active sprint automatically — passing a different value is ignored.**
 
 **Card ownership (`assigned_to`).** Every card has an `assigned_to`
 field that doubles as an ownership claim. Mutations
@@ -386,8 +390,11 @@ clients that need it. Renaming the file in Obsidian is honored; renaming with
 a non-existent project folder is rejected by the watcher.
 
 **Dev agent escalation.** Dev agents cannot create cards, update card fields,
-or manage sprints. When a dev agent is **blocked** or needs to **propose**
-something (a new card, change of scope, an impediment), the protocol is:
+manage sprints, or query sprint information. All dev-agent tool calls require an
+active sprint — if none exists, the server returns `409 no_active_sprint`.
+`kanban_list_cards` and `kanban_pick_next` automatically scope to the active
+sprint. When a dev agent is **blocked** or needs to **propose** something
+(a new card, change of scope, an impediment), the protocol is:
 
 1. Call `kanban_log_on_card` — document the blockage or proposal clearly
    enough that a PM can act without asking questions.
