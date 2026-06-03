@@ -45,10 +45,17 @@ case "$cmd" in
     # 127.0.0.1:${MCP_HTTP_PORT} and stays unreachable externally — no -p needed,
     # and the loopback-only /metrics guard keeps working. A published port
     # (-p) would NOT reach a 127.0.0.1-only listener inside the container.
+    # --userns=keep-id maps the host user to the same uid inside the container,
+    # and --user runs the process as that uid (not the image's baked-in 'node'
+    # uid 1000). Together, everything written under /vault is owned by the host
+    # user on disk — so the vault stays editable by hand and the host CLI and
+    # container share one .kanban. Without --user the process would run as uid
+    # 1000 and land on a subuid (e.g. 166536) the host user can't write.
     podman run -d \
       --name "$CONTAINER" \
       --restart unless-stopped \
       --userns=keep-id \
+      --user "$(id -u):$(id -g)" \
       --network=host \
       -v "${VAULT_PATH}:/vault:z" \
       -e NODE_ENV=production \
