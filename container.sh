@@ -35,20 +35,25 @@ case "$cmd" in
     ;;
 
   start)
-    if podman inspect "$CONTAINER" > /dev/null 2>&1; then
+    if podman container exists "$CONTAINER"; then
       echo "Container '${CONTAINER}' already exists. Run './container.sh stop' first."
       exit 1
     fi
     echo "Starting MCP server..."
+    # --network=host: the server binds 127.0.0.1 inside its netns. Host networking
+    # makes that the host loopback directly, so the server is reachable on
+    # 127.0.0.1:${MCP_HTTP_PORT} and stays unreachable externally — no -p needed,
+    # and the loopback-only /metrics guard keeps working. A published port
+    # (-p) would NOT reach a 127.0.0.1-only listener inside the container.
     podman run -d \
       --name "$CONTAINER" \
       --restart unless-stopped \
       --userns=keep-id \
+      --network=host \
       -v "${VAULT_PATH}:/vault:z" \
-      -p "127.0.0.1:${MCP_HTTP_PORT}:9375" \
       -e NODE_ENV=production \
       -e VAULT_PATH=/vault \
-      -e MCP_HTTP_PORT=9375 \
+      -e MCP_HTTP_PORT="${MCP_HTTP_PORT}" \
       -e LOG_LEVEL="${LOG_LEVEL}"  \
       "$IMAGE"
     echo "MCP server running at http://localhost:${MCP_HTTP_PORT}"
@@ -72,8 +77,8 @@ case "$cmd" in
     ;;
 
   status)
-    if podman inspect "$CONTAINER" > /dev/null 2>&1; then
-      podman inspect "$CONTAINER" \
+    if podman container exists "$CONTAINER"; then
+      podman container inspect "$CONTAINER" \
         --format "status={{.State.Status}}  pid={{.State.Pid}}  started={{.State.StartedAt}}"
     else
       echo "Container '${CONTAINER}' is not running."
