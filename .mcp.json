@@ -1,3 +1,10 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "kanban": {
+      "url": "http://127.0.0.1:9375/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KANBAN_TOKEN}"
+      }
+    }
+  }
 }

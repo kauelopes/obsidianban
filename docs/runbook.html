@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ObsidianKan MCP — Runbook de Instalação</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d212b;
+    --border: #2a2f3a;
+    --text: #e6e9ef;
+    --muted: #9aa3b2;
+    --accent: #7c5cff;
+    --accent-2: #19c37d;
+    --warn: #ffb454;
+    --danger: #ff5c6c;
+    --code-bg: #0b0d11;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 24px 96px; }
+  header.hero {
+    border: 1px solid var(--border);
+    background: linear-gradient(160deg, #1a1430, #131722);
+    border-radius: 16px;
+    padding: 36px 32px;
+    margin-bottom: 40px;
+  }
+  header.hero h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: -0.02em; }
+  header.hero p { margin: 0; color: var(--muted); font-size: 16px; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 600;
+    color: var(--accent); border: 1px solid var(--accent);
+    border-radius: 999px; padding: 3px 12px; margin-bottom: 16px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  h2 { font-size: 22px; margin: 0 0 16px; letter-spacing: -0.01em; }
+  h3 { font-size: 16px; margin: 24px 0 8px; color: var(--text); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+
+  .toc {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px 24px; margin-bottom: 40px;
+  }
+  .toc h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc a { color: var(--text); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+
+  .step {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 28px 8px;
+    margin-bottom: 28px;
+  }
+  .step-head { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+  .step-num {
+    flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+    background: var(--accent); color: #fff; font-weight: 700;
+    display: grid; place-items: center; font-size: 16px;
+  }
+  .step-head h2 { margin: 0; }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code { color: #d7dbe6; }
+  code.inline {
+    font-family: var(--mono);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: 12.8px;
+    color: #cdd3df;
+  }
+  .cmt { color: #6b7280; }
+  .tok-cmd { color: #19c37d; }
+  .tok-flag { color: #7c9cff; }
+  .tok-str { color: #ffb454; }
+
+  .note, .warn, .ok {
+    border-radius: 10px; padding: 12px 16px; margin: 16px 0;
+    border: 1px solid var(--border); font-size: 14.5px;
+  }
+  .note { background: rgba(124,92,255,0.08); border-color: rgba(124,92,255,0.35); }
+  .warn { background: rgba(255,180,84,0.08); border-color: rgba(255,180,84,0.35); }
+  .ok   { background: rgba(25,195,125,0.08); border-color: rgba(25,195,125,0.35); }
+  .note b, .warn b, .ok b { letter-spacing: 0.02em; }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 11.5px; letter-spacing: 0.06em; }
+  td code { font-family: var(--mono); font-size: 12.5px; }
+
+  .tabs { display: flex; gap: 8px; margin: 4px 0 12px; }
+  .tab-label {
+    font-size: 12px; font-weight: 600; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px;
+  }
+  .tag-rec { color: var(--accent-2); border-color: rgba(25,195,125,0.4); }
+
+  footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
+  a { color: var(--accent); }
+  hr.soft { border: none; border-top: 1px dashed var(--border); margin: 24px 0; }
+  ul.checklist { list-style: none; padding-left: 0; }
+  ul.checklist li { padding-left: 28px; position: relative; margin-bottom: 8px; }
+  ul.checklist li::before {
+    content: "✓"; position: absolute; left: 0; top: 0;
+    color: var(--accent-2); font-weight: 700;
+  }
+  kbd {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px;
+    padding: 1px 6px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <span class="badge">Runbook · Guia do usuário</span>
+    <h1>ObsidianKan MCP — Instalação &amp; Configuração</h1>
+    <p>Suba o servidor MCP, instale o plugin no seu vault do Obsidian e conecte os dois. Do zero ao board funcionando.</p>
+  </header>
+
+  <nav class="toc">
+    <h2>Etapas</h2>
+    <ol>
+      <li><a href="#pre">Pré-requisitos</a></li>
+      <li><a href="#server">Subir o servidor MCP</a></li>
+      <li><a href="#health">Verificar a saúde do servidor</a></li>
+      <li><a href="#token">Emitir um token de acesso</a></li>
+      <li><a href="#plugin">Instalar o plugin no vault Obsidian</a></li>
+      <li><a href="#enable">Ativar o plugin no Obsidian</a></li>
+      <li><a href="#config">Configurar e conectar o plugin</a></li>
+      <li><a href="#verify">Validação final</a></li>
+      <li><a href="#skills">Configurar os agentes (skills) no projeto</a></li>
+      <li><a href="#trouble">Solução de problemas</a></li>
+    </ol>
+  </nav>
+
+  <!-- 0 -->
+  <section class="step" id="pre">
+    <div class="step-head"><div class="step-num">0</div><h2>Pré-requisitos</h2></div>
+    <ul class="checklist">
+      <li><b>Obsidian Desktop</b> ≥ 1.4.0 (o plugin é <code class="inline">isDesktopOnly</code> — não roda no mobile).</li>
+      <li>Um <b>vault Obsidian</b> já existente, cujo caminho absoluto você conheça.</li>
+      <li>Para rodar via container: <b>Podman</b> 3.4+ — <em>ou</em> <b>Node.js ≥ 22</b> para rodar localmente.</li>
+      <li>Acesso ao terminal na raiz deste repositório.</li>
+    </ul>
+    <div class="note">
+      <b>Duas formas de subir o servidor.</b> O caminho recomendado é o <b>container (Podman)</b>, que isola tudo e reinicia sozinho. Se preferir, há o caminho <b>Node local</b>. As duas opções estão na Etapa 2.
+    </div>
+  </section>
+
+  <!-- 1 -->
+  <section class="step" id="server">
+    <div class="step-head"><div class="step-num">1</div><h2>Configurar o ambiente (.env)</h2></div>
+    <p>Antes de subir o servidor, copie o arquivo de exemplo e aponte para o seu vault:</p>
+    <pre><code><span class="cmt"># na raiz do repositório</span>
+<span class="tok-cmd">cp</span> .env.example .env</code></pre>
+    <p>Edite o <code class="inline">.env</code> com seus valores:</p>
+    <pre><code><span class="cmt"># Caminho absoluto do seu vault Obsidian no host.</span>
+VAULT_PATH=<span class="tok-str">/home/seu-usuario/Documents/MeuVault</span>
+
+<span class="cmt"># Porta HTTP do servidor (plugin, agentes, stream de eventos).</span>
+<span class="cmt"># Fica em 127.0.0.1 apenas — não é exposta externamente.</span>
+MCP_HTTP_PORT=<span class="tok-str">9375</span>
+
+<span class="cmt"># Nível de log: debug | info | warn | error</span>
+LOG_LEVEL=<span class="tok-str">info</span></code></pre>
+    <div class="warn">
+      <b>VAULT_PATH é obrigatório.</b> Sem ele o servidor encerra com <code class="inline">VAULT_PATH is required</code>. Use o caminho <b>absoluto</b>, não relativo.
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="step">
+    <div class="step-head"><div class="step-num">2</div><h2>Subir o servidor MCP</h2></div>
+
+    <h3>Opção A — Container com Podman <span class="tab-label tag-rec">recomendado</span></h3>
+    <p>O script <code class="inline">container.sh</code> cuida de build e execução. Da raiz do repositório:</p>
+    <pre><code><span class="cmt"># 1. construir a imagem (uma vez, ou após mudanças no código)</span>
+<span class="tok-cmd">./container.sh</span> build
+
+<span class="cmt"># 2. iniciar o servidor</span>
+<span class="tok-cmd">./container.sh</span> start</code></pre>
+    <p>Saída esperada:</p>
+    <pre><code>MCP server running at http://localhost:9375
+Health: http://localhost:9375/health</code></pre>
+    <p>Comandos úteis do mesmo script:</p>
+    <table>
+      <tr><th>Comando</th><th>O que faz</th></tr>
+      <tr><td><code>./container.sh status</code></td><td>Mostra o estado do container.</td></tr>
+      <tr><td><code>./container.sh logs</code></td><td>Acompanha os logs (<kbd>Ctrl</kbd>+<kbd>C</kbd> para sair).</td></tr>
+      <tr><td><code>./container.sh restart</code></td><td>Para e sobe novamente.</td></tr>
+      <tr><td><code>./container.sh stop</code></td><td>Para e remove o container (os dados no vault são preservados).</td></tr>
+    </table>
+    <div class="note">O container sobe com <code class="inline">--restart unless-stopped</code>, então ele volta sozinho após reboot do host.</div>
+
+    <hr class="soft">
+
+    <h3>Opção B — Node local (sem container)</h3>
+    <p>Requer Node.js ≥ 22. Da raiz do repositório:</p>
+    <pre><code><span class="cmt"># instalar dependências (uma vez)</span>
+<span class="tok-cmd">npm</span> install
+
+<span class="cmt"># compilar TypeScript → dist/</span>
+<span class="tok-cmd">npm</span> run build
+
+<span class="cmt"># iniciar o servidor (lê VAULT_PATH e MCP_HTTP_PORT do ambiente)</span>
+<span class="tok-cmd">npm</span> start</code></pre>
+    <p>Se o seu <code class="inline">.env</code> não for carregado automaticamente pelo shell, exporte as variáveis antes:</p>
+    <pre><code><span class="tok-cmd">export</span> VAULT_PATH=<span class="tok-str">/home/seu-usuario/Documents/MeuVault</span>
+<span class="tok-cmd">export</span> MCP_HTTP_PORT=<span class="tok-str">9375</span>
+<span class="tok-cmd">npm</span> start</code></pre>
+    <div class="note"><b>Desenvolvimento:</b> <code class="inline">npm run dev</code> sobe com hot-reload via <code class="inline">tsx watch</code>.</div>
+  </section>
+
+  <!-- 3 -->
+  <section class="step" id="health">
+    <div class="step-head"><div class="step-num">3</div><h2>Verificar a saúde do servidor</h2></div>
+    <p>O servidor liga em <code class="inline">127.0.0.1</code> na porta configurada. Confirme que responde:</p>
+    <pre><code><span class="tok-cmd">curl</span> http://127.0.0.1:9375/health</code></pre>
+    <p>Você deve receber um JSON com o status e quantos cards estão indexados. Se o <code class="inline">curl</code> falhar, o servidor não subiu — veja a <a href="#trouble">solução de problemas</a> antes de continuar.</p>
+    <div class="ok"><b>Pronto para seguir</b> quando <code class="inline">/health</code> responder com sucesso.</div>
+  </section>
+
+  <!-- 4 -->
+  <section class="step" id="token">
+    <div class="step-head"><div class="step-num">4</div><h2>Emitir um token de acesso</h2></div>
+    <p>Toda requisição HTTP precisa de um <b>bearer token</b>. Existem dois papéis:</p>
+    <table>
+      <tr><th>Papel</th><th>Escopo</th><th>Quando usar</th></tr>
+      <tr><td><code>manager</code></td><td>Todo o vault (todos os projetos)</td><td>Para o seu uso pessoal no plugin — vê e gerencia tudo.</td></tr>
+      <tr><td><code>agent</code></td><td>Um único projeto</td><td>Para um agente de IA preso a um projeto.</td></tr>
+    </table>
+    <p>Para usar o board você mesmo, crie um token <b>manager</b>. Da raiz do repositório:</p>
+    <pre><code><span class="tok-cmd">node</span> dist/auth/cli.js create <span class="tok-flag">--role</span> manager <span class="tok-flag">--actor</span> <span class="tok-str">human:kaue</span></code></pre>
+    <p>Saída (exemplo):</p>
+    <pre><code>created token tk_abc12345 for human:kaue
+token:  kbn_t_a1b2c3d4e5f6g7h8i9j0...</code></pre>
+    <div class="warn">
+      <b>Copie o token imediatamente.</b> Apenas o hash SHA-256 é guardado no servidor — um token perdido <u>não</u> pode ser recuperado, só substituído por um novo.
+    </div>
+    <p class="muted">Para um token de agente preso a um projeto: <code class="inline">node dist/auth/cli.js create --project meu-projeto --role agent --actor agent:claude</code></p>
+    <div class="note">Rodando via container? O <code class="inline">dist/</code> está dentro da imagem. Use <code class="inline">./container.sh exec node dist/auth/cli.js create --role manager --actor human:kaue</code>. Alternativamente, o próprio plugin oferece o comando <b>"Mint agent token"</b> depois de conectado.</div>
+  </section>
+
+  <!-- 5 -->
+  <section class="step" id="plugin">
+    <div class="step-head"><div class="step-num">5</div><h2>Instalar o plugin no vault Obsidian</h2></div>
+    <p>O plugin é construído com esbuild e copiado direto para a pasta de plugins de um vault. O destino padrão é o <code class="inline">test-vault</code> do repositório, mas você aponta para o <b>seu</b> vault com a variável <code class="inline">OBSIDIANKAN_DEV_VAULT</code>.</p>
+    <pre><code><span class="cmt"># aponte para a RAIZ do seu vault e construa o plugin</span>
+<span class="tok-cmd">OBSIDIANKAN_DEV_VAULT</span>=<span class="tok-str">/home/seu-usuario/Documents/MeuVault</span> npm run build:plugin</code></pre>
+    <p>Saída esperada:</p>
+    <pre><code>[esbuild] built → /home/seu-usuario/Documents/MeuVault/.obsidian/plugins/obsidiankan-mcp</code></pre>
+    <p>Isso gera os três arquivos do plugin no destino:</p>
+    <ul class="checklist">
+      <li><code class="inline">main.js</code> — código empacotado</li>
+      <li><code class="inline">manifest.json</code> — metadados do plugin</li>
+      <li><code class="inline">styles.css</code> — estilos do board</li>
+    </ul>
+    <div class="note"><b>Trabalhando no plugin?</b> Use <code class="inline">OBSIDIANKAN_DEV_VAULT=... npm run dev:plugin</code> para rebuild automático a cada alteração (modo watch).</div>
+    <div class="warn"><b>Não tem o caminho?</b> Sem <code class="inline">OBSIDIANKAN_DEV_VAULT</code> o build vai para o <code class="inline">test-vault/</code> dentro do repositório — útil para testar, mas não é o seu vault real.</div>
+  </section>
+
+  <!-- 6 -->
+  <section class="step" id="enable">
+    <div class="step-head"><div class="step-num">6</div><h2>Ativar o plugin no Obsidian</h2></div>
+    <ol>
+      <li>Abra o seu vault no <b>Obsidian Desktop</b>.</li>
+      <li>Vá em <b>Settings → Community plugins</b>.</li>
+      <li>Se necessário, desligue o <b>Restricted mode / Safe mode</b> (Turn off safe mode) para permitir plugins da comunidade.</li>
+      <li>Clique no ícone de recarregar plugins (ou reinicie o Obsidian) para que ele detecte o <code class="inline">obsidiankan-mcp</code> recém-instalado.</li>
+      <li>Em <b>Installed plugins</b>, ative o toggle do <b>ObsidianKan MCP</b>.</li>
+    </ol>
+    <div class="ok">Com o plugin ativo, surge um ícone/visão de board e a aba de configurações do plugin.</div>
+  </section>
+
+  <!-- 7 -->
+  <section class="step" id="config">
+    <div class="step-head"><div class="step-num">7</div><h2>Configurar e conectar o plugin</h2></div>
+    <p>Abra <b>Settings → ObsidianKan MCP</b> e preencha:</p>
+    <table>
+      <tr><th>Campo</th><th>Valor</th></tr>
+      <tr><td><b>MCP base URL</b></td><td><code>http://127.0.0.1:9375</code> (ajuste a porta se mudou <code>MCP_HTTP_PORT</code>).</td></tr>
+      <tr><td><b>Bearer token</b></td><td>Cole o token gerado na Etapa 4. É salvo localmente, mascarado como senha.</td></tr>
+      <tr><td><b>Show archived cards</b></td><td>Opcional. Ligado, mostra cards arquivados (esmaecidos) para restauração.</td></tr>
+    </table>
+    <p>Em seguida clique em <b>Test connection</b>.</p>
+    <div class="ok"><b>Sucesso:</b> aparece um aviso do tipo <code class="inline">MCP ok — N cards indexed</code>.</div>
+    <div class="warn"><b>Falha:</b> o aviso mostra o tipo do erro (ex.: conexão recusada, token inválido). Confira a URL, a porta e o token, e que o servidor está de pé (Etapa 3).</div>
+  </section>
+
+  <!-- 8 -->
+  <section class="step" id="verify">
+    <div class="step-head"><div class="step-num">8</div><h2>Validação final</h2></div>
+    <ul class="checklist">
+      <li>O servidor responde em <code class="inline">/health</code>.</li>
+      <li>O plugin aparece e está ativo em <b>Community plugins</b>.</li>
+      <li><b>Test connection</b> retorna <code class="inline">MCP ok</code>.</li>
+      <li>O board do ObsidianKan abre e exibe colunas/cards (ou board vazio, se o vault for novo).</li>
+      <li>Editar um card direto no Obsidian é reconciliado, e cards criados pela ferramenta viram arquivos <code class="inline">.md</code> no vault.</li>
+    </ul>
+    <div class="ok"><b>Tudo verde?</b> A instalação está completa — humanos no Obsidian e agentes via MCP já podem trabalhar no mesmo board.</div>
+  </section>
+
+  <!-- 9 -->
+  <section class="step" id="skills">
+    <div class="step-head"><div class="step-num">9</div><h2>Configurar os agentes (skills) no projeto</h2></div>
+    <p>Com o board no ar, você pode deixar o <b>Claude Code</b> operar o kanban através das três <b>skills</b> que acompanham este repositório (em <code class="inline">.claude/skills/</code>). Elas falam com o mesmo servidor MCP via HTTP — quem decide <b>qual</b> skill entra em ação é o <b>papel do token</b> que você configurar.</p>
+    <table>
+      <tr><th>Skill</th><th>Papel do token</th><th>O que faz</th></tr>
+      <tr><td><code>kanban-manager-agent</code></td><td><code>manager</code></td><td>Orquestra o vault inteiro: cria projetos e emite tokens de agentes.</td></tr>
+      <tr><td><code>kanban-pm-agent</code></td><td><code>agent</code> (tipo <code>pm</code>)</td><td>Planeja e supervisiona um projeto: cria cards, gerencia sprints, tria a coluna de review e despacha devs.</td></tr>
+      <tr><td><code>kanban-dev-agent</code></td><td><code>agent</code> (tipo <code>dev</code>)</td><td>Executa: pega a próxima tarefa do sprint ativo, trabalha e reporta. Rodado <em>headless</em> pelo PM.</td></tr>
+    </table>
+
+    <h3>9.1 — Copiar as skills para o projeto onde o Claude Code roda</h3>
+    <p>As skills moram em <code class="inline">.claude/skills/</code> do projeto onde você abre o Claude Code. Se for este mesmo repositório, já estão lá. Para usá-las em <b>outro</b> projeto, copie as três pastas:</p>
+    <pre><code><span class="cmt"># a partir da raiz deste repositório, para o projeto destino</span>
+<span class="tok-cmd">mkdir</span> <span class="tok-flag">-p</span> /caminho/do/projeto/.claude/skills
+<span class="tok-cmd">cp</span> <span class="tok-flag">-r</span> .claude/skills/kanban-manager-agent \
+      .claude/skills/kanban-pm-agent \
+      .claude/skills/kanban-dev-agent \
+      /caminho/do/projeto/.claude/skills/</code></pre>
+    <div class="note">A skill do PM já traz embutidos <code class="inline">spawn-dev.sh</code>, <code class="inline">dev.mcp.json</code> e <code class="inline">dev-settings.json</code> — o despacho do dev viaja junto na cópia, sem depender de caminhos do repositório.</div>
+
+    <h3>9.2 — Conectar o servidor MCP ao Claude Code</h3>
+    <p>Crie (ou edite) o <code class="inline">.mcp.json</code> na raiz do projeto, apontando para o endpoint <code class="inline">/mcp</code> do servidor com o seu token no header. Use um token <b>manager</b> (para a skill de manager) ou um token <b>agent/pm</b> (para a skill de PM) — emitidos na <a href="#token">Etapa 4</a>:</p>
+    <pre><code>{
+  <span class="tok-str">"mcpServers"</span>: {
+    <span class="tok-str">"kanban"</span>: {
+      <span class="tok-str">"url"</span>: <span class="tok-str">"http://127.0.0.1:9375/mcp"</span>,
+      <span class="tok-str">"headers"</span>: {
+        <span class="tok-str">"Authorization"</span>: <span class="tok-str">"Bearer ${KANBAN_TOKEN}"</span>
+      }
+    }
+  }
+}</code></pre>
+    <p>O <code class="inline">${KANBAN_TOKEN}</code> é expandido a partir do ambiente — exporte-o antes de abrir o Claude Code, para não deixar o token em texto puro no arquivo versionado:</p>
+    <pre><code><span class="tok-cmd">export</span> KANBAN_TOKEN=<span class="tok-str">kbn_t_seu_token_aqui</span></code></pre>
+    <p>Em seguida, habilite o servidor nas configurações do projeto (<code class="inline">.claude/settings.local.json</code>):</p>
+    <pre><code>{
+  <span class="tok-str">"enabledMcpjsonServers"</span>: [<span class="tok-str">"kanban"</span>]
+}</code></pre>
+    <div class="note">As skills disparam por conta própria assim que as ferramentas <code class="inline">kanban_*</code> certas ficam disponíveis (ex.: <code class="inline">kanban_create_card</code> ⇒ PM; <code class="inline">kanban_create_project</code> ⇒ manager). Você não chama a skill manualmente — basta o token certo estar conectado.</div>
+
+    <h3>9.3 — Despachar devs a partir do PM</h3>
+    <p>O PM <b>não</b> executa os cards; ele despacha um agente <b>dev</b> como processo <em>headless</em> próprio, com o <b>seu próprio token</b> (tipo <code>dev</code>), para que o board atribua o trabalho corretamente. Pré-requisitos: o servidor HTTP no ar, e os utilitários <code class="inline">claude</code> e <code class="inline">jq</code> no <code class="inline">PATH</code>.</p>
+    <div class="warn"><b>O token <code>dev</code> só é emitido pelo manager.</b> A CLI (<code class="inline">dist/auth/cli.js</code>) sempre cria tokens do tipo <code>pm</code>. Para um token <code>dev</code>, use a ferramenta do <b>manager</b> <code class="inline">kanban_create_agent_token { project, actor, agent_type: "dev" }</code> e copie o <code class="inline">raw</code> retornado.</div>
+    <p>O token <b>não</b> é gravado dentro da skill — o <code class="inline">dev.mcp.json</code> embutido nela só o <em>referencia</em> como <code class="inline">Bearer ${KANBAN_DEV_TOKEN}</code>. Você injeta o valor no <b>momento do dispatch</b>, via variável de ambiente; assim a skill continua portável e o segredo nunca entra no arquivo versionado.</p>
+    <pre><code><span class="cmt"># a partir da raiz do projeto, despache o dev no sprint ativo</span>
+<span class="cmt"># KANBAN_DEV_TOKEN é expandido pelo dev.mcp.json da skill em runtime</span>
+<span class="tok-cmd">KANBAN_DEV_TOKEN</span>=<span class="tok-str">kbn_t_&lt;token dev do manager&gt;</span> \
+  .claude/skills/kanban-pm-agent/spawn-dev.sh <span class="tok-str">"Work the active sprint"</span></code></pre>
+    <div class="warn"><b>Nunca rode o dev como subagente do Claude.</b> Um subagente compartilharia o token do PM e agiria no board <em>como o PM</em>. O <code class="inline">spawn-dev.sh</code> garante um processo e uma identidade separados.</div>
+
+    <h3>9.4 — Carregar os tokens automaticamente (sem digitar toda vez)</h3>
+    <p>Em vez de exportar os tokens a cada sessão, guarde-os no bloco <code class="inline">env</code> do <code class="inline">.claude/settings.local.json</code>. O Claude Code carrega essas variáveis ao iniciar e as expande nos <code class="inline">${...}</code> do <code class="inline">.mcp.json</code>:</p>
+    <pre><code>{
+  <span class="tok-str">"env"</span>: {
+    <span class="tok-str">"KANBAN_TOKEN"</span>: <span class="tok-str">"kbn_t_seu_token_manager_ou_pm"</span>,
+    <span class="tok-str">"KANBAN_DEV_TOKEN"</span>: <span class="tok-str">"kbn_t_seu_token_dev"</span>
+  },
+  <span class="tok-str">"enabledMcpjsonServers"</span>: [<span class="tok-str">"kanban"</span>]
+}</code></pre>
+    <p>Com isso:</p>
+    <ul class="checklist">
+      <li><code class="inline">KANBAN_TOKEN</code> é expandido direto no header do <code class="inline">.mcp.json</code> da sessão principal (PM ou manager).</li>
+      <li><code class="inline">KANBAN_DEV_TOKEN</code> passa a viver no ambiente da sessão, então <b>toda chamada de Bash herda ele</b> — inclusive o <code class="inline">spawn-dev.sh</code>, cujo <code class="inline">dev.mcp.json</code> resolve o <code class="inline">${KANBAN_DEV_TOKEN}</code> sozinho. Não precisa mais prefixar o comando:</li>
+    </ul>
+    <pre><code><span class="cmt"># o token vem do env carregado pelo settings.local.json</span>
+.claude/skills/kanban-pm-agent/spawn-dev.sh <span class="tok-str">"Work the active sprint"</span></code></pre>
+    <div class="warn"><b>Segredos só no arquivo <u>local</u>.</b> Use o <code class="inline">.claude/settings.local.json</code> (ignorado pelo git) — nunca o <code class="inline">settings.json</code> compartilhado. E mantenha o <code class="inline">.mcp.json</code> versionado apenas com os placeholders <code class="inline">${...}</code>, nunca com o token cru.</div>
+    <div class="ok"><b>Tudo conectado?</b> Abra o Claude Code na raiz do projeto e peça, por exemplo, "planeje um sprint" (PM) ou "configure um novo projeto" (manager) — a skill correspondente entra em ação sobre o board.</div>
+  </section>
+
+  <!-- 10 -->
+  <section class="step" id="trouble">
+    <div class="step-head"><div class="step-num">10</div><h2>Solução de problemas</h2></div>
+    <table>
+      <tr><th>Sintoma</th><th>Causa provável / correção</th></tr>
+      <tr>
+        <td><code>VAULT_PATH is required</code> no start</td>
+        <td>O <code>.env</code> não foi criado ou as variáveis não foram exportadas. Reveja a Etapa 1.</td>
+      </tr>
+      <tr>
+        <td><code>curl /health</code> não conecta</td>
+        <td>Servidor não subiu. Veja <code>./container.sh logs</code> (ou a saída do <code>npm start</code>). Confira se a porta 9375 não está ocupada.</td>
+      </tr>
+      <tr>
+        <td><code>Container already exists</code></td>
+        <td>Rode <code>./container.sh stop</code> e depois <code>start</code> de novo (ou use <code>restart</code>).</td>
+      </tr>
+      <tr>
+        <td>Plugin não aparece no Obsidian</td>
+        <td>Build foi para o vault errado. Reconfira <code>OBSIDIANKAN_DEV_VAULT</code> apontando para a raiz do vault; recarregue os plugins.</td>
+      </tr>
+      <tr>
+        <td>Test connection: token inválido</td>
+        <td>Token errado/expirado. Gere outro (Etapa 4) e cole novamente. Lembre: o token só é exibido uma vez.</td>
+      </tr>
+      <tr>
+        <td>Test connection: conexão recusada</td>
+        <td>URL/porta incorreta ou servidor parado. Confirme a base URL e a Etapa 3.</td>
+      </tr>
+      <tr>
+        <td>A skill (PM/manager) não dispara no Claude Code</td>
+        <td>Papel do token errado ou servidor não habilitado. Confirme que o <code>.mcp.json</code> aponta para <code>/mcp</code> com um token do papel certo e que o servidor está em <code>enabledMcpjsonServers</code> (Etapa 9.2). Reabra o Claude Code para recarregar.</td>
+      </tr>
+      <tr>
+        <td><code>spawn-dev.sh</code> falha</td>
+        <td><code>KANBAN_DEV_TOKEN</code> não exportado, ou <code>claude</code>/<code>jq</code> fora do <code>PATH</code>, ou servidor inalcançável. A própria mensagem do script indica qual pré-requisito faltou (Etapa 9.3).</td>
+      </tr>
+    </table>
+  </section>
+
+  <footer>
+    ObsidianKan MCP · Runbook gerado para o usuário · Servidor sempre em <code>127.0.0.1</code> (não exposto externamente). Os arquivos <code>.md</code> do vault são a fonte da verdade; o índice SQLite é reconstruível.
+  </footer>
+
+</div>
+</body>
+</html>
