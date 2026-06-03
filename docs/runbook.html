@@ -353,6 +353,7 @@ token:  kbn_t_a1b2c3d4e5f6g7h8i9j0...</code></pre>
     <pre><code>{
   <span class="tok-str">"mcpServers"</span>: {
     <span class="tok-str">"kanban"</span>: {
+      <span class="tok-str">"type"</span>: <span class="tok-str">"http"</span>,
       <span class="tok-str">"url"</span>: <span class="tok-str">"http://127.0.0.1:9375/mcp"</span>,
       <span class="tok-str">"headers"</span>: {
         <span class="tok-str">"Authorization"</span>: <span class="tok-str">"Bearer ${KANBAN_TOKEN}"</span>
@@ -360,6 +361,7 @@ token:  kbn_t_a1b2c3d4e5f6g7h8i9j0...</code></pre>
     }
   }
 }</code></pre>
+    <div class="warn"><b>O <code class="inline">"type": "http"</code> é obrigatório.</b> Sem ele o Claude Code trata o servidor como <code>stdio</code> e recusa a config com <code class="inline">command: expected string, received undefined</code>. É o que declara o transporte Streamable HTTP.</div>
     <p>O <code class="inline">${KANBAN_TOKEN}</code> é expandido a partir do ambiente — exporte-o antes de abrir o Claude Code, para não deixar o token em texto puro no arquivo versionado:</p>
     <pre><code><span class="tok-cmd">export</span> KANBAN_TOKEN=<span class="tok-str">kbn_t_seu_token_aqui</span></code></pre>
     <p>Em seguida, habilite o servidor nas configurações do projeto (<code class="inline">.claude/settings.local.json</code>):</p>
