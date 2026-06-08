@@ -1,5 +1,8 @@
 {
   "permissions": {
+    "allow": [
+      "mcp__kanban"
+    ],
     "deny": [
       "Skill(kanban-pm-agent)",
       "Skill(kanban-manager-agent)"

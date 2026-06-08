@@ -374,6 +374,16 @@ token:  kbn_t_a1b2c3d4e5f6g7h8i9j0...</code></pre>
     <p>O PM <b>não</b> executa os cards; ele despacha um agente <b>dev</b> como processo <em>headless</em> próprio, com o <b>seu próprio token</b> (tipo <code>dev</code>), para que o board atribua o trabalho corretamente. Pré-requisitos: o servidor HTTP no ar, e os utilitários <code class="inline">claude</code> e <code class="inline">jq</code> no <code class="inline">PATH</code>.</p>
     <div class="warn"><b>O token <code>dev</code> só é emitido pelo manager.</b> A CLI (<code class="inline">dist/auth/cli.js</code>) sempre cria tokens do tipo <code>pm</code>. Para um token <code>dev</code>, use a ferramenta do <b>manager</b> <code class="inline">kanban_create_agent_token { project, actor, agent_type: "dev" }</code> e copie o <code class="inline">raw</code> retornado.</div>
     <p>O token <b>não</b> é gravado dentro da skill — o <code class="inline">dev.mcp.json</code> embutido nela só o <em>referencia</em> como <code class="inline">Bearer ${KANBAN_DEV_TOKEN}</code>. Você injeta o valor no <b>momento do dispatch</b>, via variável de ambiente; assim a skill continua portável e o segredo nunca entra no arquivo versionado.</p>
+
+    <h3>Como o dev ganha acesso ao MCP (duas peças)</h3>
+    <p>Diferente do PM — que usa o <code class="inline">.mcp.json</code> da raiz + <code class="inline">enabledMcpjsonServers</code> e roda <b>interativo</b> (você aprova os prompts de permissão na hora) — o dev roda <b>headless</b> (<code class="inline">claude -p</code>, sem ninguém para clicar em "permitir"). Por isso o acesso dele ao MCP vem de <b>dois</b> arquivos embutidos na skill do PM, ambos passados ao processo pelo <code class="inline">spawn-dev.sh</code>:</p>
+    <table>
+      <tr><th>Arquivo</th><th>Flag no <code>claude -p</code></th><th>O que entrega</th></tr>
+      <tr><td><code>dev.mcp.json</code></td><td><code>--mcp-config</code> (+ <code>--strict-mcp-config</code>)</td><td><b>Conecta</b> o servidor kanban (transporte <code>http</code>, url, token do dev). Torna as ferramentas <code class="inline">kanban_*</code> <em>visíveis</em>. O <code>--strict-mcp-config</code> garante que o dev veja <b>só</b> este servidor.</td></tr>
+      <tr><td><code>dev-settings.json</code></td><td><code>--settings</code></td><td><b>Autoriza</b> o dev a <em>chamar</em> as ferramentas: <code class="inline">"permissions.allow": ["mcp__kanban"]</code>. Sem isso, em headless cada chamada <code class="inline">kanban_*</code> bate num prompt de permissão que ninguém responde — e falha. O mesmo arquivo nega as skills de PM/manager (anti-confusão).</td></tr>
+    </table>
+    <div class="warn"><b>Visível ≠ permitido.</b> Conectar o servidor (<code class="inline">dev.mcp.json</code>) só deixa as ferramentas aparecerem. É o <code class="inline">allow: ["mcp__kanban"]</code> do <code class="inline">dev-settings.json</code> que deixa o dev <u>usá-las</u> sem prompt. Para restringir mais, troque <code class="inline">"mcp__kanban"</code> pelas ferramentas exatas do dev: <code class="inline">"mcp__kanban__pick_next"</code>, <code class="inline">"mcp__kanban__claim_card"</code>, <code class="inline">"mcp__kanban__move_card"</code>, <code class="inline">"mcp__kanban__log_on_card"</code>, <code class="inline">"mcp__kanban__release_card"</code>, <code class="inline">"mcp__kanban__list_cards"</code>, <code class="inline">"mcp__kanban__get_card"</code>. (O <b>escopo</b> de quais ferramentas existem já é imposto pelo servidor a partir do papel <code>dev</code> do token; o <code>allow</code> só dispensa o prompt.)</div>
+    <div class="note">O dev <b>não</b> usa o <code class="inline">.mcp.json</code> da raiz nem o <code class="inline">enabledMcpjsonServers</code> do <code class="inline">settings.local.json</code> — esses são do PM/manager interativo. O <code class="inline">--strict-mcp-config</code> ignora qualquer config de projeto e usa apenas o <code class="inline">dev.mcp.json</code>.</div>
     <pre><code><span class="cmt"># a partir da raiz do projeto, despache o dev no sprint ativo</span>
 <span class="cmt"># KANBAN_DEV_TOKEN é expandido pelo dev.mcp.json da skill em runtime</span>
 <span class="tok-cmd">KANBAN_DEV_TOKEN</span>=<span class="tok-str">kbn_t_&lt;token dev do manager&gt;</span> \
@@ -436,6 +446,10 @@ token:  kbn_t_a1b2c3d4e5f6g7h8i9j0...</code></pre>
       <tr>
         <td><code>spawn-dev.sh</code> falha</td>
         <td><code>KANBAN_DEV_TOKEN</code> não exportado, ou <code>claude</code>/<code>jq</code> fora do <code>PATH</code>, ou servidor inalcançável. A própria mensagem do script indica qual pré-requisito faltou (Etapa 9.3).</td>
+      </tr>
+      <tr>
+        <td>O dev sobe mas não chama nenhuma ferramenta <code>kanban_*</code> (fica "sem permissão" / não faz nada no board)</td>
+        <td>Falta o <code>allow</code> do MCP no <code>dev-settings.json</code>. Em headless não há prompt para aprovar. Garanta <code class="inline">"permissions": { "allow": ["mcp__kanban"] }</code> no <code>dev-settings.json</code> embutido na skill do PM (Etapa 9.3).</td>
       </tr>
     </table>
   </section>
