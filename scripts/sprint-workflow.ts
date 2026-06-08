@@ -37,9 +37,14 @@
 //                            JSON result is matched against known limit messages
 //                            ("You've hit your … limit").
 //   RATE_LIMIT_MAX_RETRIES   max retries per operation before giving up (default 10)
+//   DEBUG_LOG                path to a log file; when set, every log() call is
+//                            appended there with an ISO timestamp (set automatically
+//                            by the server's WorkflowRunner when WORKFLOW_LOG_DIR
+//                            is configured)
 
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
+import { appendFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -58,6 +63,9 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..')
 
 const KANBAN_URL = process.env.KANBAN_URL ?? 'http://127.0.0.1:9375'
+// When set, every log() call is also appended (with ISO timestamp) to this file.
+// Set by the WorkflowRunner when WORKFLOW_LOG_DIR is configured, or manually.
+const DEBUG_LOG: string | null = process.env.DEBUG_LOG ?? null
 const DEV_TOKEN = required('KANBAN_DEV_TOKEN')
 const PM_TOKEN = required('KANBAN_PM_TOKEN')
 const TARGET_REPO = path.resolve(process.env.TARGET_REPO ?? process.cwd())
@@ -502,6 +510,11 @@ async function main(): Promise<void> {
 
 function log(msg: string): void {
   console.log(msg)
+  if (DEBUG_LOG) {
+    try {
+      appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`)
+    } catch { /* best effort — never crash the workflow over a log write */ }
+  }
 }
 
 main().catch((err) => {
