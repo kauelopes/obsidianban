@@ -1,0 +1,77 @@
+import { spawn } from 'node:child_process'
+import { createWriteStream, mkdirSync } from 'node:fs'
+import path from 'node:path'
+
+export interface WorkflowConfig {
+  scriptPath: string    // abs path to sprint-workflow.ts (or compiled .js)
+  targetRepo: string    // cwd passed to the dev harness (TARGET_REPO)
+  logDir: string | null // when set, per-sprint log files are written here
+}
+
+/**
+ * Read workflow launch config from env. Returns null when auto-launch is
+ * disabled (WORKFLOW_ENABLED != "true") or misconfigured.
+ *
+ * Required env vars when enabled:
+ *   WORKFLOW_ENABLED=true
+ *   WORKFLOW_SCRIPT_PATH   absolute path to sprint-workflow.ts
+ *   WORKFLOW_TARGET_REPO   working dir for the dev harness (defaults to cwd)
+ *   WORKFLOW_LOG_DIR       dir where per-sprint .log files land (optional)
+ *
+ * The spawned process inherits the full server env, so ANTHROPIC_API_KEY,
+ * KANBAN_DEV_TOKEN, and KANBAN_PM_TOKEN must be present there.
+ */
+export function loadWorkflowConfig(env: NodeJS.ProcessEnv): WorkflowConfig | null {
+  if (env['WORKFLOW_ENABLED'] !== 'true') return null
+  const scriptPath = env['WORKFLOW_SCRIPT_PATH']
+  if (!scriptPath) {
+    console.warn('[workflow] WORKFLOW_ENABLED=true but WORKFLOW_SCRIPT_PATH not set — auto-launch disabled')
+    return null
+  }
+  return {
+    scriptPath,
+    targetRepo: env['WORKFLOW_TARGET_REPO'] ?? process.cwd(),
+    logDir: env['WORKFLOW_LOG_DIR'] ?? null,
+  }
+}
+
+export class WorkflowRunner {
+  constructor(private readonly cfg: WorkflowConfig) {}
+
+  /**
+   * Spawn the sprint workflow as a detached background process.
+   * The process is unref'd immediately so the server can exit independently.
+   * When logDir is configured, stdout+stderr are piped to
+   * <logDir>/sprint-<sprintId>.log and DEBUG_LOG is set for the workflow's
+   * own structured log output.
+   */
+  launch(sprintId: string): void {
+    const args = ['--import', 'tsx', this.cfg.scriptPath]
+    const baseEnv = { ...process.env }
+
+    if (this.cfg.logDir) {
+      try { mkdirSync(this.cfg.logDir, { recursive: true }) } catch { /* pre-existing */ }
+      const logPath = path.join(this.cfg.logDir, `sprint-${sprintId}.log`)
+      const child = spawn('node', args, {
+        cwd: this.cfg.targetRepo,
+        env: { ...baseEnv, DEBUG_LOG: logPath },
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      const out = createWriteStream(logPath, { flags: 'a' })
+      child.stdout.pipe(out)
+      child.stderr.pipe(out)
+      child.unref()
+      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} log=${logPath}`)
+    } else {
+      const child = spawn('node', args, {
+        cwd: this.cfg.targetRepo,
+        env: baseEnv,
+        detached: true,
+        stdio: 'ignore',
+      })
+      child.unref()
+      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid}`)
+    }
+  }
+}

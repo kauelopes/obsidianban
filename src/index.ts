@@ -18,6 +18,7 @@ import { AdminService } from './services/admin.js'
 import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
+import { WorkflowRunner, loadWorkflowConfig } from './services/workflow-runner.js'
 import { TOOL_SCHEMAS } from './server/tool-schemas.js'
 import { TOOL_CATALOG } from './server/tool-catalog.js'
 import type { ToolAccess } from './server/tool-access.js'
@@ -40,6 +41,9 @@ async function main(): Promise<void> {
   await idempotency.load()
 
   const sse = new SSEEventBus()
+  const workflowCfg = loadWorkflowConfig(process.env)
+  const workflowRunner = workflowCfg ? new WorkflowRunner(workflowCfg) : null
+  if (workflowCfg) console.log(`[workflow] auto-launch enabled: script=${workflowCfg.scriptPath}`)
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const metrics = new MetricsService(db)
   const admin = new AdminService(config.paths, repo, audit, sse)
@@ -80,7 +84,11 @@ async function main(): Promise<void> {
     kanban_unarchive_project: async (p, c) => admin.unarchiveProject(p, c),
     kanban_delete_project: async (p, c) => admin.deleteProject(p, c),
     kanban_create_sprint: async (p, c) => sprints.createSprint(p, c),
-    kanban_start_sprint: async (p, c) => sprints.startSprint(p, c),
+    kanban_start_sprint: async (p, c) => {
+      const result = await sprints.startSprint(p, c)
+      workflowRunner?.launch(result.id)
+      return result
+    },
     kanban_list_sprints: async (p, c) => sprints.listSprints(p, c),
     kanban_get_sprint: async (p, c) => sprints.getSprint(p, c),
     kanban_add_to_sprint: async (p, c) => sprints.addToSprint(p, c),
