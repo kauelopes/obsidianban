@@ -379,11 +379,53 @@ Variáveis de ambiente (`.env`):
 | `SPRINT_MAX_ROUNDS` | não | `50` | Trava de segurança do loop. |
 | `RATE_LIMIT_WAIT_SECONDS` | não | `300` | Segundos de espera quando créditos acabam. Para a triagem, o header `retry-after` da API tem precedência quando presente. |
 | `RATE_LIMIT_MAX_RETRIES` | não | `10` | Máximo de retentativas por operação antes de desistir com erro. |
+| `DEBUG_LOG` | não | — | Path para um arquivo de log. Quando definido, cada chamada a `log()` é gravada lá com timestamp ISO, além do stdout normal. Definido automaticamente pelo servidor quando `WORKFLOW_LOG_DIR` está configurado. |
 
 Comando:
 
 ```bash
 node --import tsx scripts/sprint-workflow.ts
+```
+
+---
+
+## Execução automática via servidor
+
+O servidor pode lançar o workflow automaticamente sempre que uma sprint é ativada via
+`kanban_start_sprint`. O processo filho é `detached + unref'd` — o servidor não bloqueia
+e pode encerrar independentemente.
+
+Configure as variáveis abaixo no **ambiente do servidor** (`.env` ou env do processo que
+sobe o `src/index.ts`):
+
+| Variável | Obrigatória | Default | Para quê |
+|---|---|---|---|
+| `WORKFLOW_ENABLED` | sim (para ativar) | `false` | Defina `true` para habilitar o auto-launch. |
+| `WORKFLOW_SCRIPT_PATH` | sim (quando habilitado) | — | Path absoluto para `scripts/sprint-workflow.ts`. |
+| `WORKFLOW_TARGET_REPO` | não | `process.cwd()` do servidor | Diretório do repo que o harness dev vai trabalhar (`TARGET_REPO` do workflow). |
+| `WORKFLOW_LOG_DIR` | não | — | Diretório para logs por sprint. Quando definido, o servidor cria `<dir>/sprint-<id>.log`, redireciona stdout+stderr do processo filho para ele e injeta `DEBUG_LOG=<caminho>` no env do workflow. |
+
+Os tokens (`ANTHROPIC_API_KEY`, `KANBAN_DEV_TOKEN`, `KANBAN_PM_TOKEN`) são **herdados do
+env do servidor** — basta que estejam presentes lá.
+
+```bash
+# Exemplo: .env do servidor com auto-launch ligado
+WORKFLOW_ENABLED=true
+WORKFLOW_SCRIPT_PATH=/abs/path/to/scripts/sprint-workflow.ts
+WORKFLOW_TARGET_REPO=/abs/path/to/repo-do-projeto
+WORKFLOW_LOG_DIR=/abs/path/to/logs/sprints
+
+ANTHROPIC_API_KEY=sk-ant-...
+KANBAN_DEV_TOKEN=kbt-dev-...
+KANBAN_PM_TOKEN=kbt-pm-...
+```
+
+Saída no console do servidor ao iniciar:
+
+```
+[workflow] auto-launch enabled: script=/abs/path/to/scripts/sprint-workflow.ts
+...
+[workflow] launched sprint=spr_abc123 pid=12345 log=/abs/path/to/logs/sprints/sprint-spr_abc123.log
 ```
 
 ---
