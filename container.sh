@@ -20,6 +20,13 @@ fi
 : "${VAULT_PATH:?VAULT_PATH is not set. Copy .env.example to .env and configure it.}"
 : "${MCP_HTTP_PORT:=9375}"
 : "${LOG_LEVEL:=info}"
+: "${WORKFLOW_ENABLED:=}"
+: "${WORKFLOW_SCRIPT_PATH:=/app/dist/sprint-workflow.js}"
+: "${WORKFLOW_TARGET_REPO:=}"
+: "${WORKFLOW_LOG_DIR:=/vault/.sprint-logs}"
+: "${ANTHROPIC_API_KEY:=}"
+: "${KANBAN_DEV_TOKEN:=}"
+: "${KANBAN_PM_TOKEN:=}"
 
 # ---------------------------------------------------------------------------
 # Commands
@@ -58,10 +65,18 @@ case "$cmd" in
       --user "$(id -u):$(id -g)" \
       --network=host \
       -v "${VAULT_PATH}:/vault:z" \
+      ${WORKFLOW_TARGET_REPO:+-v "${WORKFLOW_TARGET_REPO}:${WORKFLOW_TARGET_REPO}:z"} \
       -e NODE_ENV=production \
       -e VAULT_PATH=/vault \
       -e MCP_HTTP_PORT="${MCP_HTTP_PORT}" \
-      -e LOG_LEVEL="${LOG_LEVEL}"  \
+      -e LOG_LEVEL="${LOG_LEVEL}" \
+      -e WORKFLOW_ENABLED="${WORKFLOW_ENABLED}" \
+      -e WORKFLOW_SCRIPT_PATH="${WORKFLOW_SCRIPT_PATH}" \
+      -e WORKFLOW_TARGET_REPO="${WORKFLOW_TARGET_REPO}" \
+      -e WORKFLOW_LOG_DIR="${WORKFLOW_LOG_DIR}" \
+      -e ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY}" \
+      -e KANBAN_DEV_TOKEN="${KANBAN_DEV_TOKEN}" \
+      -e KANBAN_PM_TOKEN="${KANBAN_PM_TOKEN}" \
       "$IMAGE"
     echo "MCP server running at http://localhost:${MCP_HTTP_PORT}"
     echo "Health: http://localhost:${MCP_HTTP_PORT}/health"
@@ -114,9 +129,22 @@ Commands:
                e.g.: ./container.sh exec node src/index.js --stdio
 
 Environment (set in .env, copied from .env.example):
-  VAULT_PATH       Path to your Obsidian vault on the host  [required]
-  MCP_HTTP_PORT    HTTP port for the MCP server              [default: 9375]
-  LOG_LEVEL        debug | info | warn | error               [default: info]
+  VAULT_PATH             Path to your Obsidian vault on the host  [required]
+  MCP_HTTP_PORT          HTTP port for the MCP server              [default: 9375]
+  LOG_LEVEL              debug | info | warn | error               [default: info]
+
+  Sprint workflow (opt-in — requires 'claude' CLI on PATH inside the container
+  or a host-side runner; set WORKFLOW_ENABLED=true to activate):
+  WORKFLOW_ENABLED       Set to "true" to auto-launch the sprint workflow
+  WORKFLOW_SCRIPT_PATH   Path to sprint-workflow.js inside the container
+                           [default: /app/dist/sprint-workflow.js]
+  WORKFLOW_TARGET_REPO   Repo the dev harness works in; also mounted as a
+                           volume when set                          [default: ""]
+  WORKFLOW_LOG_DIR       Dir for per-sprint log files (inside container)
+                           [default: /vault/.sprint-logs]
+  ANTHROPIC_API_KEY      Anthropic API key for the workflow LLM calls
+  KANBAN_DEV_TOKEN       Dev agent token (agent_type=dev)
+  KANBAN_PM_TOKEN        PM  agent token (agent_type=pm)
 EOF
     ;;
 

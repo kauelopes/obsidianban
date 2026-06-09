@@ -1,9 +1,10 @@
 FROM node:22-slim AS builder
 WORKDIR /app
-COPY package*.json tsconfig.json ./
+COPY package*.json tsconfig.json tsconfig.workflow.json ./
 RUN npm ci --no-audit --no-fund
 COPY src ./src
-RUN npx tsc -p tsconfig.json
+COPY scripts/sprint-workflow.ts ./scripts/
+RUN npx tsc -p tsconfig.json && npx tsc -p tsconfig.workflow.json
 
 FROM node:22-slim
 WORKDIR /app
