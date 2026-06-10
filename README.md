@@ -1,50 +1,50 @@
 # ObsidianKan MCP
 
-**Um board Kanban para agentes de IA e humanos — com a confiabilidade de um banco de dados e a simplicidade de arquivos Markdown.**
+**A Kanban board for AI agents and humans — with the reliability of a database and the simplicity of Markdown files.**
 
-ObsidianKan transforma um vault do Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito.
-
----
-
-## O problema
-
-Agentes de IA são cada vez mais capazes de gerenciar tarefas longas — mas não têm um lugar confiável para rastrear trabalho compartilhado com humanos.
-
-A maioria das configurações força uma escolha:
-
-- **Usar um gerenciador de tarefas** — agentes não escrevem nele nativamente, integrações quebram, humanos perdem o workspace familiar
-- **Usar arquivos simples** — sem estrutura, sem controle de concorrência, sem consistência quando múltiplos agentes escrevem ao mesmo tempo
-
-O resultado: agentes alucinam estado de tarefas, duplicam trabalho ou sobrescrevem mudanças uns dos outros silenciosamente.
+ObsidianKan turns an Obsidian vault into a fully operational Kanban system that agents and humans use simultaneously, without conflict.
 
 ---
 
-## A solução
+## The problem
 
-ObsidianKan é um servidor MCP construído sobre um vault do Obsidian. Cards são arquivos `.md` — legíveis e editáveis por qualquer pessoa. Um servidor MCP leve fica na frente e dá aos agentes uma interface estruturada, segura e auditável para ler e escrever esses cards.
+AI agents are increasingly capable of managing long-running tasks — but they have no reliable place to track work shared with humans.
 
-Humanos continuam usando o Obsidian normalmente. Agentes chamam tools MCP. Ambos os caminhos de escrita são suportados e reconciliados automaticamente.
+Most setups force a choice:
+
+- **Use a task manager** — agents can't write to it natively, integrations break, humans lose their familiar workspace
+- **Use plain files** — no structure, no concurrency control, no consistency when multiple agents write at the same time
+
+The result: agents hallucinate task state, duplicate work, or silently overwrite each other's changes.
+
+---
+
+## The solution
+
+ObsidianKan is an MCP server built on top of an Obsidian vault. Cards are `.md` files — readable and editable by anyone. A lightweight MCP server sits in front and gives agents a structured, safe, auditable interface to read and write those cards.
+
+Humans keep using Obsidian as they always have. Agents call MCP tools. Both write paths are fully supported and reconciled automatically.
 
 ```mermaid
 flowchart LR
-    subgraph Agentes["🤖 Agentes de IA"]
-        DEV["Dev Agent\n(execução)"]
-        PM["PM Agent\n(planejamento)"]
-        MGR["Manager\n(provisionamento)"]
+    subgraph Agents["🤖 AI Agents"]
+        DEV["Dev Agent\n(execution)"]
+        PM["PM Agent\n(planning)"]
+        MGR["Manager\n(provisioning)"]
     end
 
-    subgraph Humanos["👤 Humanos"]
-        OBS["Obsidian\n(editor + board visual)"]
+    subgraph Humans["👤 Humans"]
+        OBS["Obsidian\n(editor + visual board)"]
     end
 
-    subgraph Servidor["🗄️ MCP Server"]
-        MCP["27 tools MCP\n(stdio / HTTP)"]
-        LOCK["Optimistic locking\nIdempotência\nAudit log"]
+    subgraph Server["🗄️ MCP Server"]
+        MCP["27 MCP tools\n(stdio / HTTP)"]
+        LOCK["Optimistic locking\nIdempotency\nAudit log"]
     end
 
-    subgraph Storage["💾 Armazenamento"]
+    subgraph Storage["💾 Storage"]
         MD[".md files\n(source of truth)"]
-        DB["SQLite\n(índice derivado)"]
+        DB["SQLite\n(derived index)"]
     end
 
     DEV -->|"dev token"| MCP
@@ -53,193 +53,186 @@ flowchart LR
     OBS -->|"HTTP + SSE"| MCP
     MCP --- LOCK
     LOCK --> MD
-    MD -.->|"file watcher\nreconcilia"| DB
+    MD -.->|"file watcher\nreconciles"| DB
 ```
 
 ---
 
-## Por que funciona
+## Why it works
 
-**Cards são só arquivos Markdown.**
-Sem formatos proprietários. Humanos leem, editam e anotam qualquer card direto no Obsidian. O sistema abraça isso em vez de lutar contra.
+**Cards are just Markdown files.**
+No proprietary formats. Humans read, edit, and annotate any card directly in Obsidian. The system embraces this instead of fighting it.
 
-**Agentes escrevem por uma interface disciplinada.**
-O servidor valida cada escrita de agente: tipos de campo, existência de coluna, conflitos de versão. Agentes recebem erros claros — não falhas silenciosas.
+**Agents write through a disciplined interface.**
+The server validates every agent write: field types, column existence, version conflicts. Agents get clear error responses — not silent failures.
 
-**Conflitos são explícitos e recuperáveis.**
-Cada card tem uma versão inteira. Se dois agentes tentam atualizar o mesmo card, um recebe `409 Conflict` com o estado atual e a lista de campos conflitantes.
+**Conflicts are explicit and recoverable.**
+Every card has an integer version. If two agents attempt to update the same card, one gets `409 Conflict` with the current card state and the list of conflicting fields.
 
-**Retries são seguros por design.**
-Toda operação mutante aceita um `request_id`. Se um agente retenta após timeout, o servidor retorna a resposta original sem criar duplicata.
+**Retries are safe by design.**
+Every mutating operation accepts a `request_id`. If an agent retries after a timeout, the server returns the original response without creating a duplicate.
 
-**Nada é perdido.**
-SQLite é um índice derivado. Se deletado, o servidor o reconstrói a partir dos `.md` files no próximo startup.
+**Nothing is ever lost.**
+SQLite is a derived index. If deleted, the server rebuilds it from the `.md` files on the next startup.
 
-**Tudo é auditado.**
-Toda mutação — escrita de agente, edição humana, reversão de campo — produz uma entrada no audit log imutável.
+**Everything is audited.**
+Every mutation — agent write, human edit, field reversion — produces an entry in an append-only audit log.
 
 ---
 
-## Tipos de agente
+## Agent types
 
-O sistema tem três níveis de acesso, controlados pelo tipo de token. **Cada agente só recebe as tools que pode chamar** — a lista é filtrada no momento da conexão.
+The system has three access levels, controlled by token type. **Each agent only receives the tools it can call** — the list is filtered at connection time.
 
 ```mermaid
 flowchart TD
-    MGR["👑 Manager\nProvisionamento cross-vault"]
-    PM["📋 PM Agent\nPlanejamento + supervisão"]
-    DEV["⚙️ Dev Agent\nExecução de cards"]
+    MGR["👑 Manager\nCross-vault provisioning"]
+    PM["📋 PM Agent\nPlanning + supervision"]
+    DEV["⚙️ Dev Agent\nCard execution"]
 
-    MGR -->|"cria projetos e emite tokens"| PM
-    MGR -->|"cria projetos e emite tokens"| DEV
-    PM -->|"cria cards, gerencia sprints\nsupervisiona review"| DEV
-    DEV -->|"escala via review"| PM
+    MGR -->|"creates projects and mints tokens"| PM
+    MGR -->|"creates projects and mints tokens"| DEV
+    PM -->|"creates cards, manages sprints\nsupervises review"| DEV
+    DEV -->|"escalates via review"| PM
 ```
 
-### Tabela de tools por tipo de agente
+### Tool access by agent type
 
-| Tool | Descrição | Dev | PM | Manager |
-|------|-----------|:---:|:--:|:-------:|
+| Tool | Description | Dev | PM | Manager |
+|------|-------------|:---:|:--:|:-------:|
 | **Cards** |
-| `kanban_list_cards` | Lista cards com filtros; dev sempre limitado ao sprint ativo | ✅ | ✅ | ✅ |
-| `kanban_get_card` | Busca um card completo (com corpo) | ✅ | ✅ | ✅ |
-| `kanban_log_on_card` | Adiciona entrada de log ao card (markdown + mermaid suportados) | ✅ | ✅ | ✅ |
-| `kanban_move_card` | Move card entre colunas; aceita input/output tokens para custo | ✅ | ✅ | ✅ |
-| `kanban_claim_card` | Reivindica o card para si; 409 se já pertence a outro agente | ✅ | ✅ | ✅ |
-| `kanban_release_card` | Libera o card; volta para `todo` por padrão | ✅ | ✅ | ✅ |
-| `kanban_create_card` | Cria card (title, type, sprint_id obrigatórios) | ❌ | ✅ | ✅ |
-| `kanban_bulk_create_cards` | Cria até 100 cards em uma chamada; resposta split created/failed | ❌ | ✅ | ✅ |
-| `kanban_update_card` | Atualiza campos do card com optimistic locking | ❌ | ✅ | ✅ |
-| `kanban_reorder_card` | Reordena card dentro da coluna | ❌ | ✅ | ✅ |
-| `kanban_delete_card` | Deleta card permanentemente | ❌ | ✅ | ✅ |
-| `kanban_archive_card` | Arquiva card (some das listagens padrão) | ❌ | ✅ | ✅ |
-| `kanban_unarchive_card` | Restaura card arquivado | ❌ | ✅ | ✅ |
+| `kanban_list_cards` | List cards with filters; dev always scoped to the active sprint | ✅ | ✅ | ✅ |
+| `kanban_get_card` | Fetch a full card including its body | ✅ | ✅ | ✅ |
+| `kanban_log_on_card` | Append a log entry to a card (markdown + mermaid supported) | ✅ | ✅ | ✅ |
+| `kanban_move_card` | Move a card between columns; accepts input/output tokens for cost tracking | ✅ | ✅ | ✅ |
+| `kanban_claim_card` | Claim a card; 409 if already held by another agent | ✅ | ✅ | ✅ |
+| `kanban_release_card` | Release a card; reverts to `todo` by default | ✅ | ✅ | ✅ |
+| `kanban_create_card` | Create a card (title, type, sprint_id required) | ❌ | ✅ | ✅ |
+| `kanban_bulk_create_cards` | Create up to 100 cards in one call; response splits into created/failed | ❌ | ✅ | ✅ |
+| `kanban_update_card` | Update card fields with optimistic locking | ❌ | ✅ | ✅ |
+| `kanban_reorder_card` | Reorder a card within its column | ❌ | ✅ | ✅ |
+| `kanban_delete_card` | Permanently delete a card | ❌ | ✅ | ✅ |
+| `kanban_archive_card` | Archive a card (hides from default listings) | ❌ | ✅ | ✅ |
+| `kanban_unarchive_card` | Restore an archived card | ❌ | ✅ | ✅ |
 | **Workflow** |
-| `kanban_pick_next` | Retorna próximo card pronto (sem blockers não resolvidos) | ✅ | ✅ | ✅ |
+| `kanban_pick_next` | Return the next ready card (no unmet blockers) | ✅ | ✅ | ✅ |
 | **Sprints** |
-| `kanban_create_sprint` | Cria sprint em estado `planning` | ❌ | ✅ | ✅ |
-| `kanban_start_sprint` | Ativa um sprint; recusa se já houver um ativo | ❌ | ✅ | ✅ |
-| `kanban_list_sprints` | Lista sprints filtrados por status | ❌ | ✅ | ✅ |
-| `kanban_get_sprint` | Busca sprint com lista completa de cards e agregados de tokens | ❌ | ✅ | ✅ |
-| `kanban_add_to_sprint` | Adiciona cards a um sprint | ❌ | ✅ | ✅ |
-| `kanban_move_between_sprints` | Move cards entre sprints do mesmo projeto | ❌ | ✅ | ✅ |
-| `kanban_close_sprint` | Fecha sprint; rollover de cards não concluídos opcional | ❌ | ✅ | ✅ |
-| **Projetos** |
-| `kanban_create_project` | Cria pasta de projeto e emite token PM inicial | ❌ | ❌ | ✅ |
-| `kanban_list_projects` | Lista todos os projetos | ❌ | ❌ | ✅ |
-| `kanban_archive_project` | Oculta projeto das listagens padrão | ❌ | ❌ | ✅ |
-| `kanban_unarchive_project` | Restaura projeto arquivado | ❌ | ❌ | ✅ |
-| `kanban_delete_project` | Deleta projeto permanentemente (requer confirm=\<project\>) | ❌ | ❌ | ✅ |
+| `kanban_create_sprint` | Create a sprint in `planning` state | ❌ | ✅ | ✅ |
+| `kanban_start_sprint` | Activate a sprint; refuses if one is already active | ❌ | ✅ | ✅ |
+| `kanban_list_sprints` | List sprints filtered by status | ❌ | ✅ | ✅ |
+| `kanban_get_sprint` | Fetch a sprint with full card list and token aggregates | ❌ | ✅ | ✅ |
+| `kanban_add_to_sprint` | Attach cards to a sprint | ❌ | ✅ | ✅ |
+| `kanban_move_between_sprints` | Move cards between sprints in the same project | ❌ | ✅ | ✅ |
+| `kanban_close_sprint` | Close a sprint; optional rollover of unfinished cards | ❌ | ✅ | ✅ |
+| **Projects** |
+| `kanban_create_project` | Create a project folder and mint an initial PM token | ❌ | ❌ | ✅ |
+| `kanban_list_projects` | List all projects | ❌ | ❌ | ✅ |
+| `kanban_archive_project` | Hide a project from default listings | ❌ | ❌ | ✅ |
+| `kanban_unarchive_project` | Restore an archived project | ❌ | ❌ | ✅ |
+| `kanban_delete_project` | Permanently delete a project (requires confirm=\<project\>) | ❌ | ❌ | ✅ |
 | **Auth** |
-| `kanban_create_agent_token` | Emite novo token de agente (`pm` ou `dev`) | ❌ | ❌ | ✅ |
+| `kanban_create_agent_token` | Mint a new agent token (`pm` or `dev`) | ❌ | ❌ | ✅ |
 
 ---
 
-## Protocolo do Dev Agent
+## Dev Agent escalation protocol
 
-Dev agents não criam cards. Quando estão bloqueados ou querem propor algo, usam o protocolo de escalação:
+Dev agents cannot create cards. When blocked or wanting to propose something, they use the escalation protocol:
 
 ```mermaid
 flowchart LR
-    WORK["⚙️ Executando card"] -->|"bloqueado ou proposta"| LOG
-    LOG["1. kanban_log_on_card\n(documenta o problema)"] --> REVIEW
-    REVIEW["2. kanban_move_card → review\n(entrega para o PM)"] --> NEXT
-    NEXT["3. kanban_pick_next\n(pega próximo card)"]
+    WORK["⚙️ Working on card"] -->|"blocked or proposal"| LOG
+    LOG["1. kanban_log_on_card\n(document the issue)"] --> REVIEW
+    REVIEW["2. kanban_move_card → review\n(hand off to PM)"] --> NEXT
+    NEXT["3. kanban_pick_next\n(pick up next card)"]
 
-    PMREAD["📋 PM lê cards em review\ne decide:"] --> C1
+    PMREAD["📋 PM reads review cards\nand decides:"] --> C1
     PMREAD --> C2
     PMREAD --> C3
-    C1["Resolve o bloqueio\n→ volta para todo"]
-    C2["Cria card filho\n→ fecha o original"]
-    C3["Fecha o card\n(desnecessário)"]
+    C1["Resolve the blocker\n→ back to todo"]
+    C2["Create a follow-up card\n→ close the original"]
+    C3["Close the card\n(no longer needed)"]
 ```
 
 ---
 
 ## Sprint workflow
 
-O `scripts/sprint-workflow.ts` executa uma sprint inteira de forma autônoma, dirigindo os mesmos tools `kanban_*` do board, mas substituindo o PM manual por um **workflow**: o loop, o sequenciamento e a condição de parada são código determinístico; o LLM só é chamado onde há julgamento real.
+`scripts/sprint-workflow.ts` runs an entire sprint autonomously, driving the same `kanban_*` tools as the board but replacing the manual PM with a **workflow**: the loop, sequencing, and stopping condition are deterministic code; the LLM is only called where real judgment is needed.
 
 ```mermaid
 flowchart TD
-    START(["início"]) --> HEALTH{"servidor\nacessível?"}
-    HEALTH -->|não| FAIL["erro: servidor offline"]
-    HEALTH -->|sim| SPRINT{"sprint ativa?"}
-    SPRINT -->|não| FAIL2["erro: nenhuma sprint ativa"]
-    SPRINT -->|sim| ROUND{"round < MAX_ROUNDS?"}
+    START(["start"]) --> HEALTH{"server\naccessible?"}
+    HEALTH -->|no| FAIL["error: server offline"]
+    HEALTH -->|yes| SPRINT{"active sprint?"}
+    SPRINT -->|no| FAIL2["error: no active sprint"]
+    SPRINT -->|yes| ROUND{"round < MAX_ROUNDS?"}
 
-    ROUND -->|não| STOP["trava: MAX_ROUNDS atingido"]
-    ROUND -->|sim| REVIEW{"cards em review?"}
+    ROUND -->|no| STOP["guard: MAX_ROUNDS reached"]
+    ROUND -->|yes| REVIEW{"cards in review?"}
 
-    REVIEW -->|sim| TRIAGE["triagem híbrida\n(código + LLM)"]
+    REVIEW -->|yes| TRIAGE["hybrid triage\n(code + LLM)"]
     TRIAGE --> ROUND
 
-    REVIEW -->|não| READY{"pick_next\ntem card?"}
-    READY -->|sim| DEV["runDev()\nspawn claude CLI"]
+    REVIEW -->|no| READY{"pick_next\nhas a card?"}
+    READY -->|yes| DEV["runDev()\nspawn claude CLI"]
     DEV --> ROUND
-    READY -->|não| DONE["sprint drenada"]
+    READY -->|no| DONE["sprint drained"]
 
-    STOP --> SUMMARY["resumo final"]
+    STOP --> SUMMARY["print sprint summary"]
     DONE --> SUMMARY
-    SUMMARY --> END(["fim"])
+    SUMMARY --> END(["end"])
 ```
 
-### Como o workflow orquestra os três atores
+### How the workflow orchestrates the three actors
 
 ```mermaid
 flowchart TB
-    subgraph WF["sprint-workflow.ts (processo Node)"]
-        ORC["Orquestrador\n(código, pm token)"]
-        TRI["Triagem LLM\n(Anthropic SDK, pm token)"]
-        RUN["Runner DEV\n(spawn claude CLI, dev token)"]
+    subgraph WF["sprint-workflow.ts (Node process)"]
+        ORC["Orchestrator\n(deterministic code, pm token)"]
+        TRI["LLM Triage\n(Anthropic SDK, pm token)"]
+        RUN["Dev Runner\n(spawn claude CLI, dev token)"]
     end
 
     subgraph SRV["Kanban MCP Server"]
-        TOOLS["27 tools kanban_*\n(HTTP 127.0.0.1:9375)"]
+        TOOLS["27 kanban_* tools\n(HTTP 127.0.0.1:9375)"]
     end
 
     ORC -->|"pm token"| TOOLS
     TRI -->|"pm token"| TOOLS
-    RUN -->|"dev token via env\n(modelo nunca vê o token)"| TOOLS
+    RUN -->|"dev token via env\n(model never sees the token)"| TOOLS
 
     TOOLS --> MD[".md files\nObsidian vault"]
 ```
 
-O Obsidian não sabe que o workflow existe — só vê os cards se moverem no board via SSE, como se um humano estivesse atuando.
+Obsidian has no knowledge of the workflow — it just sees cards moving on the board via SSE, as if a human were acting.
 
 ---
 
-## Fluxo típico de uma sprint
+## Typical sprint flow
 
 ```mermaid
 sequenceDiagram
-    actor H as Humano / Manager
-    participant MGR as Manager Token
     participant PM as PM Agent
     participant DEV as Dev Agent
     participant SRV as Kanban Server
 
-    H->>MGR: kanban_create_project
-    MGR->>SRV: cria projeto + emite pm token
-    H->>MGR: kanban_create_agent_token (dev)
-    MGR->>SRV: emite dev token
-
     PM->>SRV: kanban_create_sprint
     PM->>SRV: kanban_bulk_create_cards (backlog)
-    PM->>SRV: kanban_start_sprint → cards vão para todo
+    PM->>SRV: kanban_start_sprint → cards move to todo
 
-    loop Cada card do sprint
+    loop Each card in the sprint
         DEV->>SRV: kanban_pick_next
-        SRV-->>DEV: próximo card disponível
+        SRV-->>DEV: next available card
         DEV->>SRV: kanban_claim_card
         DEV->>SRV: kanban_move_card → in_progress
-        DEV->>SRV: kanban_log_on_card (progresso)
-        alt card concluído
+        DEV->>SRV: kanban_log_on_card (progress)
+        alt card completed
             DEV->>SRV: kanban_move_card → done
-        else card bloqueado
-            DEV->>SRV: kanban_log_on_card (motivo)
+        else card blocked
+            DEV->>SRV: kanban_log_on_card (reason)
             DEV->>SRV: kanban_move_card → review
-            PM->>SRV: decide e resolve
+            PM->>SRV: reads, decides, and resolves
         end
     end
 
@@ -248,23 +241,23 @@ sequenceDiagram
 
 ---
 
-## Estrutura do vault
+## Vault structure
 
 ```
 vault/
   kanban-data/
     <project>/
-      <card-slug>.md      # um arquivo por card
-      _meta.json          # colunas, sprints e hashes de token
+      <card-slug>.md      # one file per card
+      _meta.json          # columns, sprints, and token hashes
   .kanban/
-    db.sqlite             # índice derivado (sempre rebuildável)
-    audit.ndjson          # log imutável de todas as mutações
-    manager-tokens.json   # hashes SHA-256 dos tokens de manager
+    db.sqlite             # derived index (always rebuildable)
+    audit.ndjson          # immutable log of all mutations
+    manager-tokens.json   # SHA-256 hashes of manager tokens
   _kanban-secrets/
-    <project>.md          # token raw exibido uma única vez
+    <project>.md          # raw token shown exactly once
 ```
 
-Cada card é um arquivo Markdown com frontmatter YAML gerenciado pelo servidor:
+Each card is a Markdown file with YAML frontmatter managed by the server:
 
 ```markdown
 ---
@@ -279,48 +272,48 @@ version: 5
 created_at: 2026-05-10T14:00:00Z
 ---
 
-Corpo do card — editável livremente pelo humano ou pelo agente.
+Card body — freely editable by humans or agents.
 
 # Agent Log
-- **2026-05-12T09:00:00Z** — iniciado o trabalho na tela de login.
-- **2026-05-12T11:30:00Z** — bloqueado: falta endpoint de auth. Movendo para review.
+- **2026-05-12T09:00:00Z** — started work on the login screen.
+- **2026-05-12T11:30:00Z** — blocked: missing auth endpoint. Moving to review.
 ```
 
-Campos imutáveis (`id`, `project`, `type`, `version`, `created_at`) são revertidos automaticamente se um humano os alterar no editor.
+Immutable fields (`id`, `project`, `type`, `version`, `created_at`) are automatically reverted if a human edits them in Obsidian.
 
 ---
 
-## Garantias de consistência
+## Consistency guarantees
 
-| Garantia | Mecanismo |
+| Guarantee | Mechanism |
 |---|---|
-| **Escrita atômica** | Toda mutação usa `.tmp → rename`. Nunca há arquivo parcialmente escrito |
-| **Versão otimista** | Cada call mutante exige o `version` atual. Conflito retorna `409` com estado atual |
-| **Idempotência** | Toda call aceita `request_id` (UUID v4). Retry com mesmo id retorna resposta cacheada |
-| **SQLite rebuildável** | O índice é sempre reconstruível a partir dos `.md`. Na startup, divergências são reconciliadas por SHA-256 |
-| **Audit log** | Toda mutação — MCP ou edição humana — registrada em `audit.ndjson` com operação, ator, versão e tokens |
+| **Atomic writes** | Every mutation uses `.tmp → rename`. No partially written files |
+| **Optimistic versioning** | Every mutating call requires the current `version`. Conflict returns `409` with current state |
+| **Idempotency** | Every call accepts a `request_id` (UUID v4). Retrying with the same id returns the cached response |
+| **Rebuildable SQLite** | The index can always be reconstructed from `.md` files. On startup, divergences are reconciled by SHA-256 |
+| **Audit log** | Every mutation — MCP or human edit — recorded in `audit.ndjson` with operation, actor, version, and tokens |
 
 ---
 
 ## Tech stack
 
 - **MCP Server:** Node.js / TypeScript
-- **Transportes:** stdio (agentes locais) + HTTP Streamable em `/mcp` (agentes remotos); plugin usa HTTP + `/events` SSE para atualizações em tempo real
-- **Storage:** arquivos `.md` como source of truth + SQLite index (`better-sqlite3`)
-- **File watching:** chokidar com debounce de 500ms por arquivo
+- **Transports:** stdio (local agents) + Streamable HTTP at `/mcp` (remote agents); plugin uses HTTP + `/events` SSE for live board updates
+- **Storage:** `.md` files as source of truth + SQLite index (`better-sqlite3`)
+- **File watching:** chokidar with 500ms debounce per file
 - **Plugin:** Obsidian Desktop (TypeScript)
-- **Sprint Workflow:** `scripts/sprint-workflow.ts` + Anthropic SDK para triagem LLM
+- **Sprint Workflow:** `scripts/sprint-workflow.ts` + Anthropic SDK for LLM triage
 
 ---
 
-## Documentos de referência
+## Reference docs
 
-| Documento | Conteúdo |
+| Document | Contents |
 |---|---|
-| `docs/overview.md` | Visão geral de componentes, ciclo de sprints e garantias |
-| `docs/tool_list.md` | Lista completa de tools gerada a partir do código |
-| `docs/agent-runbook.md` | Como emitir tokens, configurar clientes, operar o servidor |
-| `docs/integration-guide.md` | Protocolo wire: auth, idempotência, conflitos, SSE |
-| `docs/sprint-workflow.md` | Documentação completa do workflow autônomo de sprint |
-| `docs/design/` | Diagramas de classes e invariantes de design |
-| `docs/prd/sections/` | PRD completo: modelo de dados, regras de negócio, workflows |
+| `docs/overview.md` | Component overview, sprint lifecycle, and guarantees |
+| `docs/tool_list.md` | Full tool list generated from source code |
+| `docs/agent-runbook.md` | How to mint tokens, configure clients, operate the server |
+| `docs/integration-guide.md` | Wire protocol: auth, idempotency, conflicts, SSE |
+| `docs/sprint-workflow.md` | Full documentation for the autonomous sprint workflow |
+| `docs/design/` | Class diagrams and design invariants |
+| `docs/prd/sections/` | Full PRD: data model, business rules, workflows |
