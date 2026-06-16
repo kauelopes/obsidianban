@@ -1,51 +1,105 @@
 # ObsidianKan — CLAUDE.md
 
-## Processo de melhoria ativo
-
-Uma análise de engenharia de software foi conduzida em 2026-06-16 e identificou 9 problemas no projeto (score: 5.5/10). Estamos implementando as melhorias de forma incremental.
-
-**PRD completo:** `docs/engsoft_report/07prd.md`  
-**Análise original:** `docs/engsoft_report/` (arquivos 01–06)
-
-No início de cada sessão, leia `docs/engsoft_report/07prd.md` para ver o que já foi feito (tabela de status no topo) e o que está pendente. Ao concluir um item, atualize o status na tabela para ✅.
-
-### Resumo dos 9 itens (ordem de prioridade de execução)
-
-1. ✅ Corrigir vulnerabilidades (esbuild ✅, hono ✅, gray-matter: risco aceito) — concluído
-2. ✅ POSITION_GAP como constante nomeada — concluído (`src/util/constants.ts`)
-3. ✅ WorkflowRunner error listener — concluído
-4. ✅ Log SSE parse failures no plugin — concluído
-5. ✅ Setup vitest + testes unit (fase 1) — concluído
-6. ✅ CardReader extraído + testes service (fase 2) — concluído
-6+. ✅ Testes server/writer/auth/integração (fase 3) — 267 testes no total
-7. ✅ Refactor CardService — concluído. `card.ts` (1393→317 linhas) é façade pura compondo:
-   - `src/vault/card-file.ts` — `readCardFile`/`readCardBody`
-   - `src/services/card-reader.ts` — `get`, `requireDevActiveSprint`
-   - `src/services/card-shared.ts` — helpers compartilhados
-   - `src/services/card-writer.ts` — `create`, `update`, `delete`, `archive`, `unarchive`
-   - `src/services/card-mover.ts` — `move`, `reorder`
-   - `src/services/card-blocker.ts` — `claim`, `release`
-8. ✅ pino + padronização de error handling — concluído (`src/util/logger.ts`, 17 arquivos)
-9. ✅ Monorepo split com pnpm workspaces — concluído. `packages/server`, `packages/plugin`, `packages/shared` (@obsidiankan/types). TypeScript project references. 267 testes passando.
+**ObsidianKan** é um servidor MCP que expõe um sistema Kanban persistido em arquivos Markdown dentro de um vault Obsidian. Inclui um plugin Obsidian para visualização e um workflow autônomo de sprint com agentes de IA.
 
 ---
 
-## Sobre o projeto
+## Estrutura do monorepo
 
-**ObsidianKan** é um servidor MCP que expõe um sistema de Kanban persistido em arquivos Markdown dentro de um vault Obsidian. Inclui um plugin Obsidian para visualização e um workflow autônomo de sprint com agentes de IA.
-
-**Stack:** Node.js 22, TypeScript 5.6, better-sqlite3, MCP SDK, esbuild, chokidar, gray-matter, nanoid
-
-**Entry points:**
-- `src/index.ts` — servidor HTTP/stdio MCP
-- `src/auth/cli.ts` — CLI de tokens
-- `plugin/src/main.ts` — plugin Obsidian
-- `scripts/sprint-workflow.ts` — workflow autônomo com agentes
-
-**Variáveis de ambiente obrigatórias:** `VAULT_PATH`, `MCP_HTTP_PORT`
-
-**Build:**
-```bash
-npm run build        # compila server (src/)
-npm run build:plugin # compila plugin Obsidian
 ```
+packages/
+  server/    # obsidiankan-mcp — MCP Server principal
+  plugin/    # @obsidiankan/plugin — Plugin Obsidian
+  shared/    # @obsidiankan/types — Tipos TypeScript compartilhados
+scripts/     # sprint-workflow.ts — orquestrador autônomo de sprint
+```
+
+**Gerenciador de pacotes:** pnpm (workspace). Em shells não-interativos, usar `~/.local/share/pnpm/bin/pnpm`.
+
+---
+
+## Entry points
+
+| Arquivo | Descrição |
+|---|---|
+| `packages/server/src/index.ts` | MCP Server — modo HTTP (padrão) ou stdio (`--stdio`) |
+| `packages/server/src/auth/cli.ts` | CLI para gerar tokens (`kanban-token generate-token`) |
+| `packages/plugin/src/main.ts` | Plugin Obsidian — views, comandos, SSE subscriber |
+| `scripts/sprint-workflow.ts` | Workflow autônomo — orquestra PM + Dev agents |
+
+---
+
+## Variáveis de ambiente obrigatórias
+
+```bash
+VAULT_PATH=/caminho/para/vault   # Vault Obsidian
+MCP_HTTP_PORT=9375               # Porta do servidor (padrão 9375)
+```
+
+Referência completa em `docs/reference/config.md`.
+
+---
+
+## Build e testes
+
+```bash
+# Build (shared → server, nessa ordem)
+~/.local/share/pnpm/bin/pnpm run build
+
+# Build do plugin Obsidian
+~/.local/share/pnpm/bin/pnpm run build:plugin
+
+# Testes (267 testes: unit + service + integration)
+~/.local/share/pnpm/bin/pnpm run test
+~/.local/share/pnpm/bin/pnpm run test:watch
+~/.local/share/pnpm/bin/pnpm run test:coverage
+
+# Type check de todos os pacotes
+~/.local/share/pnpm/bin/pnpm run typecheck
+
+# Dev mode (hot reload)
+~/.local/share/pnpm/bin/pnpm --filter obsidiankan-mcp run dev
+
+# Regenerar catálogo de tools MCP
+~/.local/share/pnpm/bin/pnpm run gen:tools
+# → docs/for-agents/tool-catalog.md
+```
+
+---
+
+## Subsistemas do server (packages/server/src/)
+
+| Pasta | Responsabilidade |
+|---|---|
+| `auth/` | Validação de tokens JWT, CLI de geração |
+| `cards/` | Repositório SQLite de cards, sincronização |
+| `db/` | Conexão SQLite, schema, migrations |
+| `server/` | HTTP (Hono), SSE, MCP protocol, RBAC, tool catalog |
+| `services/` | Lógica de negócio — card, sprint, query, admin, metrics |
+| `startup/` | Reconciliação vault → SQLite no startup |
+| `util/` | Logger (pino), constantes |
+| `vault/` | Leitura/escrita de arquivos .md do vault |
+| `watcher/` | Chokidar — detecta edições humanas no vault |
+| `writer/` | Escritas atômicas (.tmp → rename) |
+| `audit/` | Audit log append-only (NDJSON) |
+
+---
+
+## Convenções de código
+
+- **Logger:** sempre `import { logger } from '../util/logger.js'` — nunca `console.log`
+- **Constantes:** valores mágicos em `src/util/constants.ts`
+- **Erros:** usar tipos em `src/services/errors.ts` (`ConflictError`, `ValidationError`, `NotFoundError`)
+- **Imports:** extensão `.js` obrigatória (NodeNext module resolution)
+- **Sem comentários óbvios** — comente apenas o "por quê" não óbvio
+- **Sem error handling desnecessário** — não adicione fallbacks para cenários impossíveis
+
+---
+
+## Documentação
+
+- `docs/for-users/` — getting started, troubleshoot
+- `docs/for-developers/` — setup, arquitetura, testes, contribuição
+- `docs/for-agents/` — runbook, catálogo de tools, integration guide, sprint workflow
+- `docs/reference/` — config, design specs
+- `docs/archive/` — histórico: engsoft_report, PRD, sprints (não reflete estado atual)

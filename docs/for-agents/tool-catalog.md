@@ -1,6 +1,6 @@
 # Kanban MCP — Tool List
 
-> Generated from `src/server/tool-catalog.ts` by `npm run gen:tools`. Do not edit by hand.
+> Generated from `packages/server/src/server/tool-catalog.ts` by `pnpm run gen:tools`. Do not edit by hand.
 >
 > Access levels: **Dev** and **PM** are agent token types. Tools with no check in either column are **manager-only**. Each agent only receives the tools it can call — the list is filtered by token type at connection time.
 
@@ -30,7 +30,7 @@
 |------|-------------|:---:|:--:|
 | `kanban_pick_next` | Return the next card ready to work on (no unsatisfied blockers). Only considers cards in 'todo' by default — backlog cards are promoted to todo automatically when the sprint starts. DEV AGENTS: always scoped to the active sprint automatically (sprint_id param is ignored). When card is null, check reason: 'no_active_sprint' = start the sprint first (PM/manager only), 'all_blocked' = all candidates have unmet dependencies, 'empty' = no cards in sprint. The blocked_candidates count tells you how many candidates exist but are gated by unmet dependencies — log this and escalate to a PM agent if it stays > 0. | ✓ | ✓ |
 
-## Projetos (5 tools)
+## Projetos (6 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -39,6 +39,7 @@
 | `kanban_archive_project` | Hide a project from default listings. |  |  |
 | `kanban_unarchive_project` | Restore a previously archived project to default listings. |  |  |
 | `kanban_delete_project` | Manager-only — permanently delete a project (requires confirm=<project>) |  |  |
+| `kanban_set_project_repo` | Set or clear the target_repo path for a project — used as the working directory when launching sprint workflows. Without it, starting a sprint skips the workflow and logs a warning. Pass null to clear. |  |  |
 
 ## Auth (1 tool)
 

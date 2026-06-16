@@ -1,8 +1,8 @@
 /**
- * Regenerates docs/tool_list.md from TOOL_CATALOG (the single source of truth
- * in src/server/tool-catalog.ts). Run with: npm run gen:tools
+ * Regenerates docs/for-agents/tool-catalog.md from TOOL_CATALOG (the single source of truth
+ * in src/server/tool-catalog.ts). Run with: pnpm run gen:tools
  *
- * Do not edit docs/tool_list.md by hand — change the descriptions in
+ * Do not edit docs/for-agents/tool-catalog.md by hand — change the descriptions in
  * tool-catalog.ts and rerun this script.
  */
 import { writeFile } from 'node:fs/promises'
@@ -44,7 +44,7 @@ function render(): string {
   return [
     '# Kanban MCP — Tool List',
     '',
-    '> Generated from `src/server/tool-catalog.ts` by `npm run gen:tools`. Do not edit by hand.',
+    '> Generated from `packages/server/src/server/tool-catalog.ts` by `pnpm run gen:tools`. Do not edit by hand.',
     '>',
     '> Access levels: **Dev** and **PM** are agent token types. Tools with no check in either column are **manager-only**. Each agent only receives the tools it can call — the list is filtered by token type at connection time.',
     '',
@@ -57,7 +57,7 @@ function render(): string {
 
 async function main(): Promise<void> {
   const here = dirname(fileURLToPath(import.meta.url))
-  const outPath = resolve(here, '../docs/tool_list.md')
+  const outPath = resolve(here, '../../../docs/for-agents/tool-catalog.md')
   await writeFile(outPath, render(), 'utf8')
   console.log(`wrote ${outPath} (${TOOL_CATALOG.length} tools)`)
 }
