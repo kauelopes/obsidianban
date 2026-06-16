@@ -17,7 +17,7 @@
 | 6 | WorkflowRunner — error listener no child process | MEDIUM | 1 hora | ✅ Concluído |
 | 7 | Log SSE parse failures no plugin | MEDIUM | 30 min | ✅ Concluído |
 | 8 | Constante POSITION_GAP | LOW | 15 min | ✅ Concluído |
-| 9 | Monorepo split (pnpm workspaces) | MEDIUM | 1–2 dias | ⬜ Pendente |
+| 9 | Monorepo split (pnpm workspaces) | MEDIUM | 1–2 dias | ✅ Concluído |
 
 **Legenda:** ⬜ Pendente · 🔄 Em progresso · ✅ Concluído
 

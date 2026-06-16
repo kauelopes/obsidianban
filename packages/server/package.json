@@ -1,0 +1,42 @@
+{
+  "name": "obsidiankan-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ObsidianKanban MCP — kanban board for Obsidian backed by an MCP server",
+  "main": "dist/index.js",
+  "bin": {
+    "kanban-token": "dist/auth/cli.js"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "gen:tools": "tsx scripts/generate-tool-list.ts",
+    "typecheck": "tsc --noEmit && pnpm typecheck:scripts",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.102.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^11.5.0",
+    "chokidar": "^4.0.1",
+    "gray-matter": "^4.0.3",
+    "nanoid": "^5.0.7",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@obsidiankan/types": "workspace:*",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.9.0",
+    "@vitest/coverage-v8": "^4.1.9",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.9"
+  }
+}

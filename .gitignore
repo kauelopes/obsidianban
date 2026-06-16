@@ -10,8 +10,14 @@ test-vault/
 
 # Node
 node_modules/
+packages/*/node_modules/
+packages/*/dist/
 dist/
 *.js.map
+*.tsbuildinfo
+
+# npm lockfile (replaced by pnpm-lock.yaml)
+package-lock.json
 
 # Build artifacts
 *.tmp

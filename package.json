@@ -1,47 +1,20 @@
 {
-  "name": "obsidiankan-mcp",
-  "version": "0.1.0",
+  "name": "obsidiankan-workspace",
+  "version": "0.0.0",
   "private": true,
-  "description": "ObsidianKanban MCP — kanban board for Obsidian backed by an MCP server",
-  "main": "dist/index.js",
-  "bin": {
-    "kanban-token": "dist/auth/cli.js"
-  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "dev": "tsx watch src/index.ts",
-    "gen:tools": "tsx scripts/generate-tool-list.ts",
-    "typecheck": "tsc --noEmit && npm run typecheck:scripts",
-    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "build:plugin": "node plugin/esbuild.config.mjs",
-    "dev:plugin": "node plugin/esbuild.config.mjs --watch",
-    "typecheck:plugin": "tsc -p plugin/tsconfig.json --noEmit"
+    "build": "pnpm --filter obsidiankan-mcp build",
+    "build:plugin": "pnpm --filter @obsidiankan/plugin build",
+    "test": "pnpm --filter obsidiankan-mcp test",
+    "test:watch": "pnpm --filter obsidiankan-mcp test:watch",
+    "test:coverage": "pnpm --filter obsidiankan-mcp test:coverage",
+    "typecheck": "pnpm -r typecheck",
+    "gen:tools": "pnpm --filter obsidiankan-mcp gen:tools"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
   },
   "engines": {
     "node": ">=22"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.102.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "better-sqlite3": "^11.5.0",
-    "chokidar": "^4.0.1",
-    "gray-matter": "^4.0.3",
-    "nanoid": "^5.0.7",
-    "pino": "^10.3.1"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^22.9.0",
-    "@vitest/coverage-v8": "^4.1.9",
-    "builtin-modules": "^5.2.0",
-    "esbuild": "^0.28.0",
-    "obsidian": "^1.12.3",
-    "tsx": "^4.19.2",
-    "typescript": "^5.6.3",
-    "vitest": "^4.1.9"
   }
 }

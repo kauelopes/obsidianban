@@ -26,7 +26,7 @@ No início de cada sessão, leia `docs/engsoft_report/07prd.md` para ver o que j
    - `src/services/card-mover.ts` — `move`, `reorder`
    - `src/services/card-blocker.ts` — `claim`, `release`
 8. ✅ pino + padronização de error handling — concluído (`src/util/logger.ts`, 17 arquivos)
-9. ⬜ Monorepo split com pnpm workspaces — 2 dias
+9. ✅ Monorepo split com pnpm workspaces — concluído. `packages/server`, `packages/plugin`, `packages/shared` (@obsidiankan/types). TypeScript project references. 267 testes passando.
 
 ---
 

@@ -1,0 +1,51 @@
+// Filename helper: derives a filesystem-safe, URL-slug-style basename
+// from a card's title and resolves collisions inside a project.
+
+import type { CardRepository } from './repository.js'
+
+const MAX_LEN = 80
+
+/**
+ * Title → slug filename (without .md).
+ * Rules (standard URL-slug convention):
+ *   1. NFKD normalization + strip combining marks (removes accents)
+ *   2. Lowercase
+ *   3. Any sequence of non-alphanumeric chars (except - and _) → single hyphen
+ *   4. Trim leading/trailing hyphens
+ *   5. Truncate at 80 chars, trim trailing hyphens again
+ *   6. Fall back to "untitled" if the result is empty
+ */
+export function slugifyTitle(title: string): string {
+  const slug = title
+    .normalize('NFKD')
+    .replace(/\p{Mn}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  if (slug.length === 0) return 'untitled'
+  return slug.length > MAX_LEN
+    ? slug.slice(0, MAX_LEN).replace(/-+$/, '')
+    : slug
+}
+
+/**
+ * Resolves the basename collision inside a project: appends " (2)",
+ * " (3)" etc. until the candidate is free or matches `selfId` (so a
+ * rename that keeps the same effective basename is a no-op).
+ */
+export function uniqueBasename(
+  repo: CardRepository,
+  project: string,
+  baseSlug: string,
+  selfId?: string,
+): string {
+  let candidate = baseSlug
+  let n = 2
+  while (true) {
+    const existing = repo.findByBasename(project, candidate)
+    if (!existing || existing.id === selfId) return candidate
+    candidate = `${baseSlug}-${n}`
+    n++
+  }
+}

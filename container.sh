@@ -21,7 +21,7 @@ fi
 : "${MCP_HTTP_PORT:=9375}"
 : "${LOG_LEVEL:=info}"
 : "${WORKFLOW_ENABLED:=}"
-: "${WORKFLOW_SCRIPT_PATH:=/app/dist/sprint-workflow.js}"
+: "${WORKFLOW_SCRIPT_PATH:=/app/packages/server/dist/sprint-workflow.js}"
 : "${WORKFLOW_TARGET_REPO:=}"
 : "${WORKFLOW_LOG_DIR:=/vault/.sprint-logs}"
 : "${ANTHROPIC_API_KEY:=}"
@@ -137,7 +137,7 @@ Environment (set in .env, copied from .env.example):
   or a host-side runner; set WORKFLOW_ENABLED=true to activate):
   WORKFLOW_ENABLED       Set to "true" to auto-launch the sprint workflow
   WORKFLOW_SCRIPT_PATH   Path to sprint-workflow.js inside the container
-                           [default: /app/dist/sprint-workflow.js]
+                           [default: /app/packages/server/dist/sprint-workflow.js]
   WORKFLOW_TARGET_REPO   Repo the dev harness works in; also mounted as a
                            volume when set                          [default: ""]
   WORKFLOW_LOG_DIR       Dir for per-sprint log files (inside container)
