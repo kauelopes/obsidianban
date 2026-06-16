@@ -14,7 +14,9 @@
     "gen:tools": "tsx scripts/generate-tool-list.ts",
     "typecheck": "tsc --noEmit && npm run typecheck:scripts",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
-    "test": "node --test --import tsx dist/**/*.test.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "build:plugin": "node plugin/esbuild.config.mjs",
     "dev:plugin": "node plugin/esbuild.config.mjs --watch",
     "typecheck:plugin": "tsc -p plugin/tsconfig.json --noEmit"
@@ -33,10 +35,12 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.9.0",
+    "@vitest/coverage-v8": "^4.1.9",
     "builtin-modules": "^5.2.0",
     "esbuild": "^0.28.0",
     "obsidian": "^1.12.3",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.9"
   }
 }
