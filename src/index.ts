@@ -1,5 +1,5 @@
 import { loadConfig } from './config.js'
-import { ensureLayout, cleanupOrphanTmpFiles, loadProjectMeta } from './vault/layout.js'
+import { ensureLayout, cleanupOrphanTmpFiles, loadProjectMetaOrNull } from './vault/layout.js'
 import { openDatabase } from './db/database.js'
 import { CardRepository } from './cards/repository.js'
 import { AtomicWriter } from './writer/atomic.js'
@@ -19,6 +19,7 @@ import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
 import { WorkflowRunner, loadWorkflowConfig } from './services/workflow-runner.js'
+import { logger } from './util/logger.js'
 import { TOOL_SCHEMAS } from './server/tool-schemas.js'
 import { TOOL_CATALOG } from './server/tool-catalog.js'
 import type { ToolAccess } from './server/tool-access.js'
@@ -29,7 +30,7 @@ async function main(): Promise<void> {
   const config = loadConfig()
   await ensureLayout(config.paths)
   const tmpRemoved = await cleanupOrphanTmpFiles(config.paths)
-  if (tmpRemoved > 0) console.error(`[startup] removed ${tmpRemoved} orphan .tmp file(s)`)
+  if (tmpRemoved > 0) logger.info({ count: tmpRemoved }, 'startup: removed orphan .tmp files')
 
   const { db, createdFromScratch } = await openDatabase(config.paths.sqlite)
   const repo = new CardRepository(db)
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
   const sse = new SSEEventBus()
   const workflowCfg = loadWorkflowConfig(process.env)
   const workflowRunner = workflowCfg ? new WorkflowRunner(workflowCfg) : null
-  if (workflowCfg) console.log(`[workflow] auto-launch enabled: script=${workflowCfg.scriptPath}`)
+  if (workflowCfg) logger.info({ scriptPath: workflowCfg.scriptPath }, 'workflow: auto-launch enabled')
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const metrics = new MetricsService(db)
   const admin = new AdminService(config.paths, repo, audit, sse)
@@ -88,13 +89,13 @@ async function main(): Promise<void> {
     kanban_start_sprint: async (p, c) => {
       const result = await sprints.startSprint(p, c)
       if (workflowRunner) {
-        const meta = await loadProjectMeta(config.paths, result.project).catch(() => null)
+        const meta = await loadProjectMetaOrNull(config.paths, result.project)
         if (meta?.target_repo) {
           workflowRunner.launch(result.id, meta.target_repo)
         } else {
-          console.warn(
-            `[workflow] sprint=${result.id} project=${result.project} — target_repo not configured. ` +
-            `Set it via kanban_set_project_repo or the plugin menu ⋯ → "Set target repo…".`,
+          logger.warn(
+            { sprint: result.id, project: result.project },
+            'workflow: target_repo not configured — set via kanban_set_project_repo',
           )
         }
       }
@@ -118,7 +119,7 @@ async function main(): Promise<void> {
     const bearer = rawToken ? extractBearer(`Bearer ${rawToken}`) ?? undefined : undefined
     const result = await validator.validate(bearer)
     if (!result.ok) {
-      console.error(`[fatal] stdio: token validation failed (${result.reason})`)
+      logger.error({ reason: result.reason }, 'fatal: stdio token validation failed')
       process.exit(1)
     }
     const claims = result.claims
@@ -126,18 +127,15 @@ async function main(): Promise<void> {
     for (const t of tools) stdio.registerTool(t.name, t.description, (p, c) => t.handler(p as Record<string, unknown>, c), t.inputSchema, t.access)
 
     const report = await reconcile(config.paths, repo, audit, { sqliteRebuilt: createdFromScratch })
-    console.error(
-      `[startup] reconciliation: scanned=${report.scanned} reconciled=${report.reconciled} ` +
-        `orphans=${report.orphansRemoved} parseErrors=${report.parseErrors} rebuilt=${report.sqliteRebuilt}`,
-    )
+    logger.info({ ...report }, 'startup: reconciliation complete')
 
     const watcher = new FileWatcher(config.paths, repo, writer, audit, sse)
     await watcher.start()
-    console.error(`[startup] stdio: vault=${config.paths.vault} actor=${claims.actor} ready`)
+    logger.info({ vault: config.paths.vault, actor: claims.actor }, 'startup: stdio ready')
     await stdio.start()
 
     const shutdown = async (signal: string): Promise<void> => {
-      console.error(`[shutdown] ${signal} received`)
+      logger.info({ signal }, 'shutdown signal received')
       await watcher.stop()
       db.close()
       process.exit(0)
@@ -168,21 +166,18 @@ async function main(): Promise<void> {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }
   await httpServer.start()
-  console.log(`[startup] http listening on 127.0.0.1:${config.httpPort}`)
+  logger.info({ port: config.httpPort }, 'startup: http listening')
 
   const report = await reconcile(config.paths, repo, audit, { sqliteRebuilt: createdFromScratch })
   state.reconciling = false
-  console.log(
-    `[startup] reconciliation: scanned=${report.scanned} reconciled=${report.reconciled} ` +
-      `orphans=${report.orphansRemoved} parseErrors=${report.parseErrors} rebuilt=${report.sqliteRebuilt}`,
-  )
+  logger.info({ ...report }, 'startup: reconciliation complete')
 
   const watcher = new FileWatcher(config.paths, repo, writer, audit, sse)
   await watcher.start()
-  console.log(`[startup] vault=${config.paths.vault} ready`)
+  logger.info({ vault: config.paths.vault }, 'startup: vault ready')
 
   const shutdown = async (signal: string): Promise<void> => {
-    console.log(`[shutdown] ${signal} received`)
+    logger.info({ signal }, 'shutdown signal received')
     await watcher.stop()
     await httpServer.stop()
     db.close()
@@ -193,6 +188,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error('[fatal]', err)
+  logger.error({ err }, 'fatal error')
   process.exit(1)
 })

@@ -4,7 +4,7 @@ import type { CardRepository, CardRow } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
-import { loadProjectMeta } from '../vault/layout.js'
+import { loadProjectMetaOrNull } from '../vault/layout.js'
 import type { Card, TokenClaims } from '../types.js'
 import { conflict, notFound } from './errors.js'
 import { optInt, optString, rejectDisallowed, requireInt, requireString } from './validation.js'
@@ -150,7 +150,7 @@ export class CardBlocker {
     let newPosition = current.position
     const sseFields = [...args.sseFields]
     if (args.revertToStatus && !unstarted.has(current.status)) {
-      const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
+      const meta = await loadProjectMetaOrNull(this.paths, row.project)
       if (meta?.columns.includes(args.revertToStatus)) {
         newStatus = args.revertToStatus
         newPosition = (this.repo.maxPosition(row.project, args.revertToStatus) ?? 0) + 1000

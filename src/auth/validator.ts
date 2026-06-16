@@ -1,5 +1,5 @@
 import type { Paths } from '../config.js'
-import { listProjects } from '../vault/layout.js'
+import { listProjectsSafe } from '../vault/layout.js'
 import { sha256Hex, lookupBySha } from './tokens.js'
 import type { TokenClaims } from '../types.js'
 
@@ -19,7 +19,7 @@ export class TokenValidator {
   async validate(bearer: string | undefined): Promise<ValidationResult> {
     if (!bearer) return { ok: false, reason: 'missing' }
     const sha = sha256Hex(bearer)
-    const projects = await listProjects(this.paths).catch(() => [])
+    const projects = await listProjectsSafe(this.paths)
     const hit = await lookupBySha(this.paths, sha, projects)
     if (!hit) return { ok: false, reason: 'invalid' }
     if (hit.record.revoked_at) return { ok: false, reason: 'revoked' }

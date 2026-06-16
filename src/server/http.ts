@@ -157,7 +157,7 @@ export class HttpServer {
     const claims = await this.authenticate(req, res)
     if (!claims) return
 
-    const body = await readJsonBody(req).catch(() => null)
+    const body = await readJsonBody(req).catch((_err) => null)
     if (body === null) {
       sendJson(res, 400, { error: 'invalid_json' })
       return
@@ -209,7 +209,7 @@ export class HttpServer {
     }
     const claims = await this.authenticate(req, res)
     if (!claims) return
-    const body = await readJsonBody(req).catch(() => null)
+    const body = await readJsonBody(req).catch((_err) => null)
     if (body === null) {
       sendJson(res, 400, { error: 'invalid_json' })
       return

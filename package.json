@@ -30,7 +30,8 @@
     "better-sqlite3": "^11.5.0",
     "chokidar": "^4.0.1",
     "gray-matter": "^4.0.3",
-    "nanoid": "^5.0.7"
+    "nanoid": "^5.0.7",
+    "pino": "^10.3.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",

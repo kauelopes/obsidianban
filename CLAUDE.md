@@ -25,7 +25,7 @@ No início de cada sessão, leia `docs/engsoft_report/07prd.md` para ver o que j
    - `src/services/card-writer.ts` — `create`, `update`, `delete`, `archive`, `unarchive`
    - `src/services/card-mover.ts` — `move`, `reorder`
    - `src/services/card-blocker.ts` — `claim`, `release`
-8. ⬜ pino + padronização de error handling — 2 dias
+8. ✅ pino + padronização de error handling — concluído (`src/util/logger.ts`, 17 arquivos)
 9. ⬜ Monorepo split com pnpm workspaces — 2 dias
 
 ---

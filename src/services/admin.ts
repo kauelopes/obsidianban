@@ -4,7 +4,9 @@ import type { TokenClaims } from '../types.js'
 import { createAgentToken, type IssuedToken } from '../auth/tokens.js'
 import {
   listProjects as listProjectDirs,
+  listProjectsSafe,
   loadProjectMeta,
+  loadProjectMetaOrNull,
   projectDir,
   saveProjectMeta,
 } from '../vault/layout.js'
@@ -55,10 +57,10 @@ export class AdminService {
    * archived project disappears from the board cleanly, cards included.
    */
   async getArchivedProjects(): Promise<Set<string>> {
-    const dirs = await listProjectDirs(this.paths).catch(() => [])
+    const dirs = await listProjectsSafe(this.paths)
     const out = new Set<string>()
     for (const project of dirs) {
-      const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+      const meta = await loadProjectMetaOrNull(this.paths, project)
       if (meta?.archived === true) out.add(project)
     }
     return out
@@ -83,7 +85,7 @@ export class AdminService {
 
     const projects: ProjectInfo[] = []
     for (const project of candidates) {
-      const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+      const meta = await loadProjectMetaOrNull(this.paths, project)
       if (!meta) continue
       const archived = meta.archived === true
       if (archivedOnly) {
@@ -119,7 +121,7 @@ export class AdminService {
       throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
     }
     const project = requireMatch(params, 'project', SAFE_PROJECT, '[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}')
-    const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(this.paths, project)
     if (!meta) throw new HttpError(404, { error: 'not_found', project })
     if ((meta.archived === true) === target) {
       // No-op short-circuit, matching the card archive semantics.
@@ -161,7 +163,7 @@ export class AdminService {
         reason: 'must equal the project name to confirm destructive delete',
       })
     }
-    const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(this.paths, project)
     if (!meta) throw new HttpError(404, { error: 'not_found', project })
 
     const cardsDeleted = this.repo.deleteByProject(project)
@@ -221,7 +223,7 @@ export class AdminService {
     if (targetRepo !== null && typeof targetRepo !== 'string') {
       throw new HttpError(400, { error: 'invalid_field', field: 'target_repo', expected: 'string or null' })
     }
-    const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(this.paths, project)
     if (!meta) throw new HttpError(404, { error: 'not_found', project })
     if (targetRepo === null) {
       delete meta.target_repo

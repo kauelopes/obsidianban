@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Paths } from '../config.js'
+import { logger } from '../util/logger.js'
 import type { Sprint, TokenClaims, Card } from '../types.js'
 import type { CardRepository } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
@@ -8,6 +9,7 @@ import type { SSEEventBus } from '../server/sse.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import {
   loadProjectMeta,
+  loadProjectMetaOrNull,
   saveProjectMeta,
   type ProjectMeta,
 } from '../vault/layout.js'
@@ -49,7 +51,7 @@ export class SprintService {
     const goalRaw = optString(params, 'goal', MAX_GOAL)
     const goal = goalRaw ?? null
 
-    const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(this.paths, project)
     if (!meta) throw notFound()
 
     const now = new Date().toISOString()
@@ -169,7 +171,7 @@ export class SprintService {
     if (!allowed.includes(status)) {
       throw badRequest('invalid_field', { field: 'status', allowed })
     }
-    const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(this.paths, project)
     if (!meta) return { sprints: [] }
     let sprints = meta.sprints ?? []
     if (status === 'open') {
@@ -239,7 +241,7 @@ export class SprintService {
     const cardIds = requireStringArray(params, 'card_ids')
     const moveToTodo = params['move_to_todo'] === true
 
-    const targetMeta = await loadProjectMeta(this.paths, located.project).catch(() => null)
+    const targetMeta = await loadProjectMetaOrNull(this.paths, located.project)
     if (!targetMeta) throw notFound()
     const todoCol = targetMeta.columns.includes('todo') ? 'todo' : targetMeta.columns[0]
 
@@ -539,17 +541,20 @@ export class SprintService {
     claims: TokenClaims,
   ): Promise<{ sprint: Sprint; meta: ProjectMeta; project: string }> {
     if (claims.role === 'agent') {
-      const meta = await loadProjectMeta(this.paths, claims.project_id).catch(() => null)
+      const meta = await loadProjectMetaOrNull(this.paths, claims.project_id)
       if (!meta) throw notFound()
       const sprint = (meta.sprints ?? []).find((s) => s.id === sprintId)
       if (!sprint) throw notFound()
       return { sprint, meta, project: claims.project_id }
     }
     // Manager — scan every project. Sprints are few, so this is cheap.
-    const dirs = await fs.readdir(this.paths.kanbanData, { withFileTypes: true }).catch(() => [])
+    const dirs = await fs.readdir(this.paths.kanbanData, { withFileTypes: true }).catch((err) => {
+      logger.warn({ err }, 'getSprint: readdir failed')
+      return [] as import('node:fs').Dirent[]
+    })
     for (const e of dirs) {
       if (!e.isDirectory()) continue
-      const meta = await loadProjectMeta(this.paths, e.name).catch(() => null)
+      const meta = await loadProjectMetaOrNull(this.paths, e.name)
       if (!meta) continue
       const sprint = (meta.sprints ?? []).find((s) => s.id === sprintId)
       if (sprint) return { sprint, meta, project: e.name }
@@ -563,7 +568,7 @@ export class SprintService {
       .readFile(filePath, 'utf8')
       .then(parseCardFile)
       .then((p) => p.body)
-      .catch(() => '')
+      .catch((_err) => '') // missing or unreadable card body is non-fatal
   }
 }
 

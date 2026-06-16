@@ -3,7 +3,8 @@ import path from 'node:path'
 import type { Paths } from '../config.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { CardRepository } from '../cards/repository.js'
-import { listProjects } from '../vault/layout.js'
+import { listProjectsSafe } from '../vault/layout.js'
+import { logger } from '../util/logger.js'
 import { sha256 } from '../writer/atomic.js'
 import { parseCardFile, cardFromFrontmatter } from '../cards/serialize.js'
 
@@ -30,11 +31,14 @@ export async function reconcile(
   }
 
   const seen = new Set<string>()
-  const projects = await listProjects(paths).catch(() => [])
+  const projects = await listProjectsSafe(paths)
 
   for (const project of projects) {
     const dir = path.join(paths.kanbanData, project)
-    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch((err) => {
+      logger.warn({ err, project }, 'reconcile: readdir failed')
+      return [] as import('node:fs').Dirent[]
+    })
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.md') || entry.name.startsWith('_')) continue
       report.scanned++

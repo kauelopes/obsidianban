@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Paths } from '../config.js'
 import {
   loadProjectMeta,
+  loadProjectMetaOrNull,
   saveProjectMeta,
   ensureProject,
   type TokenRecord,
@@ -133,7 +134,7 @@ export async function lookupBySha(
   knownProjects: string[],
 ): Promise<TokenLookupResult | null> {
   for (const project of knownProjects) {
-    const meta = await loadProjectMeta(paths, project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(paths, project)
     if (!meta) continue
     const hit = meta.agent_tokens.find((t) => t.sha256 === sha)
     if (hit) return { sha256: sha, record: hit, project_id: project }

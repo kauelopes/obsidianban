@@ -13,8 +13,8 @@ export async function openDatabase(sqlitePath: string): Promise<OpenResult> {
   const existedBefore = await fileExists(sqlitePath)
   if (!existedBefore) {
     // Stale WAL/SHM from a previous run would make SQLite fail to open a fresh DB.
-    await fs.unlink(sqlitePath + '-wal').catch(() => undefined)
-    await fs.unlink(sqlitePath + '-shm').catch(() => undefined)
+    await fs.unlink(sqlitePath + '-wal').catch((_err) => undefined) // ENOENT expected — file may not exist
+    await fs.unlink(sqlitePath + '-shm').catch((_err) => undefined) // ENOENT expected — file may not exist
   }
   const db = new Database(sqlitePath)
   db.pragma('journal_mode = WAL')

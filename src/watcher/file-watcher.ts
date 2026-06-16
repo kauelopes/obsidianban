@@ -7,7 +7,8 @@ import type { CardRepository } from '../cards/repository.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
 import { parseCardFile, cardFromFrontmatter } from '../cards/serialize.js'
-import { loadProjectMeta } from '../vault/layout.js'
+import { loadProjectMetaOrNull } from '../vault/layout.js'
+import { logger } from '../util/logger.js'
 import { sha256 } from '../writer/atomic.js'
 import type { Card } from '../types.js'
 
@@ -49,7 +50,7 @@ export class FileWatcher {
       depth: 2,
     })
     this.watcher = w
-    w.on('error', (err) => console.error('[watcher] error:', err))
+    w.on('error', (err) => logger.error({ err }, 'watcher: filesystem error'))
     w.on('add', (p) => {
       if (isCardFile(p)) this.schedule(p)
     })
@@ -194,7 +195,7 @@ export class FileWatcher {
       }
     }
 
-    const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(this.paths, project)
     const columns = meta?.columns ?? []
     if (columns.length > 0 && !columns.includes(merged.status)) {
       merged.status = sqliteCard.status

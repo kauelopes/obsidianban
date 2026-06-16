@@ -274,7 +274,7 @@ function safeJsonStringArray(raw: string): string[] {
     const v = JSON.parse(raw)
     if (Array.isArray(v) && v.every((x) => typeof x === 'string')) return v
     return []
-  } catch {
-    return []
+  } catch (_err) {
+    return [] // malformed JSON stored in SQLite column — return empty array
   }
 }

@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Paths } from '../config.js'
 import type { Sprint } from '../types.js'
+import { logger } from '../util/logger.js'
 
 export const DEFAULT_COLUMNS = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const
 
@@ -106,16 +107,19 @@ export async function saveProjectMeta(
 }
 
 export async function findActiveSprint(paths: Paths, project: string): Promise<Sprint | null> {
-  const meta = await loadProjectMeta(paths, project).catch(() => null)
+  const meta = await loadProjectMetaOrNull(paths, project)
   return (meta?.sprints ?? []).find((s) => s.status === 'active') ?? null
 }
 
 export async function cleanupOrphanTmpFiles(paths: Paths): Promise<number> {
   let removed = 0
-  const projects = await listProjects(paths).catch(() => [])
+  const projects = await listProjectsSafe(paths)
   for (const project of projects) {
     const dir = projectDir(paths, project)
-    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch((err) => {
+      logger.warn({ err, project }, 'cleanupOrphanTmpFiles: readdir failed')
+      return []
+    })
     for (const entry of entries) {
       if (entry.isFile() && entry.name.endsWith('.tmp')) {
         await fs.unlink(path.join(dir, entry.name))
@@ -124,4 +128,20 @@ export async function cleanupOrphanTmpFiles(paths: Paths): Promise<number> {
     }
   }
   return removed
+}
+
+export async function loadProjectMetaOrNull(paths: Paths, project: string): Promise<ProjectMeta | null> {
+  return loadProjectMeta(paths, project).catch((err) => {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.warn({ err, project }, 'unexpected error loading project meta')
+    }
+    return null
+  })
+}
+
+export async function listProjectsSafe(paths: Paths): Promise<string[]> {
+  return listProjects(paths).catch((err) => {
+    logger.warn({ err }, 'failed to list projects')
+    return []
+  })
 }

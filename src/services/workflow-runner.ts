@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream, mkdirSync } from 'node:fs'
 import path from 'node:path'
+import { logger } from '../util/logger.js'
 
 export interface WorkflowConfig {
   scriptPath: string    // abs path to sprint-workflow.ts (or compiled .js)
@@ -26,7 +27,7 @@ export function loadWorkflowConfig(env: NodeJS.ProcessEnv): WorkflowConfig | nul
   if (env['WORKFLOW_ENABLED'] !== 'true') return null
   const scriptPath = env['WORKFLOW_SCRIPT_PATH']
   if (!scriptPath) {
-    console.warn('[workflow] WORKFLOW_ENABLED=true but WORKFLOW_SCRIPT_PATH not set — auto-launch disabled')
+    logger.warn('workflow: WORKFLOW_ENABLED=true but WORKFLOW_SCRIPT_PATH not set — auto-launch disabled')
     return null
   }
   return {
@@ -62,9 +63,9 @@ export class WorkflowRunner {
       const out = createWriteStream(logPath, { flags: 'a' })
       child.stdout.pipe(out)
       child.stderr.pipe(out)
-      child.on('error', (err) => console.error(`[workflow] child process error sprint=${sprintId}`, err))
+      child.on('error', (err) => logger.error({ err, sprint: sprintId }, 'workflow: child process error'))
       child.unref()
-      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} log=${logPath} cwd=${cwd}`)
+      logger.info({ sprint: sprintId, pid: child.pid, log: logPath, cwd }, 'workflow: launched')
     } else {
       const child = spawn('node', args, {
         cwd,
@@ -72,9 +73,9 @@ export class WorkflowRunner {
         detached: true,
         stdio: 'ignore',
       })
-      child.on('error', (err) => console.error(`[workflow] child process error sprint=${sprintId}`, err))
+      child.on('error', (err) => logger.error({ err, sprint: sprintId }, 'workflow: child process error'))
       child.unref()
-      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} cwd=${cwd}`)
+      logger.info({ sprint: sprintId, pid: child.pid, cwd }, 'workflow: launched')
     }
   }
 }

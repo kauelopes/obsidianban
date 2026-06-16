@@ -12,8 +12,8 @@
 | 1 | Suite de testes automatizados (vitest, todas as fases) | CRÍTICO | 2–4 semanas | ✅ Concluído |
 | 2 | Corrigir vulnerabilidades de dependência | HIGH | 1–2 horas | ✅ Concluído (esbuild ✅, hono ✅, gray-matter: risco aceito — ver §2) |
 | 3 | Refactor CardService — extração incremental | HIGH | 3–5 dias | ✅ Concluído (card-file ✅, card-reader ✅, card-shared ✅, card-writer ✅, card-mover ✅, card-blocker ✅) |
-| 4 | Logging estruturado com pino | HIGH | 1–2 dias | ⬜ Pendente |
-| 5 | Padronizar error handling (remover silent catch) | MEDIUM | 4–8 horas | ⬜ Pendente |
+| 4 | Logging estruturado com pino | HIGH | 1–2 dias | ✅ Concluído |
+| 5 | Padronizar error handling (remover silent catch) | MEDIUM | 4–8 horas | ✅ Concluído |
 | 6 | WorkflowRunner — error listener no child process | MEDIUM | 1 hora | ✅ Concluído |
 | 7 | Log SSE parse failures no plugin | MEDIUM | 30 min | ✅ Concluído |
 | 8 | Constante POSITION_GAP | LOW | 15 min | ✅ Concluído |

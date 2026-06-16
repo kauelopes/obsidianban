@@ -3,7 +3,7 @@ import type { CardRepository, CardRow } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
-import { loadProjectMeta } from '../vault/layout.js'
+import { loadProjectMetaOrNull } from '../vault/layout.js'
 import type { Card, ReorderResult, Sprint, TokenClaims } from '../types.js'
 import { badRequest, HttpError } from './errors.js'
 import { optInt, optString, rejectDisallowed } from './validation.js'
@@ -280,7 +280,7 @@ export class CardService {
       // Backlog cards exist but haven't been promoted — check whether it's
       // because no sprint is active (the most actionable diagnosis).
       const meta = project
-        ? await loadProjectMeta(this.paths, project).catch(() => null)
+        ? await loadProjectMetaOrNull(this.paths, project)
         : null
       const sprints = meta?.sprints ?? []
       const hasActiveSprint = sprintIdFilter

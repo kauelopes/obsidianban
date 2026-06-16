@@ -5,7 +5,7 @@ import type { CardRepository } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
-import { loadProjectMeta } from '../vault/layout.js'
+import { loadProjectMeta, loadProjectMetaOrNull } from '../vault/layout.js'
 import type { Card, TokenClaims } from '../types.js'
 import { slugifyTitle, uniqueBasename } from '../cards/slug.js'
 import { POSITION_GAP } from '../util/constants.js'
@@ -116,7 +116,7 @@ export class CardWriter {
       project = requireString(params, 'project')
     }
 
-    const meta = await loadProjectMeta(this.paths, project).catch(() => {
+    const meta = await loadProjectMeta(this.paths, project).catch((_err) => {
       throw badRequest('invalid_project', { project })
     })
 
@@ -282,7 +282,7 @@ export class CardWriter {
     if ('title' in params) proposed.title = requireString(params, 'title', 200)
     if ('status' in params) {
       const s = requireString(params, 'status')
-      const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
+      const meta = await loadProjectMetaOrNull(this.paths, row.project)
       const resolvedS = meta?.columns.includes(s) ? s : null
       if (!meta || !resolvedS) {
         throw badRequest('invalid_field', { field: 'status', allowed: meta?.columns ?? [] })

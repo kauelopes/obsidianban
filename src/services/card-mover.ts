@@ -4,7 +4,7 @@ import type { CardRepository } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
-import { loadProjectMeta } from '../vault/layout.js'
+import { loadProjectMetaOrNull } from '../vault/layout.js'
 import type { Card, ReorderResult, TokenClaims } from '../types.js'
 import { badRequest, conflict, notFound } from './errors.js'
 import { POSITION_GAP } from '../util/constants.js'
@@ -53,7 +53,7 @@ export class CardMover {
     if (!row) throw notFound()
     if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
 
-    const meta = await loadProjectMeta(this.paths, row.project).catch(() => null)
+    const meta = await loadProjectMetaOrNull(this.paths, row.project)
     const resolvedStatus = meta?.columns.includes(toStatus) ? toStatus : null
     if (!meta || !resolvedStatus) {
       throw badRequest('invalid_field', { field: 'to_status', allowed: meta?.columns ?? [] })
