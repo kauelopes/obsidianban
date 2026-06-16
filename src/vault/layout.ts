@@ -14,6 +14,8 @@ export interface ProjectMeta {
   archived?: boolean
   /** Optional — absent on legacy metas means no sprints declared yet. */
   sprints?: Sprint[]
+  /** Required for workflow auto-launch — absolute path to the git repo used as cwd when starting sprints. */
+  target_repo?: string
 }
 
 export interface TokenRecord {

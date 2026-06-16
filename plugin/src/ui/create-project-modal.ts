@@ -3,6 +3,7 @@ import { Modal, type App } from 'obsidian'
 export interface CreateProjectInput {
   project: string
   actor: string
+  target_repo?: string
 }
 
 export interface CreateProjectOptions {
@@ -55,6 +56,12 @@ export class CreateProjectModal extends Modal {
     actorInput.value = 'agent:claude'
     if (reMint) actorInput.focus()
 
+    const repoInput = this.contentEl.createEl('input', {
+      type: 'text',
+      cls: 'kanban-mcp-modal-input',
+      attr: { placeholder: 'Target repo path (optional, e.g. /home/user/my-repo)' },
+    })
+
     const VALID_PROJECT = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/
     projectInput.addEventListener('input', () => {
       const v = projectInput.value.trim()
@@ -70,8 +77,9 @@ export class CreateProjectModal extends Modal {
         projectInput.focus()
         return
       }
+      const target_repo = repoInput.value.trim() || undefined
       this.close()
-      await this.onSubmit({ project, actor })
+      await this.onSubmit({ project, actor, target_repo })
     }
 
     // Modal does not extend Component — bare addEventListener is the
@@ -81,6 +89,7 @@ export class CreateProjectModal extends Modal {
     }
     projectInput.addEventListener('keydown', onEnter)
     actorInput.addEventListener('keydown', onEnter)
+    repoInput.addEventListener('keydown', onEnter)
 
     const row = this.contentEl.createDiv({ cls: 'kanban-mcp-modal-buttons' })
     const btn = row.createEl('button', { text: 'Create', cls: 'mod-cta' })

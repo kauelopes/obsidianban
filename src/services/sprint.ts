@@ -83,7 +83,7 @@ export class SprintService {
   async startSprint(
     params: Record<string, unknown>,
     claims: TokenClaims,
-  ): Promise<Sprint & { promoted_to_todo: string[] }> {
+  ): Promise<Sprint & { project: string; promoted_to_todo: string[] }> {
     requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
     const located = await this.findSprint(sprintId, claims)
@@ -151,7 +151,7 @@ export class SprintService {
       reason: `sprint_id=${sprintId} promoted_to_todo=${promotedToTodo.length}`,
     })
     this.sse.emit({ type: 'SPRINT_STARTED', payload: { sprint_id: sprintId, project: located.project } })
-    return { ...located.sprint, promoted_to_todo: promotedToTodo }
+    return { ...located.sprint, project: located.project, promoted_to_todo: promotedToTodo }
   }
 
   /**

@@ -1,5 +1,5 @@
 import { loadConfig } from './config.js'
-import { ensureLayout, cleanupOrphanTmpFiles } from './vault/layout.js'
+import { ensureLayout, cleanupOrphanTmpFiles, loadProjectMeta } from './vault/layout.js'
 import { openDatabase } from './db/database.js'
 import { CardRepository } from './cards/repository.js'
 import { AtomicWriter } from './writer/atomic.js'
@@ -83,10 +83,21 @@ async function main(): Promise<void> {
     kanban_archive_project: async (p, c) => admin.archiveProject(p, c),
     kanban_unarchive_project: async (p, c) => admin.unarchiveProject(p, c),
     kanban_delete_project: async (p, c) => admin.deleteProject(p, c),
+    kanban_set_project_repo: async (p, c) => admin.setProjectRepo(p, c),
     kanban_create_sprint: async (p, c) => sprints.createSprint(p, c),
     kanban_start_sprint: async (p, c) => {
       const result = await sprints.startSprint(p, c)
-      workflowRunner?.launch(result.id)
+      if (workflowRunner) {
+        const meta = await loadProjectMeta(config.paths, result.project).catch(() => null)
+        if (meta?.target_repo) {
+          workflowRunner.launch(result.id, meta.target_repo)
+        } else {
+          console.warn(
+            `[workflow] sprint=${result.id} project=${result.project} — target_repo not configured. ` +
+            `Set it via kanban_set_project_repo or the plugin menu ⋯ → "Set target repo…".`,
+          )
+        }
+      }
       return result
     },
     kanban_list_sprints: async (p, c) => sprints.listSprints(p, c),

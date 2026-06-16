@@ -224,8 +224,19 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     type: 'object',
     required: ['project', 'actor'],
     properties: {
-      project: { type: 'string', description: 'letters, numbers, dots, underscores, hyphens — no spaces' },
-      actor:   { type: 'string' },
+      project:     { type: 'string', description: 'letters, numbers, dots, underscores, hyphens — no spaces' },
+      actor:       { type: 'string' },
+      target_repo: { type: 'string', description: 'optional absolute path to the git repo used when launching sprint workflows for this project' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_set_project_repo: {
+    type: 'object',
+    required: ['project', 'target_repo'],
+    properties: {
+      project:     { type: 'string' },
+      target_repo: { type: ['string', 'null'], description: 'absolute path to the git repo used as cwd for sprint workflow launch, or null to clear. When not set, starting a sprint skips the workflow and logs a warning.' },
     },
     additionalProperties: false,
   },

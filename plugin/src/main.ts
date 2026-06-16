@@ -193,10 +193,10 @@ export default class KanbanPlugin extends Plugin {
     }
     new CreateProjectModal(
       this.app,
-      async ({ project, actor }) => {
+      async ({ project, actor, target_repo }) => {
         const client = this.client
         if (!client) return
-        const res = await client.createProject({ project, actor })
+        const res = await client.createProject({ project, actor, target_repo })
         if (!res.ok) {
           const err = res.error
           const detail =

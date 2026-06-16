@@ -25,6 +25,7 @@ export interface ProjectInfo {
   project: string
   columns: string[]
   archived: boolean
+  target_repo?: string
 }
 
 export interface DeleteProjectResult {
@@ -90,7 +91,7 @@ export class AdminService {
       } else if (!includeArchived) {
         if (archived) continue
       }
-      projects.push({ project, columns: meta.columns, archived })
+      projects.push({ project, columns: meta.columns, archived, target_repo: meta.target_repo })
     }
     return { projects }
   }
@@ -186,11 +187,18 @@ export class AdminService {
     }
     const project = requireMatch(params, 'project', SAFE_PROJECT, '[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}')
     const actor = requireMatch(params, 'actor', SAFE_ACTOR, '[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}')
+    const targetRepo = typeof params['target_repo'] === 'string' ? params['target_repo'] : undefined
 
     // Under the "every card belongs to a sprint" rule we no longer auto-create
     // a starter card at project mint — there's no sprint yet to attach it to.
     // The onboarding content lives in the plugin's Help button instead.
     const issued: IssuedToken = await createAgentToken(this.paths, project, actor)
+
+    if (targetRepo !== undefined) {
+      const meta = await loadProjectMeta(this.paths, project)
+      meta.target_repo = targetRepo
+      await saveProjectMeta(this.paths, project, meta)
+    }
 
     return {
       project,
@@ -199,6 +207,36 @@ export class AdminService {
       actor: issued.actor,
       created_at: issued.created_at,
     }
+  }
+
+  async setProjectRepo(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<ProjectInfo> {
+    if (claims.role !== 'manager') {
+      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
+    }
+    const project = requireMatch(params, 'project', SAFE_PROJECT, '[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}')
+    const targetRepo = params['target_repo']
+    if (targetRepo !== null && typeof targetRepo !== 'string') {
+      throw new HttpError(400, { error: 'invalid_field', field: 'target_repo', expected: 'string or null' })
+    }
+    const meta = await loadProjectMeta(this.paths, project).catch(() => null)
+    if (!meta) throw new HttpError(404, { error: 'not_found', project })
+    if (targetRepo === null) {
+      delete meta.target_repo
+    } else {
+      meta.target_repo = targetRepo
+    }
+    await saveProjectMeta(this.paths, project, meta)
+    await this.audit.log({
+      ts: new Date().toISOString(),
+      op: 'PROJECT_REPO_SET',
+      project,
+      actor: claims.actor,
+      reason: `target_repo=${targetRepo ?? 'cleared'}`,
+    })
+    return { project, columns: meta.columns, archived: meta.archived === true, target_repo: meta.target_repo }
   }
 }
 

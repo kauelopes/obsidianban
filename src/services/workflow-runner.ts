@@ -4,7 +4,6 @@ import path from 'node:path'
 
 export interface WorkflowConfig {
   scriptPath: string    // abs path to sprint-workflow.ts (or compiled .js)
-  targetRepo: string    // cwd passed to the dev harness (TARGET_REPO)
   logDir: string | null // when set, per-sprint log files are written here
 }
 
@@ -15,8 +14,10 @@ export interface WorkflowConfig {
  * Required env vars when enabled:
  *   WORKFLOW_ENABLED=true
  *   WORKFLOW_SCRIPT_PATH   absolute path to sprint-workflow.ts
- *   WORKFLOW_TARGET_REPO   working dir for the dev harness (defaults to cwd)
  *   WORKFLOW_LOG_DIR       dir where per-sprint .log files land (optional)
+ *
+ * The working directory (TARGET_REPO) must be set per-project via
+ * kanban_set_project_repo — no global fallback exists.
  *
  * The spawned process inherits the full server env, so ANTHROPIC_API_KEY,
  * KANBAN_DEV_TOKEN, and KANBAN_PM_TOKEN must be present there.
@@ -30,7 +31,6 @@ export function loadWorkflowConfig(env: NodeJS.ProcessEnv): WorkflowConfig | nul
   }
   return {
     scriptPath,
-    targetRepo: env['WORKFLOW_TARGET_REPO'] ?? process.cwd(),
     logDir: env['WORKFLOW_LOG_DIR'] ?? null,
   }
 }
@@ -45,15 +45,16 @@ export class WorkflowRunner {
    * <logDir>/sprint-<sprintId>.log and DEBUG_LOG is set for the workflow's
    * own structured log output.
    */
-  launch(sprintId: string): void {
+  launch(sprintId: string, targetRepo: string): void {
     const args = ['--import', 'tsx', this.cfg.scriptPath]
     const baseEnv = { ...process.env }
+    const cwd = targetRepo
 
     if (this.cfg.logDir) {
       try { mkdirSync(this.cfg.logDir, { recursive: true }) } catch { /* pre-existing */ }
       const logPath = path.join(this.cfg.logDir, `sprint-${sprintId}.log`)
       const child = spawn('node', args, {
-        cwd: this.cfg.targetRepo,
+        cwd,
         env: { ...baseEnv, DEBUG_LOG: logPath },
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -62,16 +63,16 @@ export class WorkflowRunner {
       child.stdout.pipe(out)
       child.stderr.pipe(out)
       child.unref()
-      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} log=${logPath}`)
+      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} log=${logPath} cwd=${cwd}`)
     } else {
       const child = spawn('node', args, {
-        cwd: this.cfg.targetRepo,
+        cwd,
         env: baseEnv,
         detached: true,
         stdio: 'ignore',
       })
       child.unref()
-      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid}`)
+      console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} cwd=${cwd}`)
     }
   }
 }

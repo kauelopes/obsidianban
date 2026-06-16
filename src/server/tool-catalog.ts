@@ -40,6 +40,7 @@ export const TOOL_CATALOG: ToolMeta[] = [
   { name: 'kanban_archive_project', access: 'manager', category: 'Projetos', description: 'Hide a project from default listings.' },
   { name: 'kanban_unarchive_project', access: 'manager', category: 'Projetos', description: 'Restore a previously archived project to default listings.' },
   { name: 'kanban_delete_project', access: 'manager', category: 'Projetos', description: 'Manager-only — permanently delete a project (requires confirm=<project>)' },
+  { name: 'kanban_set_project_repo', access: 'manager', category: 'Projetos', description: 'Set or clear the target_repo path for a project — used as the working directory when launching sprint workflows. Without it, starting a sprint skips the workflow and logs a warning. Pass null to clear.' },
 
   // Auth
   { name: 'kanban_create_agent_token', access: 'manager', category: 'Auth', description: 'Manager-only — mint a new agent token. agent_type: "pm" = planning + execution (create/update cards, manage sprints, view sprint info); "dev" = execution-only (pick work, claim, log progress, move cards, escalate to review — cannot create cards, manage or query sprints; all tools require an active sprint and list_cards/pick_next auto-scope to it).' },

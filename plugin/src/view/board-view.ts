@@ -21,6 +21,7 @@ import { PastSprintsModal } from '../ui/past-sprints-modal.js'
 import { HelpModal } from '../ui/help-modal.js'
 import { CreateCardModal } from '../ui/create-card-modal.js'
 import { DeleteProjectModal } from '../ui/delete-project-modal.js'
+import { SetProjectRepoModal } from '../ui/set-project-repo-modal.js'
 import { showErrorToast, showRetryToast } from '../ui/toast.js'
 import { appendCard, patchCard, removeCard, replaceCard } from './state.js'
 import { DEFAULT_COLUMN_ORDER, renderBoard, todayString } from './render.js'
@@ -34,7 +35,7 @@ const OPTIMISTIC_POSITION = Number.MAX_SAFE_INTEGER
 
 export class KanbanBoardView extends ItemView {
   private cards: CardSummary[] = []
-  private projectShapes: Array<{ project: string; columns: readonly string[]; archived: boolean }> = []
+  private projectShapes: Array<{ project: string; columns: readonly string[]; archived: boolean; target_repo?: string }> = []
   /** Active sprints by project, keyed for fast lookup during render. */
   private sprintsByProject: Map<string, import('../../../src/types.js').Sprint[]> = new Map()
   /** Sprint filter per project: undefined = "All", string = sprint_id. */
@@ -337,7 +338,10 @@ export class KanbanBoardView extends ItemView {
       e.stopPropagation()
       const project = menuBtn.dataset['project']
       const archived = menuBtn.dataset['archived'] === 'true'
-      if (project) this.openProjectMenu(e, project, archived)
+      if (project) {
+        const shape = this.projectShapes.find((s) => s.project === project)
+        this.openProjectMenu(e, project, archived, shape?.target_repo)
+      }
       return
     }
     const newProjectBtn = closestEl(e.target, '.kanban-mcp-new-project-btn')
@@ -747,7 +751,7 @@ export class KanbanBoardView extends ItemView {
     void this.refresh()
   }
 
-  private openProjectMenu(e: MouseEvent, project: string, archived: boolean): void {
+  private openProjectMenu(e: MouseEvent, project: string, archived: boolean, currentTargetRepo?: string): void {
     const menu = new Menu()
     menu.addItem((item) =>
       item
@@ -812,6 +816,15 @@ export class KanbanBoardView extends ItemView {
         .setTitle('Mint new Dev token')
         .setIcon('pencil')
         .onClick(() => this.plugin.promptMintDevToken(project)),
+    )
+    menu.addItem((item) =>
+      item
+        .setTitle('Set target repo…')
+        .setIcon('folder-git-2')
+        .onClick(() => {
+          const client = this.plugin.client
+          if (client) new SetProjectRepoModal(this.app, project, currentTargetRepo, client).open()
+        }),
     )
     menu.addSeparator()
     menu.addItem((item) =>

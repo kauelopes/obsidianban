@@ -118,7 +118,7 @@ export class McpClient {
     return this.call('kanban_unarchive_card', params)
   }
 
-  createProject(params: { project: string; actor: string }): Promise<McpResult<{
+  createProject(params: { project: string; actor: string; target_repo?: string }): Promise<McpResult<{
     project: string
     token: string
     token_id: string
@@ -126,6 +126,15 @@ export class McpClient {
     created_at: string
   }>> {
     return this.call('kanban_create_project', params)
+  }
+
+  setProjectRepo(params: { project: string; target_repo: string | null }): Promise<McpResult<{
+    project: string
+    columns: string[]
+    archived: boolean
+    target_repo?: string
+  }>> {
+    return this.call('kanban_set_project_repo', params)
   }
 
   createAgentToken(params: { project: string; actor: string; agent_type: 'pm' | 'dev' }): Promise<McpResult<{
@@ -140,7 +149,7 @@ export class McpClient {
   }
 
   listProjects(opts: { include_archived?: boolean; archived_only?: boolean } = {}): Promise<McpResult<{
-    projects: Array<{ project: string; columns: string[]; archived: boolean }>
+    projects: Array<{ project: string; columns: string[]; archived: boolean; target_repo?: string }>
   }>> {
     return this.call('kanban_list_projects', opts)
   }
