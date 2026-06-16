@@ -17,6 +17,7 @@ No início de cada sessão, leia `docs/engsoft_report/07prd.md` para ver o que j
 4. ⬜ Log SSE parse failures no plugin — 30min
 5. ✅ Setup vitest + testes unit (fase 1) — concluído
 6. ✅ CardReader extraído + testes service (fase 2) — concluído
+6+. ✅ Testes server/writer/auth/integração (fase 3) — 267 testes no total
 7. ⬜ CardWriter/Mover/Blocker extraídos — 3 dias
 8. ⬜ pino + padronização de error handling — 2 dias
 9. ⬜ Monorepo split com pnpm workspaces — 2 dias

@@ -9,7 +9,7 @@
 
 | # | Item | Prioridade | Esforço est. | Status |
 |---|------|-----------|-------------|--------|
-| 1 | Suite de testes automatizados (vitest, fases 1+2) | CRÍTICO | 2–4 semanas | ✅ Concluído |
+| 1 | Suite de testes automatizados (vitest, todas as fases) | CRÍTICO | 2–4 semanas | ✅ Concluído |
 | 2 | Corrigir vulnerabilidades de dependência | HIGH | 1–2 horas | ⬜ Pendente |
 | 3 | Refactor CardService — extração incremental | HIGH | 3–5 dias | ⬜ Pendente |
 | 4 | Logging estruturado com pino | HIGH | 1–2 dias | ⬜ Pendente |
@@ -23,56 +23,46 @@
 
 ---
 
-## 1. Suite de Testes Automatizados — CRÍTICO
+## 1. Suite de Testes Automatizados — CRÍTICO ✅
 
 **Problema:** Zero testes automatizados. `npm test` falha. Conflitos, reconciliação e lógica de sprint sem proteção nenhuma.
 
-**Decisões tomadas:**
-- Framework: **vitest** (TypeScript nativo, mocking via `vi.mock`/`vi.spyOn` — essencial para SQLite :memory:)
-- Escopo: **Fases 1 + 2** (unit + service)
+**Estado atual:** 267 testes passando em 16 arquivos, duração ~1.3s.
 
-**Fase 1 — Unit tests (módulos puros):**
-- `src/vault/serialize.ts` — serialização/deserialização frontmatter
-- `src/util/validation.ts` — validação de inputs
-- `src/util/errors.ts` — factories de erro
-- `src/util/slug.ts` — geração de slugs
+**Fase 1 — Unit tests (módulos puros) ✅:**
+- `tests/unit/serialize.test.ts` — serialização/deserialização frontmatter
+- `tests/unit/validation.test.ts` — validação de inputs
+- `tests/unit/errors.test.ts` — factories de erro
+- `tests/unit/slug.test.ts` — geração de slugs
+- `tests/unit/layout.test.ts` — vault layout
+- `tests/unit/tool-access.test.ts` — RBAC (isToolVisible por role)
+- `tests/unit/tool-catalog.test.ts` — integridade estrutural do catálogo
+- `tests/unit/tool-schemas.test.ts` — completude e consistência dos schemas
+- `tests/unit/atomic.test.ts` — AtomicWriter (write, rename, hash, tmp cleanup)
 
-**Fase 2 — Service tests (com SQLite :memory:):**
-- `src/services/card.ts` — conflict detection (409), position recalculation, claim/block/archive
-- `src/services/sprint.ts` — pickNext() lógica, sprint state machine
-- `src/vault/reconcile.ts` — startup reconciliation (DB ↔ .md files)
-- `src/auth/` — token validation, role-based access
+**Fase 2 — Service tests (com SQLite :memory:) ✅:**
+- `tests/service/card.test.ts` — conflict detection (409), position recalculation, claim/block/archive/bulkCreate/log
+- `tests/service/sprint.test.ts` — pickNext() lógica, sprint state machine
+- `tests/service/reconcile.test.ts` — startup reconciliation (DB ↔ .md files)
+- `tests/service/auth.test.ts` — token validation, role-based access, edge cases
+- `tests/service/idempotency.test.ts` — IdempotencyStore (load/prune/TTL/concurrent puts)
+- `tests/service/sse.test.ts` — SSEEventBus (emit, history replay, rollover, unsubscribe)
 
-**Casos críticos obrigatórios:**
-1. Conflict detection — versão desatualizada retorna 409
-2. Position recalculation — reordenação sem colisão
-3. `pickNext()` — seleciona o card correto por prioridade/sprint
-4. Startup reconciliation — DB sincroniza com .md files
-5. Token validation — roles corretos por escopo
+**Fase 3 — Integration tests ✅:**
+- `tests/integration/http.test.ts` — stack completo: HTTP → handler → DB → arquivo .md
+  - Cobre: create/get card, idempotência, auth 401/403, RBAC 403, tool desconhecida 501, /health
 
-**Estrutura de arquivos:**
-```
-tests/
-  unit/
-    serialize.test.ts
-    validation.test.ts
-    errors.test.ts
-    slug.test.ts
-  service/
-    card.test.ts
-    sprint.test.ts
-    reconcile.test.ts
-    auth.test.ts
-```
+**Cobertura:**
+- `src/auth`: 93.7%
+- `src/writer/atomic.ts`: 95.5%
+- `src/server` (exceto `mcp-http.ts`): ~62% (mcp-http.ts não testado — encapsula SDK MCP sem lógica própria)
 
-**Config:** `vitest.config.ts` na raiz, atualizar scripts em `package.json`:
+**Config:**
 ```json
 "test": "vitest run",
 "test:watch": "vitest",
 "test:coverage": "vitest run --coverage"
 ```
-
-**Verificação:** `npm test` passa; os 5 casos críticos cobertos; cobertura ≥70% nos módulos das fases 1+2.
 
 ---
 
