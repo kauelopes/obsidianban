@@ -62,6 +62,7 @@ export class WorkflowRunner {
       const out = createWriteStream(logPath, { flags: 'a' })
       child.stdout.pipe(out)
       child.stderr.pipe(out)
+      child.on('error', (err) => console.error(`[workflow] child process error sprint=${sprintId}`, err))
       child.unref()
       console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} log=${logPath} cwd=${cwd}`)
     } else {
@@ -71,6 +72,7 @@ export class WorkflowRunner {
         detached: true,
         stdio: 'ignore',
       })
+      child.on('error', (err) => console.error(`[workflow] child process error sprint=${sprintId}`, err))
       child.unref()
       console.log(`[workflow] launched sprint=${sprintId} pid=${child.pid} cwd=${cwd}`)
     }

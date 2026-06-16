@@ -122,8 +122,8 @@ export class SSESubscriber {
       } else if (line.startsWith('data: ')) {
         try {
           data = JSON.parse(line.slice(6))
-        } catch {
-          /* ignore malformed payload */
+        } catch (err) {
+          console.warn('[ObsidianKan] SSE parse error:', err)
         }
       }
     }

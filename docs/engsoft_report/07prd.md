@@ -10,13 +10,13 @@
 | # | Item | Prioridade | Esforço est. | Status |
 |---|------|-----------|-------------|--------|
 | 1 | Suite de testes automatizados (vitest, todas as fases) | CRÍTICO | 2–4 semanas | ✅ Concluído |
-| 2 | Corrigir vulnerabilidades de dependência | HIGH | 1–2 horas | ⬜ Pendente |
-| 3 | Refactor CardService — extração incremental | HIGH | 3–5 dias | ⬜ Pendente |
+| 2 | Corrigir vulnerabilidades de dependência | HIGH | 1–2 horas | ✅ Concluído (esbuild ✅, hono ✅, gray-matter: risco aceito — ver §2) |
+| 3 | Refactor CardService — extração incremental | HIGH | 3–5 dias | ✅ Concluído (card-file ✅, card-reader ✅, card-shared ✅, card-writer ✅, card-mover ✅, card-blocker ✅) |
 | 4 | Logging estruturado com pino | HIGH | 1–2 dias | ⬜ Pendente |
 | 5 | Padronizar error handling (remover silent catch) | MEDIUM | 4–8 horas | ⬜ Pendente |
-| 6 | WorkflowRunner — error listener no child process | MEDIUM | 1 hora | ⬜ Pendente |
-| 7 | Log SSE parse failures no plugin | MEDIUM | 30 min | ⬜ Pendente |
-| 8 | Constante POSITION_GAP | LOW | 15 min | ⬜ Pendente |
+| 6 | WorkflowRunner — error listener no child process | MEDIUM | 1 hora | ✅ Concluído |
+| 7 | Log SSE parse failures no plugin | MEDIUM | 30 min | ✅ Concluído |
+| 8 | Constante POSITION_GAP | LOW | 15 min | ✅ Concluído |
 | 9 | Monorepo split (pnpm workspaces) | MEDIUM | 1–2 dias | ⬜ Pendente |
 
 **Legenda:** ⬜ Pendente · 🔄 Em progresso · ✅ Concluído
@@ -66,23 +66,22 @@
 
 ---
 
-## 2. Vulnerabilidades de Dependência — HIGH
+## 2. Vulnerabilidades de Dependência — HIGH ✅
 
-**Problema:** 3 CVEs em `npm audit`:
-- **HIGH** — esbuild ≤0.28.0: RCE via missing binary integrity
-- **MODERATE** — esbuild ≤0.28.0: Windows arbitrary file read
-- **MODERATE** — gray-matter/js-yaml: quadratic DoS com merge keys
+**Resolvido:**
+- **HIGH** — esbuild ≤0.28.0: corrigido via `npm audit fix`
+- **HIGH** — hono ≤4.12.24: corrigido via `npm audit fix`
+- **MODERATE** — gray-matter/js-yaml: **risco aceito** — ver abaixo
 
-**Ação:**
-```bash
-npm update esbuild
-npm update gray-matter
-npm audit --fix
-```
+**gray-matter/js-yaml — risco aceito:**
+`gray-matter@4.0.3` (última versão) depende de `js-yaml@3.14.2`. A vulnerabilidade GHSA-h67p-54hq-rp68 (quadratic DoS via merge keys) não tem fix na branch 3.x. O "fix" do npm (`--force`) faria downgrade para `gray-matter@2.0.1`, o que é regressão sem ganho real. Risco aceito porque:
+1. Vault é local — YAML vem de arquivos do próprio usuário, não de input externo
+2. Severidade: MODERATE, não HIGH/CRITICAL
+3. Cenário de ataque (arquivo `.md` malicioso no vault) exige acesso físico à máquina
 
-Verificar se update do esbuild quebra o build do plugin (`plugin/esbuild.config.mjs`).
+Monitorar se `gray-matter` lançar versão com `js-yaml@4.x`.
 
-**Verificação:** `npm audit` retorna zero vulnerabilidades.
+**Verificação:** `npm audit` → 2 moderate (gray-matter, risco aceito), zero high/critical.
 
 ---
 
@@ -94,12 +93,13 @@ Verificar se update do esbuild quebra o build do plugin (`plugin/esbuild.config.
 
 **Split proposto:**
 
-| Módulo novo | Responsabilidades |
-|---|---|
-| `src/services/card-reader.ts` | `get`, `list`, query — extrai padrão `readFile + parseCardFile` (duplicado 7x) |
-| `src/services/card-writer.ts` | `create`, `update`, `archive`, `delete` |
-| `src/services/card-mover.ts` | `move`, `reorder`, position recalculation |
-| `src/services/card-blocker.ts` | `block`, `unblock`, `claim`, `revert` |
+| Módulo novo | Responsabilidades | Status |
+|---|---|---|
+| `src/vault/card-file.ts` | helper `readCardFile` / `readCardBody` — elimina padrão `readFile + parseCardFile` (duplicado 10x) | ✅ Concluído |
+| `src/services/card-reader.ts` | `get` — lê card do DB + arquivo; `requireDevActiveSprint` autoridade | ✅ Concluído |
+| `src/services/card-writer.ts` | `create`, `update`, `archive`, `delete` | ✅ Concluído |
+| `src/services/card-mover.ts` | `move`, `reorder`, position recalculation | ✅ Concluído |
+| `src/services/card-blocker.ts` | `claim`, `release` | ✅ Concluído |
 
 `card.ts` vira façade compondo os 4 módulos — interface pública para `tool-catalog.ts` não muda.
 

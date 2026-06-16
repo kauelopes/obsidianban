@@ -11,14 +11,20 @@ No início de cada sessão, leia `docs/engsoft_report/07prd.md` para ver o que j
 
 ### Resumo dos 9 itens (ordem de prioridade de execução)
 
-1. ⬜ Corrigir vulnerabilidades (esbuild, gray-matter) — 1–2h
-2. ⬜ POSITION_GAP como constante nomeada — 15min
-3. ⬜ WorkflowRunner error listener — 1h
-4. ⬜ Log SSE parse failures no plugin — 30min
+1. ✅ Corrigir vulnerabilidades (esbuild ✅, hono ✅, gray-matter: risco aceito) — concluído
+2. ✅ POSITION_GAP como constante nomeada — concluído (`src/util/constants.ts`)
+3. ✅ WorkflowRunner error listener — concluído
+4. ✅ Log SSE parse failures no plugin — concluído
 5. ✅ Setup vitest + testes unit (fase 1) — concluído
 6. ✅ CardReader extraído + testes service (fase 2) — concluído
 6+. ✅ Testes server/writer/auth/integração (fase 3) — 267 testes no total
-7. ⬜ CardWriter/Mover/Blocker extraídos — 3 dias
+7. ✅ Refactor CardService — concluído. `card.ts` (1393→317 linhas) é façade pura compondo:
+   - `src/vault/card-file.ts` — `readCardFile`/`readCardBody`
+   - `src/services/card-reader.ts` — `get`, `requireDevActiveSprint`
+   - `src/services/card-shared.ts` — helpers compartilhados
+   - `src/services/card-writer.ts` — `create`, `update`, `delete`, `archive`, `unarchive`
+   - `src/services/card-mover.ts` — `move`, `reorder`
+   - `src/services/card-blocker.ts` — `claim`, `release`
 8. ⬜ pino + padronização de error handling — 2 dias
 9. ⬜ Monorepo split com pnpm workspaces — 2 dias
 
