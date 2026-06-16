@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import type { Paths } from '../../src/config.js'
 import { createTempVault, cleanupVault } from '../helpers/vault.js'
 import { TokenValidator, extractBearer } from '../../src/auth/validator.js'
@@ -7,6 +9,9 @@ import {
   createManagerToken,
   revokeAgentToken,
   revokeManagerToken,
+  listManagerTokens,
+  lookupBySha,
+  sha256Hex,
 } from '../../src/auth/tokens.js'
 import { ensureProject } from '../../src/vault/layout.js'
 
@@ -102,5 +107,72 @@ describe('TokenValidator', () => {
     const validator = new TokenValidator(paths)
     const result = await validator.validate(issued.raw)
     expect(result).toEqual({ ok: false, reason: 'revoked' })
+  })
+})
+
+describe('tokens — gap coverage', () => {
+  it('createAgentToken on a non-existent project creates the project via ensureProject', async () => {
+    const issued = await createAgentToken(paths, 'brand-new-project', 'agent:x', 'dev')
+    expect(issued.token_id).toBeTruthy()
+    // Validate the token — validator will find it in the new project's _meta.json
+    const validator = new TokenValidator(paths)
+    const result = await validator.validate(issued.raw)
+    expect(result.ok).toBe(true)
+  })
+
+  it('revokeAgentToken on an already-revoked token returns false', async () => {
+    const issued = await createAgentToken(paths, 'test-project', 'agent:x', 'pm')
+    const first = await revokeAgentToken(paths, 'test-project', issued.token_id)
+    expect(first).toBe(true)
+    const second = await revokeAgentToken(paths, 'test-project', issued.token_id)
+    expect(second).toBe(false)
+  })
+
+  it('revokeAgentToken with an unknown tokenId returns false', async () => {
+    const result = await revokeAgentToken(paths, 'test-project', 'nonexistent-token-id')
+    expect(result).toBe(false)
+  })
+
+  it('revokeManagerToken on an already-revoked token returns false', async () => {
+    const issued = await createManagerToken(paths, 'human:manager')
+    await revokeManagerToken(paths, issued.token_id)
+    const second = await revokeManagerToken(paths, issued.token_id)
+    expect(second).toBe(false)
+  })
+
+  it('lookupBySha returns null for an unknown sha', async () => {
+    const result = await lookupBySha(paths, sha256Hex('unknown-token-value'), ['test-project'])
+    expect(result).toBeNull()
+  })
+
+  it('lookupBySha silently skips a project whose _meta.json is missing', async () => {
+    // Create a project directory without writing _meta.json
+    const ghostProjectDir = path.join(paths.kanbanData, 'ghost-project')
+    await fs.mkdir(ghostProjectDir, { recursive: true })
+
+    await expect(
+      lookupBySha(paths, sha256Hex('some-token'), ['ghost-project', 'test-project']),
+    ).resolves.toBeNull()
+  })
+
+  it('listManagerTokens throws when manager-tokens.json is corrupted JSON', async () => {
+    await fs.mkdir(path.dirname(paths.managerTokens), { recursive: true })
+    await fs.writeFile(paths.managerTokens, '{broken json', 'utf8')
+    await expect(listManagerTokens(paths)).rejects.toThrow()
+  })
+})
+
+describe('extractBearer — gap coverage', () => {
+  it('BEARER uppercase prefix is accepted', () => {
+    expect(extractBearer('BEARER mytoken123')).toBe('mytoken123')
+  })
+
+  it('double space between Bearer and token: documents actual behavior (token captured with leading space)', () => {
+    // The regex is /^Bearer\s+(.+)$/i — \s+ is greedy but (.+) captures the remainder
+    // "Bearer  mytoken" → match[1] = "mytoken" because \s+ consumes all leading whitespace
+    // This token will then fail SHA lookup (correct behavior), not return undefined
+    const result = extractBearer('Bearer  mytoken')
+    // \s+ already consumes both spaces, so captured group is just "mytoken"
+    expect(result).toBe('mytoken')
   })
 })

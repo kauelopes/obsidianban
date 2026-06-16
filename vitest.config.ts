@@ -7,7 +7,7 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/index.ts', 'src/server/**', 'src/watcher/**', 'src/auth/cli.ts'],
+      exclude: ['src/index.ts', 'src/server/stdio.ts', 'src/watcher/**', 'src/auth/cli.ts'],
     },
   },
   resolve: {

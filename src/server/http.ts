@@ -63,6 +63,12 @@ export class HttpServer {
     this.server = null
   }
 
+  getPort(): number | null {
+    const addr = this.server?.address()
+    if (!addr || typeof addr === 'string') return null
+    return addr.port
+  }
+
   private async dispatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? ''
 
