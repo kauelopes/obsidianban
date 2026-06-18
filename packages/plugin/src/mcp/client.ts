@@ -13,7 +13,10 @@ import type {
   ReorderResult,
   Sprint,
   UpdateCardParams,
+  WorkflowReadinessResult,
 } from '@obsidiankan/types'
+
+export type { WorkflowReadinessResult }
 
 // UpdateCardParams re-export for plugin consumers that need the log_entry shape.
 export type { UpdateCardParams }
@@ -184,6 +187,7 @@ export class McpClient {
     columns: string[]
     archived: boolean
     target_repo?: string
+    workflow_readiness?: WorkflowReadinessResult
   }>> {
     return this.call('kanban_set_project_repo', params)
   }

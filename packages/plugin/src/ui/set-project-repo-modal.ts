@@ -1,5 +1,6 @@
 import { Modal, Notice, type App } from 'obsidian'
 import type { McpClient } from '../mcp/client.js'
+import { WorkflowReadinessModal } from './workflow-readiness-modal.js'
 
 export class SetProjectRepoModal extends Modal {
   constructor(
@@ -32,7 +33,11 @@ export class SetProjectRepoModal extends Modal {
       this.close()
       const res = await this.client.setProjectRepo({ project: this.project, target_repo })
       if (res.ok) {
-        new Notice(target_repo ? `Target repo set to: ${target_repo}` : 'Target repo cleared.')
+        if (target_repo && res.data.workflow_readiness) {
+          new WorkflowReadinessModal(this.app, this.project, res.data.workflow_readiness).open()
+        } else {
+          new Notice('Target repo cleared.')
+        }
       } else {
         new Notice(`Failed to set target repo: ${res.error.message}`, 8000)
       }

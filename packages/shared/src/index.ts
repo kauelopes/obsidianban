@@ -261,6 +261,42 @@ export interface ValidationError {
   allowed_fields: string[]
 }
 
+// ─── Workflow readiness ───────────────────────────────────────────────────────
+
+export interface SkillFileCheck {
+  path: string         // relative to .claude/skills/ (e.g. 'kanban-pm-agent/SKILL.md')
+  was_present: boolean
+  installed: boolean   // true = copied during this check
+}
+
+export interface GeneratedToken {
+  token: string
+  token_id: string
+  actor: string
+  agent_type: 'pm' | 'dev'
+}
+
+export interface ConfigFileCheck {
+  path: string         // relative to target_repo (e.g. '.claude/mcp.json')
+  was_present: boolean
+  written: boolean     // true = created or updated during this check
+  detail?: string      // e.g. 'url corrected'
+}
+
+export interface WorkflowReadinessResult {
+  target_repo: string
+  repo_exists: boolean
+  skills: SkillFileCheck[]
+  config_files: ConfigFileCheck[]
+  tokens: {
+    has_pm: boolean
+    has_dev: boolean
+    generated_pm?: GeneratedToken
+    generated_dev?: GeneratedToken
+  }
+  all_ok: boolean  // true = nothing needed to be installed or generated
+}
+
 // ─── Plugin-specific ─────────────────────────────────────────────────────────
 
 export type Resolution = 'keep-mine' | 'keep-theirs' | 'manual'

@@ -814,6 +814,66 @@
   word-break: break-all;
 }
 
+/* ── Workflow readiness modal ─────────────────────────────────── */
+
+.kanban-mcp-readiness-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.25em 0 0.75em;
+}
+
+.kanban-mcp-readiness-list li {
+  padding: 0.2em 0;
+  font-size: 0.9em;
+}
+
+.kanban-mcp-ok {
+  color: var(--color-green);
+  font-weight: 600;
+}
+
+.kanban-mcp-installed {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  margin-left: 0.25em;
+}
+
+.kanban-mcp-token-value {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.25em;
+  padding: 0.4em 0.6em;
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+
+.kanban-mcp-token-code {
+  font-family: var(--font-monospace);
+  font-size: 0.8em;
+  word-break: break-all;
+  flex: 1;
+}
+
+.kanban-mcp-copy-btn {
+  flex-shrink: 0;
+  font-size: 0.8em;
+  padding: 0.2em 0.5em;
+}
+
+.kanban-mcp-readiness-ok {
+  color: var(--color-green);
+  font-weight: 500;
+  margin-top: 0.75em;
+}
+
+.kanban-mcp-readiness-fixed {
+  color: var(--color-yellow);
+  font-weight: 500;
+  margin-top: 0.75em;
+}
+
 /* ── Past sprints modal ───────────────────────────────────────── */
 
 .kanban-mcp-past-sprints-modal {

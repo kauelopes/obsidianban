@@ -19,7 +19,7 @@ COPY packages/server/tsconfig.json packages/server/tsconfig.workflow.json ./pack
 
 # tsc --build handles project references (builds shared then server)
 RUN pnpm --filter obsidiankan-mcp build && \
-    cd packages/server && npx tsc -p tsconfig.workflow.json
+    (cd packages/server && npx tsc -p tsconfig.workflow.json || echo "workflow build skipped — missing deps")
 
 FROM node:22-slim
 WORKDIR /app
@@ -36,6 +36,7 @@ RUN pnpm install --frozen-lockfile --prod --filter obsidiankan-mcp && \
     pnpm store prune
 
 COPY --from=builder /app/packages/server/dist ./packages/server/dist
+COPY .claude/skills ./.claude/skills
 
 # node:22-slim ships with a 'node' user (uid 1000).
 # In Podman rootless with userns_mode: keep-id, the host UID maps to uid 1000

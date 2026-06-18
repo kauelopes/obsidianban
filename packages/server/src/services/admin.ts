@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs'
 import type { Paths } from '../config.js'
-import type { TokenClaims } from '@obsidiankan/types'
+import type { TokenClaims, WorkflowReadinessResult } from '@obsidiankan/types'
 import { createAgentToken, type IssuedToken } from '../auth/tokens.js'
+import { checkWorkflowReadiness } from './workflow-readiness.js'
 import {
   listProjects as listProjectDirs,
   listProjectsSafe,
@@ -28,6 +29,10 @@ export interface ProjectInfo {
   columns: string[]
   archived: boolean
   target_repo?: string
+}
+
+export interface SetProjectRepoResult extends ProjectInfo {
+  workflow_readiness?: WorkflowReadinessResult
 }
 
 export interface DeleteProjectResult {
@@ -214,7 +219,7 @@ export class AdminService {
   async setProjectRepo(
     params: Record<string, unknown>,
     claims: TokenClaims,
-  ): Promise<ProjectInfo> {
+  ): Promise<SetProjectRepoResult> {
     if (claims.role !== 'manager') {
       throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
     }
@@ -238,7 +243,12 @@ export class AdminService {
       actor: claims.actor,
       reason: `target_repo=${targetRepo ?? 'cleared'}`,
     })
-    return { project, columns: meta.columns, archived: meta.archived === true, target_repo: meta.target_repo }
+    const base: ProjectInfo = { project, columns: meta.columns, archived: meta.archived === true, target_repo: meta.target_repo }
+    if (typeof targetRepo === 'string') {
+      const workflow_readiness = await checkWorkflowReadiness(project, targetRepo, this.paths)
+      return { ...base, workflow_readiness }
+    }
+    return base
   }
 }
 
