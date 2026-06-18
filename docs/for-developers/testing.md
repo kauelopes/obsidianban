@@ -143,3 +143,95 @@ describe('Meu fluxo', () => {
 - **Use factories** para criar dados de teste, não literais hardcoded
 - **Testes não devem depender de ordem** — cada test usa seu próprio banco/vault
 - **Não mocke o banco de dados** — use SQLite in-memory real para garantir fidelidade ao comportamento de produção
+
+---
+
+## Testes manuais do plugin Obsidian
+
+A UI do plugin não pode ser testada automaticamente (depende do runtime do Obsidian). Execute esta sequência antes de releases ou após mudanças no `packages/plugin/`.
+
+### Pré-requisitos
+
+- Server rodando: `pnpm --filter obsidiankan-mcp run dev`
+- Plugin instalado no vault de teste: `pnpm --filter @obsidiankan/plugin run build`
+- Token de manager configurado nas configurações do plugin (`Configurações → Plugins → ObsidianKan`)
+
+---
+
+### 1. Setup e conectividade
+
+- [ ] Abrir o Obsidian com o vault de teste
+- [ ] Verificar que o plugin não exibe erro de conexão no canto inferior direito
+- [ ] Abrir a **Board View** (`Ctrl+P` → "ObsidianKan: Abrir Board")
+- [ ] Verificar que o board carrega sem tela em branco ou erro
+
+### 2. Projeto
+
+- [ ] Clicar em **Novo projeto** no board
+- [ ] Preencher nome e actor, confirmar
+- [ ] Verificar que o projeto aparece na lista e o token PM é exibido
+- [ ] Copiar o token PM e configurá-lo nas configurações do plugin
+
+### 3. Sprint
+
+- [ ] Com o token PM ativo, clicar em **Nova sprint**
+- [ ] Preencher nome e goal, confirmar
+- [ ] Verificar que a sprint aparece no board com status `planning`
+- [ ] Clicar em **Iniciar sprint**
+- [ ] Verificar que o status muda para `active`
+
+### 4. Cards
+
+- [ ] Clicar em **Novo card** no board
+- [ ] Preencher título, tipo e prioridade
+- [ ] Verificar que o card aparece na coluna `todo`
+- [ ] Arrastar (ou usar menu) para mover o card para `in_progress`
+- [ ] Verificar que a coluna atualiza corretamente
+- [ ] Abrir o arquivo `.md` do card no vault
+- [ ] Verificar que o **card banner** aparece no topo do arquivo com as ações (mover, log, etc.)
+- [ ] Usar o banner para mover o card para `review`
+- [ ] Verificar que o board reflete a mudança
+
+### 5. SSE — atualização em tempo real
+
+- [ ] Deixar o board visível no Obsidian
+- [ ] Em outro terminal, mover um card via curl:
+  ```bash
+  curl -s -X POST http://localhost:9375/mcp/tool/kanban_move_card \
+    -H "Authorization: Bearer <token>" \
+    -H "Content-Type: application/json" \
+    -d '{"id":"<card_id>","status":"done","version":<version>}'
+  ```
+- [ ] Verificar que o board atualiza **sem reload manual** em até 2 segundos
+- [ ] Verificar o indicador de status SSE (ícone de conexão no board)
+
+### 6. Conflict modal
+
+- [ ] Abrir o mesmo card via API e via plugin simultaneamente
+- [ ] Submeter uma atualização via plugin com versão desatualizada (editar diretamente o `.md` do card antes de salvar pelo plugin)
+- [ ] Verificar que o **conflict modal** aparece com os campos em conflito
+- [ ] Escolher "usar versão do servidor" e verificar que o card atualiza
+
+### 7. Métricas
+
+- [ ] Abrir a **Metrics View** (`Ctrl+P` → "ObsidianKan: Abrir Métricas")
+- [ ] Verificar que os dados de tokens por agente aparecem
+- [ ] Verificar que os filtros de data funcionam (se disponíveis)
+
+### 8. Reconexão SSE
+
+- [ ] Com o board aberto, derrubar o server (`Ctrl+C` no terminal)
+- [ ] Verificar que o indicador de status muda para `disconnected`
+- [ ] Reiniciar o server
+- [ ] Verificar que o plugin reconecta automaticamente (sem reiniciar o Obsidian)
+- [ ] Mover um card via curl e verificar que o board volta a atualizar em tempo real
+
+### 9. Token de dev
+
+- [ ] Em **Configurações → Plugins → ObsidianKan**, trocar para um token `dev`
+- [ ] Abrir o board e verificar que as ações de gestão (criar card, iniciar sprint) não aparecem ou estão desabilitadas
+- [ ] Verificar que mover cards e adicionar logs ainda funciona
+
+---
+
+**Critério de aprovação:** todos os itens marcados sem erros no console do Obsidian (`Ctrl+Shift+I → Console`). Erros esperados que podem ser ignorados: nenhum.

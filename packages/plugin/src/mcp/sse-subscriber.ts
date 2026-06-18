@@ -1,10 +1,7 @@
 import http from 'node:http'
+import { feedSseChunk, type SSEFrame } from './sse-parser.js'
 
-export interface SSEFrame {
-  id: number
-  type: string
-  data: unknown
-}
+export type { SSEFrame } from './sse-parser.js'
 
 export type SseStatus = 'connecting' | 'connected' | 'disconnected'
 
@@ -89,7 +86,14 @@ export class SSESubscriber {
         this.cfg.onStatusChange?.('connected')
         this.currentBackoff = this.cfg.backoffStartMs ?? 1000
         res.setEncoding('utf8')
-        res.on('data', (chunk: string) => this.feed(chunk))
+        res.on('data', (chunk: string) => {
+          const result = feedSseChunk(this.buf, chunk)
+          this.buf = result.buf
+          for (const frame of result.frames) {
+            this.lastEventId = frame.id
+            this.cfg.onEvent(frame)
+          }
+        })
         res.on('end', () => this.scheduleReconnect())
         res.on('error', () => this.scheduleReconnect())
       },
@@ -97,40 +101,6 @@ export class SSESubscriber {
     req.on('error', () => this.scheduleReconnect())
     req.end()
     this.req = req
-  }
-
-  private feed(chunk: string): void {
-    this.buf += chunk
-    let idx: number
-    while ((idx = this.buf.indexOf('\n\n')) >= 0) {
-      const block = this.buf.slice(0, idx)
-      this.buf = this.buf.slice(idx + 2)
-      this.parseBlock(block)
-    }
-  }
-
-  private parseBlock(block: string): void {
-    let id: number | null = null
-    let type: string | null = null
-    let data: unknown = null
-    for (const line of block.split('\n')) {
-      if (line.startsWith('id: ')) {
-        const n = Number(line.slice(4))
-        if (Number.isFinite(n)) id = n
-      } else if (line.startsWith('event: ')) {
-        type = line.slice(7)
-      } else if (line.startsWith('data: ')) {
-        try {
-          data = JSON.parse(line.slice(6))
-        } catch (err) {
-          console.warn('[ObsidianKan] SSE parse error:', err)
-        }
-      }
-    }
-    if (type && id != null) {
-      this.lastEventId = id
-      this.cfg.onEvent({ id, type, data })
-    }
   }
 
   private scheduleReconnect(): void {

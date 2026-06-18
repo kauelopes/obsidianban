@@ -12,7 +12,7 @@ import { KanbanBoardView, VIEW_TYPE_KANBAN_BOARD } from './view/board-view.js'
 import { KanbanMetricsView, VIEW_TYPE_KANBAN_METRICS } from './view/metrics-view.js'
 
 export default class KanbanPlugin extends Plugin {
-  settings: KanbanPluginSettings = DEFAULT_SETTINGS
+  override settings: KanbanPluginSettings = DEFAULT_SETTINGS
   client: McpClient | null = null
   /** Last status reported by the SSE subscriber; drives the offline banner. */
   connectionStatus: SseStatus = 'connecting'

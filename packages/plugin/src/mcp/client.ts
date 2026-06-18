@@ -66,6 +66,57 @@ interface RawResponse {
   body: unknown
 }
 
+export function toMcpResult<T>(status: number, body: unknown): McpResult<T> {
+  if (status === 200) return { ok: true, data: body as T }
+  const b = (body ?? {}) as Record<string, unknown>
+  if (status === 409) {
+    return {
+      ok: false,
+      error: {
+        kind: 'conflict',
+        status: 409,
+        message: typeof b['message'] === 'string' ? b['message'] : 'conflict',
+        yourVersion: typeof b['your_version'] === 'number' ? b['your_version'] : 0,
+        currentVersion: typeof b['current_version'] === 'number' ? b['current_version'] : 0,
+        conflictingFields: Array.isArray(b['conflicting_fields'])
+          ? (b['conflicting_fields'] as string[])
+          : [],
+        currentCard: b['current_card'] as Card,
+      },
+    }
+  }
+  if (status === 400) {
+    return {
+      ok: false,
+      error: {
+        kind: 'validation',
+        status: 400,
+        message: typeof b['message'] === 'string' ? b['message'] : 'invalid_request',
+        disallowedFields: Array.isArray(b['disallowed_fields'])
+          ? (b['disallowed_fields'] as string[])
+          : [],
+        allowedFields: Array.isArray(b['allowed_fields'])
+          ? (b['allowed_fields'] as string[])
+          : [],
+      },
+    }
+  }
+  return {
+    ok: false,
+    error: {
+      kind: 'server',
+      status,
+      message:
+        typeof b['message'] === 'string'
+          ? b['message']
+          : typeof b['error'] === 'string'
+            ? b['error']
+            : `http_${status}`,
+      raw: b,
+    },
+  }
+}
+
 /**
  * MCP HTTP client for the Obsidian plugin. Uses node:http directly (not the
  * global `fetch`) so the same code path supports SSE later. Errors never
@@ -259,54 +310,7 @@ export class McpClient {
   }
 
   private toResult<T>(raw: RawResponse): McpResult<T> {
-    if (raw.status === 200) return { ok: true, data: raw.body as T }
-    const body = (raw.body ?? {}) as Record<string, unknown>
-    if (raw.status === 409) {
-      return {
-        ok: false,
-        error: {
-          kind: 'conflict',
-          status: 409,
-          message: typeof body['message'] === 'string' ? body['message'] : 'conflict',
-          yourVersion: typeof body['your_version'] === 'number' ? body['your_version'] : 0,
-          currentVersion: typeof body['current_version'] === 'number' ? body['current_version'] : 0,
-          conflictingFields: Array.isArray(body['conflicting_fields'])
-            ? (body['conflicting_fields'] as string[])
-            : [],
-          currentCard: body['current_card'] as Card,
-        },
-      }
-    }
-    if (raw.status === 400) {
-      return {
-        ok: false,
-        error: {
-          kind: 'validation',
-          status: 400,
-          message: typeof body['message'] === 'string' ? body['message'] : 'invalid_request',
-          disallowedFields: Array.isArray(body['disallowed_fields'])
-            ? (body['disallowed_fields'] as string[])
-            : [],
-          allowedFields: Array.isArray(body['allowed_fields'])
-            ? (body['allowed_fields'] as string[])
-            : [],
-        },
-      }
-    }
-    return {
-      ok: false,
-      error: {
-        kind: 'server',
-        status: raw.status,
-        message:
-          typeof body['message'] === 'string'
-            ? body['message']
-            : typeof body['error'] === 'string'
-              ? body['error']
-              : `http_${raw.status}`,
-        raw: body,
-      },
-    }
+    return toMcpResult<T>(raw.status, raw.body)
   }
 
   private request(
