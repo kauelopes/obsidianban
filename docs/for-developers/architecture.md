@@ -7,7 +7,7 @@ Referência técnica da arquitetura do sistema: estrutura estática, fluxos de p
 ## Índice
 
 - [A1 — Contexto do Sistema](#a1--contexto-do-sistema-c4-context)
-- [A2 — Mapa de Componentes](#a2--mapa-de-componentes-c4-container)
+- [A2 — Mapa de Componentes](#a2--mapa-de-componentes)
 - [A3 — Modelo de Tokens e Autorização (RBAC)](#a3--modelo-de-tokens-e-autorização-rbac)
 - [A4 — Setup Inicial de Agentes](#a4--setup-inicial-de-agentes-sequência)
 - [A5 — Loop Interno do Sprint Workflow](#a5--loop-interno-do-sprint-workflow)
@@ -47,7 +47,7 @@ C4Context
 
 ---
 
-## A2 — Mapa de Componentes (C4 Container)
+## A2 — Mapa de Componentes
 
 Todos os processos e artefatos, com protocolos de comunicação.
 
@@ -58,7 +58,7 @@ flowchart TB
     end
 
     subgraph host["🖥️ Host"]
-        subgraph container["📦 Container / Processo MCP"]
+        subgraph process_mcp["⚙️ Processo MCP"]
             SRV["🗄️ MCP Server\npackages/server — bind 127.0.0.1:9375\nSingle writer"]
             DB[("SQLite\n(índice + métricas)")]
             SRV --- DB

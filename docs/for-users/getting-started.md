@@ -67,7 +67,6 @@ Veja a referência completa de configuração em [`docs/reference/config.md`](..
 ## 4. Executar o servidor
 
 ```bash
-# Modo direto (sem Docker)
 VAULT_PATH=/caminho/para/vault node packages/server/dist/index.js
 
 # Ou via script npm (carrega .env automaticamente se usar dotenv)
@@ -123,22 +122,6 @@ Para instalar no seu vault:
 1. Copie a pasta `obsidiankan-mcp/` para `<seu-vault>/.obsidian/plugins/`
 2. Abra Obsidian → Configurações → Plugins da comunidade → Ativar "ObsidianKan"
 3. Configure: URL base `http://127.0.0.1:9375` e seu token de agente
-
----
-
-## Docker (alternativa)
-
-```bash
-docker build -t obsidiankan .
-docker run -d \
-  -v /caminho/para/vault:/vault \
-  -p 9375:9375 \
-  -e VAULT_PATH=/vault \
-  --name obsidiankan \
-  obsidiankan
-```
-
-O container faz health check automático a cada 10 segundos.
 
 ---
 

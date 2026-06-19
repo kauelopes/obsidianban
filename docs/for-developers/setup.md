@@ -123,29 +123,6 @@ Veja o guia completo em [`testing.md`](testing.md).
 
 ---
 
-## Docker
-
-```bash
-# Build da imagem
-docker build -t obsidiankan .
-
-# Rodar com volume do vault
-docker run -d \
-  -v /caminho/para/vault:/vault \
-  -p 9375:9375 \
-  -e VAULT_PATH=/vault \
-  -e LOG_LEVEL=debug \
-  --name obsidiankan \
-  obsidiankan
-
-# Ver logs
-docker logs -f obsidiankan
-```
-
-A imagem usa build multi-stage: builder (compila TypeScript) → runtime (só dependências de produção). Usuário `node` (uid 1000) para compatibilidade com Podman rootless.
-
----
-
 ## Gerar documentação de tools
 
 O catálogo de tools MCP é auto-gerado a partir do código:
