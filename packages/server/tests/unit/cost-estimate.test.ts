@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estimateUsd, MODEL_PRICES_USD_PER_TOKEN } from '@obsidiankan/types'
+import { estimateUsd, MODEL_PRICES_USD_PER_TOKEN, providerOf } from '@obsidiankan/types'
 
 /**
  * O custo em USD é ESTIMADO a partir de tokens por modelo. O número medido de
@@ -42,5 +42,28 @@ describe('estimateUsd', () => {
     const p = MODEL_PRICES_USD_PER_TOKEN['claude-opus-4-8']!
     expect(p.input).toBeCloseTo(5 / 1_000_000, 12)
     expect(p.output).toBeCloseTo(25 / 1_000_000, 12)
+  })
+})
+
+/**
+ * O agrupamento por provedor é heurística de EXIBIÇÃO sobre uma string livre.
+ * O que importa travar: pseudo-modelos nunca ganham bandeira de provedor real.
+ */
+describe('providerOf', () => {
+  it('claude-* é anthropic', () => {
+    expect(providerOf('claude-opus-4-8')).toBe('anthropic')
+    expect(providerOf('claude-haiku-4-5')).toBe('anthropic')
+  })
+
+  it('gpt-*, codex-* e oN são openai', () => {
+    for (const m of ['gpt-5.1', 'gpt-5.2-codex', 'codex-mini', 'o3', 'o4-mini']) {
+      expect(providerOf(m), m).toBe('openai')
+    }
+  })
+
+  it('pseudo-modelos e desconhecidos são other', () => {
+    for (const m of ['human', 'plugin', 'unknown', 'gemini-2', 'obsidian', '']) {
+      expect(providerOf(m), m).toBe('other')
+    }
   })
 })

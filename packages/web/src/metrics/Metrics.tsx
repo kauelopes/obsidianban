@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { estimateUsd, type Metrics as MetricsData } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
+import { BarChart, Tile, TokenTable } from './widgets.js'
 
 /**
  * Painel de atividade e custo.
@@ -78,7 +79,7 @@ export function Metrics({ client }: { client: KanbanClient }) {
         <div className="detail-head">
           <h1>Atividade</h1>
           <div className="detail-ident">
-            <span>agregado do vault inteiro · /metrics não separa por projeto</span>
+            <span>agregado do vault inteiro</span>
           </div>
         </div>
 
@@ -139,15 +140,6 @@ export function Metrics({ client }: { client: KanbanClient }) {
               </p>
             )}
 
-            {tokensReported === 0 && (
-              <p className="note">
-                Nenhum token foi reportado neste intervalo. Os agentes de dev são instruídos a
-                não inventar contagem de tokens, então quem reporta medição real é o sprint
-                workflow. O histórico também zera se o <code>db.sqlite</code> for apagado: a
-                tabela <code>token_log</code> não é reconstruída a partir dos arquivos do vault.
-              </p>
-            )}
-
             <BarChart
               title="Operações por tipo de mutação"
               rows={data.by_operation.map((r) => ({ label: r.op, value: r.count }))}
@@ -156,6 +148,11 @@ export function Metrics({ client }: { client: KanbanClient }) {
             <BarChart
               title="Operações por tipo de card"
               rows={data.by_type.map((r) => ({ label: r.type, value: r.ops }))}
+            />
+
+            <BarChart
+              title="Operações por projeto"
+              rows={data.by_project.map((r) => ({ label: r.project, value: r.ops }))}
             />
 
             {/* by_agent não tem contagem, só tokens — por isso tabela e não gráfico. */}
@@ -188,6 +185,17 @@ export function Metrics({ client }: { client: KanbanClient }) {
                 output: r.output_tokens,
               }))}
             />
+
+            {/* Rodapé, não manchete: a explicação é honesta mas não pode ser a
+                primeira coisa da página — parecia aviso de sistema quebrado. */}
+            {tokensReported === 0 && (
+              <p className="note">
+                Nenhum token foi reportado neste intervalo. Os agentes de dev são instruídos a
+                não inventar contagem de tokens, então quem reporta medição real é o sprint
+                workflow. O histórico também zera se o <code>db.sqlite</code> for apagado: a
+                tabela <code>token_log</code> não é reconstruída a partir dos arquivos do vault.
+              </p>
+            )}
           </>
         )}
       </div>
@@ -195,99 +203,3 @@ export function Metrics({ client }: { client: KanbanClient }) {
   )
 }
 
-function Tile({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
-  return (
-    <div className="tile">
-      <span className="label">{label}</span>
-      <strong className={muted ? 'tile-value muted' : 'tile-value'}>{value}</strong>
-    </div>
-  )
-}
-
-/**
- * Barras horizontais, série única.
- *
- * Uma cor só, não uma rampa: o validador do dataviz reprovou a rampa
- * sequencial deste teal — os passos escuros caem abaixo de 3:1 contra a
- * superfície. Série única também dispensa legenda, e cada barra leva o valor
- * escrito, que é o "relief" exigido e torna o gráfico legível sem depender de
- * cor. `<title>` dá tooltip por marca sem uma linha de JS.
- */
-function BarChart({
-  title,
-  rows,
-}: {
-  title: string
-  rows: Array<{ label: string; value: number }>
-}) {
-  if (rows.length === 0) {
-    return (
-      <section className="chart">
-        <p className="label">{title}</p>
-        <p className="empty">sem dados neste intervalo</p>
-      </section>
-    )
-  }
-
-  const max = Math.max(...rows.map((r) => r.value), 1)
-  const total = rows.reduce((n, r) => n + r.value, 0)
-
-  return (
-    <section className="chart">
-      <p className="label">{title}</p>
-      <ul className="bars">
-        {rows.map((r) => {
-          const pct = (r.value / max) * 100
-          const share = total > 0 ? Math.round((r.value / total) * 100) : 0
-          return (
-            <li key={r.label} title={`${r.label}: ${r.value} (${share}% do total)`}>
-              <span className="bar-label mono">{r.label}</span>
-              <span className="bar-track">
-                <span className="bar-fill" style={{ width: `${pct}%` }} />
-              </span>
-              <span className="bar-value mono">{r.value.toLocaleString('pt-BR')}</span>
-            </li>
-          )
-        })}
-      </ul>
-    </section>
-  )
-}
-
-function TokenTable({
-  title,
-  head,
-  rows,
-}: {
-  title: string
-  head: string
-  rows: Array<{ label: string; input: number; output: number }>
-}) {
-  return (
-    <section className="chart">
-      <p className="label">{title}</p>
-      {rows.length === 0 ? (
-        <p className="empty">sem dados neste intervalo</p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{head}</th>
-              <th className="num">entrada</th>
-              <th className="num">saída</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.label}>
-                <td className="mono">{r.label}</td>
-                <td className="num">{r.input > 0 ? r.input.toLocaleString('pt-BR') : '—'}</td>
-                <td className="num">{r.output > 0 ? r.output.toLocaleString('pt-BR') : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </section>
-  )
-}

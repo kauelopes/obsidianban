@@ -130,6 +130,8 @@ export interface DeleteCardParams extends TokenFields {
 }
 
 export interface ListCardsParams {
+  /** Manager filtra qualquer projeto; token de agente já é forçado ao seu. */
+  project?: string
   status?: string
   tags?: string[]
   assigned_to?: string
@@ -390,6 +392,14 @@ export const MODEL_PRICES_USD_PER_TOKEN: Readonly<
   'claude-sonnet-4-6': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
   'claude-sonnet-4-5': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
   'claude-haiku-4-5': { input: 1 / 1_000_000, output: 5 / 1_000_000 },
+  // OpenAI — ≈ aproximado; conferir contra a tabela pública quando o Codex
+  // começar a reportar de verdade.
+  'gpt-5.2': { input: 1.25 / 1_000_000, output: 10 / 1_000_000 },
+  'gpt-5.1': { input: 1.25 / 1_000_000, output: 10 / 1_000_000 },
+  'gpt-5.2-codex': { input: 1.25 / 1_000_000, output: 10 / 1_000_000 },
+  'gpt-5.1-codex': { input: 1.25 / 1_000_000, output: 10 / 1_000_000 },
+  'gpt-5.1-codex-mini': { input: 0.25 / 1_000_000, output: 2 / 1_000_000 },
+  'codex-mini': { input: 0.25 / 1_000_000, output: 2 / 1_000_000 },
 }
 
 /**
@@ -405,6 +415,22 @@ export function estimateUsd(
   const price = MODEL_PRICES_USD_PER_TOKEN[model]
   if (!price) return null
   return inputTokens * price.input + outputTokens * price.output
+}
+
+export type ModelProvider = 'anthropic' | 'openai' | 'other'
+
+/**
+ * Provedor inferido do nome do modelo, para a UI agrupar uso e custo. O campo
+ * `model` é string livre no protocolo, então isto é heurística de exibição —
+ * modelo desconhecido (e os pseudo-modelos human/plugin/unknown) cai em
+ * 'other' em vez de ganhar uma bandeira errada.
+ */
+export function providerOf(model: string): ModelProvider {
+  if (model.startsWith('claude-')) return 'anthropic'
+  if (model.startsWith('gpt-') || model.startsWith('codex-') || /^o\d+(-|$)/.test(model)) {
+    return 'openai'
+  }
+  return 'other'
 }
 
 export interface CardHistoryResult {
@@ -476,6 +502,7 @@ export interface Metrics {
   by_model: Array<{ model: string; input_tokens: number; output_tokens: number }>
   by_agent: Array<{ actor: string; input_tokens: number; output_tokens: number }>
   by_operation: Array<{ op: string; input_tokens: number; output_tokens: number; count: number }>
+  by_project: Array<{ project: string; input_tokens: number; output_tokens: number; ops: number }>
 }
 
 // ─── Card body zones ─────────────────────────────────────────────────────────

@@ -42,6 +42,13 @@ interface ByOpRow {
   count: number
 }
 
+interface ByProjectRow {
+  project: string
+  input_tokens: number
+  output_tokens: number
+  ops: number
+}
+
 /**
  * Read-only aggregation over the `token_log` table. The token_log is the
  * authoritative source for token accounting (one row per mutating MCP op);
@@ -135,6 +142,18 @@ export class MetricsService {
       )
       .all(params) as ByOpRow[]
 
+    const byProject = this.db
+      .prepare(
+        `SELECT project,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                COUNT(*) AS ops
+         FROM token_log${whereClause}
+         GROUP BY project
+         ORDER BY project ASC`,
+      )
+      .all(params) as ByProjectRow[]
+
     return {
       summary,
       by_type: byType,
@@ -142,6 +161,7 @@ export class MetricsService {
       by_model: byModel,
       by_agent: byAgent,
       by_operation: byOperation,
+      by_project: byProject,
     }
   }
 }
