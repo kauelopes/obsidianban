@@ -83,13 +83,30 @@ export function useBoard(client: KanbanClient) {
     setCards((prev) => upsertCard(prev, summary as CardSummary))
   }, [])
 
+  /**
+   * Ids com escalação pendente, para o board poder marcá-los.
+   *
+   * Vem de kanban_list_escalations — a MESMA fonte da inbox, então o board e a
+   * inbox nunca discordam. A alternativa seria carregar o log de cada card na
+   * listagem, que é o caminho quente do board; uma chamada só resolve.
+   */
+  const [escalated, setEscalated] = useState<ReadonlySet<string>>(new Set())
+
+  const loadEscalations = useCallback(async () => {
+    const res = await clientRef.current.listEscalations()
+    // Um token de dev não enxerga esta tool. O board segue sem as marcas em vez
+    // de mostrar erro por algo que é sinal informativo, não conteúdo.
+    if (!res.ok) return
+    setEscalated(new Set(res.data.escalations.map((e) => e.card_id)))
+  }, [])
+
   useEffect(() => {
     void (async () => {
       setLoading(true)
-      await Promise.all([loadProjects(), loadCards()])
+      await Promise.all([loadProjects(), loadCards(), loadEscalations()])
       setLoading(false)
     })()
-  }, [loadProjects, loadCards])
+  }, [loadProjects, loadCards, loadEscalations])
 
   useEffect(() => {
     return subscribe(
@@ -108,6 +125,10 @@ export function useBoard(client: KanbanClient) {
             // Re-read the single card instead of trusting the payload: it is
             // authoritative and keeps the rest of the board untouched.
             if (cardId) void refreshCard(cardId)
+            // Um CARD_UPDATED pode ter sido justamente uma entrada de log que
+            // escalou ou resolveu, e o payload não diz. Reconsultar é o que
+            // mantém a marca do board igual à inbox.
+            if (ev.type === 'CARD_UPDATED') void loadEscalations()
             break
           case 'CARD_REORDERED':
             void loadCards()
@@ -120,7 +141,7 @@ export function useBoard(client: KanbanClient) {
       },
       setConn,
     )
-  }, [refreshCard, loadCards, loadProjects])
+  }, [refreshCard, loadCards, loadProjects, loadEscalations])
 
   const shapes: ProjectShape[] = useMemo(
     () =>
@@ -149,7 +170,9 @@ export function useBoard(client: KanbanClient) {
     showArchived,
     setShowArchived,
     setCards,
+    escalated,
     reload: loadCards,
+    reloadEscalations: loadEscalations,
     setError,
   }
 }

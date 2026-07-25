@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { Card } from '@obsidiankan/types'
 import { changedFields, draftFromCard } from '../src/card/FrontmatterForm.js'
-import { splitLogEntries } from '../src/card/CardDetail.js'
 
 function card(over: Partial<Card> = {}): Card {
   return {
@@ -84,50 +83,5 @@ describe('changedFields', () => {
     const c = card()
     const d = { ...draftFromCard(c), sprint_id: 's2' }
     expect(changedFields(c, d)).toEqual({ sprint_id: 's2' })
-  })
-})
-
-describe('splitLogEntries', () => {
-  it('returns nothing for an empty log', () => {
-    expect(splitLogEntries('')).toEqual([])
-    expect(splitLogEntries('   \n  ')).toEqual([])
-  })
-
-  it('splits on bold ISO timestamps', () => {
-    const log = '**2026-06-01T00:53:07Z**\n\nprimeira\n\n**2026-06-02T10:00:00Z**\n\nsegunda'
-    const out = splitLogEntries(log)
-    expect(out).toHaveLength(2)
-    expect(out[0]!.ts).toBe('2026-06-01T00:53:07Z')
-    expect(out[0]!.text).toBe('primeira')
-    expect(out[1]!.text).toBe('segunda')
-  })
-
-  it('keeps text that precedes any timestamp', () => {
-    const out = splitLogEntries('preambulo\n\n**2026-06-01T00:53:07Z**\n\nx')
-    expect(out[0]!.ts).toBeNull()
-    expect(out[0]!.text).toBe('preambulo')
-  })
-
-  it('keeps multi-line entries whole, including mermaid fences', () => {
-    const log = [
-      '**2026-06-01T00:53:07Z**',
-      '',
-      'texto',
-      '',
-      '```mermaid',
-      'graph TD',
-      '  A --> B',
-      '```',
-    ].join('\n')
-    const out = splitLogEntries(log)
-    expect(out).toHaveLength(1)
-    expect(out[0]!.text).toContain('graph TD')
-    expect(out[0]!.text).toContain('```')
-  })
-
-  it('does not treat a bold non-timestamp as a separator', () => {
-    const out = splitLogEntries('**2026-06-01T00:53:07Z**\n\n**importante**: nota')
-    expect(out).toHaveLength(1)
-    expect(out[0]!.text).toContain('**importante**')
   })
 })

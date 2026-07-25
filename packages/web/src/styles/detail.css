@@ -1,0 +1,1017 @@
+/* ── Card detail ──────────────────────────────────────────────────────────── */
+
+.detail {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--s-7) var(--s-6) var(--s-9);
+}
+
+.detail-inner {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.detail-head {
+  margin-bottom: var(--s-6);
+}
+
+.detail-head .back {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+}
+
+.detail-head h1 {
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: var(--s-4) 0 var(--s-4);
+}
+
+/* Barra de identidade: tudo que é dado de máquina sobre o card, em mono, numa
+ * linha só. É a régua do instrumento. */
+.detail-ident {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-5);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  padding-bottom: var(--s-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.detail-ident .sep {
+  color: var(--rule-strong);
+}
+
+/*
+ * ── Zonas ───────────────────────────────────────────────────────────────────
+ *
+ * As três zonas do contrato do PRD, cada uma com um registro tipográfico
+ * próprio, porque a diferença entre elas É de autoria:
+ *   Spec      → serif, humano escreve
+ *   Notes     → sans, memória de trabalho do agente, substituível
+ *   Agent Log → mono, append-only, timeline
+ * O trilho da esquerda repete a convenção do card do board.
+ */
+.zone {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  margin-top: var(--s-6);
+  background: var(--ink-1);
+  overflow: hidden;
+}
+
+.zone > header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+  background: var(--ink-1);
+  border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+  user-select: none;
+}
+
+.zone > header:hover {
+  background: var(--ink-3);
+}
+
+.zone > header h2 {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  font-weight: 600;
+  margin: 0;
+  color: var(--fg-1);
+}
+
+/* Etiqueta de quem pode escrever na zona. O contrato fica na tela em vez de
+ * viver só no PRD. */
+.zone > header .who {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+.zone > header .chev {
+  color: var(--fg-2);
+  transition: transform var(--dur-1) var(--ease);
+}
+
+.zone.collapsed > header .chev {
+  transform: rotate(-90deg);
+}
+
+.zone > .zone-body {
+  padding: var(--s-6);
+  background: var(--ink-0);
+  border-left: var(--rail-w) solid transparent;
+}
+
+.zone.spec > .zone-body {
+  border-left-color: var(--fg-1);
+}
+
+.zone.notes > .zone-body {
+  border-left-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.zone.log > .zone-body {
+  border-left-color: var(--rule-strong);
+  padding: var(--s-6) var(--s-6) var(--s-6) var(--s-5);
+}
+
+/*
+ * ── A fita do log ───────────────────────────────────────────────────────────
+ *
+ * O Agent Log é append-only e cronológico, então é desenhado como fita de
+ * registro e não como pilha de parágrafos: um trilho contínuo, um tick por
+ * entrada, timestamp em mono no tick. Dá para ver o ritmo do agente — pausas
+ * longas, rajadas — sem ler uma palavra.
+ */
+.tape {
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 var(--s-7);
+  list-style: none;
+}
+
+.tape::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 6px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--rule-strong);
+}
+
+.tape-entry {
+  position: relative;
+  padding-bottom: var(--s-6);
+}
+
+.tape-entry:last-child {
+  padding-bottom: 0;
+}
+
+/*
+ * O tick carrega a natureza da entrada por GLIFO, e o rótulo ao lado repete em
+ * palavra. Cor entra só como reforço: um leitor sem percepção de cor lê o mesmo
+ * conteúdo pela forma e pelo texto.
+ */
+.tape-entry > .tick {
+  position: absolute;
+  left: calc(-1 * var(--s-7) - 1px);
+  top: 0;
+  width: 14px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  line-height: 1.35;
+  background: var(--ink-0);
+  color: var(--fg-2);
+}
+
+.tape-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  margin-bottom: var(--s-3);
+}
+
+.tape-entry > .tape-head > time {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  letter-spacing: -0.01em;
+}
+
+.kind-label {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+}
+
+/* Escalação é "precisa de você": o único kind que ganha o matiz de alerta. */
+.tape-entry.kind-escalate > .tick,
+.tape-entry.kind-escalate .kind-label {
+  color: var(--alert);
+}
+
+.tape-entry.kind-pm_resolved > .tick,
+.tape-entry.kind-pm_resolved .kind-label {
+  color: var(--ok);
+}
+
+.tape-entry.kind-done > .tick,
+.tape-entry.kind-done .kind-label {
+  color: var(--fg-1);
+}
+
+/* Entrada sem timestamp reconhecível (preâmbulo de card legado). */
+.tape-entry.loose > .tick {
+  opacity: 0.5;
+}
+
+/* Zona de log com escalação pendente: a borda diz antes de você abrir. */
+.zone.pending > header {
+  background: var(--alert-weak);
+}
+
+.zone.pending > header h2,
+.zone.pending > header .who {
+  color: var(--alert);
+}
+
+.zone.log.pending > .zone-body {
+  border-left-color: var(--alert);
+}
+
+/* ── Prosa markdown ───────────────────────────────────────────────────────── */
+
+.md {
+  font-size: var(--t-sm);
+  line-height: var(--lh-prose);
+  color: var(--fg-0);
+}
+
+/*
+ * A prosa humana do Spec vai em serif e com medida controlada. Não é enfeite:
+ * o MathJax renderiza em face serif, então equação e texto passam a pertencer
+ * à mesma família em vez de parecerem colados de fontes diferentes.
+ */
+.md.prose {
+  font-family: var(--font-prose);
+  font-size: 0.9375rem;
+  max-width: var(--measure);
+}
+
+.md > :first-child {
+  margin-top: 0;
+}
+
+.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md :is(h1, h2, h3, h4) {
+  font-family: var(--font-ui);
+  line-height: var(--lh-tight);
+  font-weight: 600;
+  margin: 1.5em 0 0.5em;
+  letter-spacing: -0.01em;
+}
+
+.md h1 {
+  font-size: var(--t-lg);
+}
+
+.md h2 {
+  font-size: var(--t-md);
+}
+
+.md :is(h3, h4) {
+  font-size: var(--t-sm);
+}
+
+.md p {
+  margin: 0 0 0.85em;
+}
+
+.md :is(ul, ol) {
+  margin: 0 0 0.85em;
+  padding-left: 1.35em;
+}
+
+.md li {
+  margin-bottom: 0.25em;
+}
+
+/* Task list do GFM: sem bolinha, com a caixa alinhada ao texto. */
+.md li:has(> input[type='checkbox']) {
+  list-style: none;
+  margin-left: -1.35em;
+  padding-left: 1.35em;
+}
+
+.md li > input[type='checkbox'] {
+  margin-right: var(--s-3);
+  accent-color: var(--accent);
+}
+
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  padding: 0.05em 0.3em;
+  border-radius: var(--r-sm);
+}
+
+.md pre {
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: var(--s-5);
+  overflow-x: auto;
+  margin: 0 0 0.85em;
+  line-height: 1.5;
+}
+
+.md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--t-xs);
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 0 0 0.85em;
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.md :is(th, td) {
+  border: 1px solid var(--rule);
+  padding: var(--s-3) var(--s-4);
+  text-align: left;
+}
+
+.md th {
+  background: var(--ink-1);
+  font-weight: 600;
+}
+
+.md blockquote {
+  margin: 0 0 0.85em;
+  padding-left: var(--s-5);
+  border-left: 2px solid var(--rule-strong);
+  color: var(--fg-1);
+}
+
+.md hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 1.5em 0;
+}
+
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.md .mermaid {
+  overflow-x: auto;
+  margin: 0 0 0.85em;
+  padding: var(--s-5);
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+}
+
+/* MathJax em bloco pode estourar a medida; rola em vez de vazar. */
+.md mjx-container[display='true'] {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--s-2) 0;
+}
+
+/* ── Editor de zona ───────────────────────────────────────────────────────── */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.editor .tabs {
+  display: flex;
+  gap: var(--s-1);
+  border-bottom: 1px solid var(--rule);
+}
+
+.editor .tabs button {
+  border: none;
+  background: none;
+  border-radius: 0;
+  padding: var(--s-3) var(--s-5);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.editor .tabs button:hover {
+  background: none;
+  color: var(--fg-0);
+}
+
+.editor .tabs button.active {
+  color: var(--fg-0);
+  border-bottom-color: var(--accent);
+}
+
+.editor textarea {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  background: var(--ink-2);
+}
+
+.editor .actions {
+  display: flex;
+  gap: var(--s-4);
+  align-items: center;
+}
+
+.editor .actions .note {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  margin-left: auto;
+}
+
+/* ── Conflito ─────────────────────────────────────────────────────────────── */
+
+/* Conflito é "precisa de você": usa alert, e é a única caixa da tela que
+ * ganha o matiz inteiro na borda. */
+.conflict {
+  border: 1px solid var(--alert);
+  background: var(--alert-weak);
+  border-radius: var(--r-lg);
+  padding: var(--s-5) var(--s-6);
+  margin-top: var(--s-6);
+}
+
+.conflict h2 {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  margin: 0 0 var(--s-4);
+  color: var(--alert);
+}
+
+.conflict p {
+  margin: 0 0 var(--s-5);
+  line-height: var(--lh-prose);
+}
+
+.conflict .fields {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+}
+
+.conflict .actions {
+  display: flex;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+
+/* ── Formulários ──────────────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.form > label,
+.form-row > label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.form > label > span,
+.form-row > label > span {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+}
+
+.form-row {
+  display: flex;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+}
+
+.form-row > label {
+  flex: 1 1 150px;
+}
+
+.field-help {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  line-height: 1.45;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  align-items: center;
+}
+
+.chips > input {
+  flex: 1 1 150px;
+  min-width: 110px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: var(--s-1) var(--s-2) var(--s-1) var(--s-4);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  background: var(--ink-2);
+}
+
+.chip.blocked {
+  border-color: var(--rule-strong);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0 1px,
+    transparent 1px 5px
+  );
+}
+
+.chip > button {
+  border: none;
+  background: none;
+  padding: 0 var(--s-2);
+  color: var(--fg-2);
+  line-height: 1;
+  border-radius: var(--r-pill);
+}
+
+.chip > button:hover {
+  background: none;
+  color: var(--alert);
+}
+
+.autocomplete {
+  list-style: none;
+  margin: var(--s-3) 0 0;
+  padding: var(--s-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--ink-2);
+  box-shadow: var(--shadow-pop);
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.autocomplete button {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
+}
+
+.autocomplete em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+/* Campos gerenciados pelo sistema: visíveis (o PRD pede read-only, não
+ * escondido), em mono, num grid de definição. */
+.managed {
+  margin-top: var(--s-4);
+  border-top: 1px solid var(--rule);
+  padding-top: var(--s-4);
+}
+
+.managed > summary {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.managed dl {
+  margin: var(--s-5) 0 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s-3) var(--s-5);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+}
+
+.managed dt {
+  color: var(--fg-2);
+}
+
+.managed dd {
+  margin: 0;
+  color: var(--fg-1);
+  word-break: break-word;
+}
+
+/* ── Dialog ───────────────────────────────────────────────────────────────── */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh var(--s-6) var(--s-6);
+  z-index: var(--z-overlay);
+  overflow-y: auto;
+}
+
+.dialog {
+  background: var(--ink-1);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  width: 100%;
+  max-width: 620px;
+}
+
+.dialog.wide {
+  max-width: 860px;
+}
+
+.dialog > header {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: var(--s-5) var(--s-6);
+  border-bottom: 1px solid var(--rule);
+}
+
+.dialog > header h2 {
+  font-size: var(--t-md);
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+}
+
+.dialog > header button.close {
+  border: none;
+  background: none;
+  font-size: var(--t-lg);
+  line-height: 1;
+  padding: var(--s-2) var(--s-3);
+  color: var(--fg-2);
+}
+
+.dialog-body {
+  padding: var(--s-6);
+}
+
+.dialog > footer {
+  display: flex;
+  gap: var(--s-4);
+  justify-content: flex-end;
+  align-items: center;
+  padding: var(--s-5) var(--s-6);
+  border-top: 1px solid var(--rule);
+}
+
+.dialog > footer .left {
+  margin-right: auto;
+}
+
+/* ── Ações do card ────────────────────────────────────────────────────────── */
+
+.card-actions {
+  margin-top: var(--s-7);
+  padding-top: var(--s-5);
+  border-top: 1px solid var(--rule);
+}
+
+.card-actions .row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+
+/* ── Inbox de escalações ──────────────────────────────────────────────────── */
+
+.inbox {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+/*
+ * Um item de inbox é "precisa de você", então usa o matiz de alerta no trilho —
+ * o único lugar fora de conflito onde ele aparece como estrutura e não como
+ * detalhe.
+ */
+.inbox-item {
+  border: 1px solid var(--rule);
+  border-left: var(--rail-w) solid var(--alert);
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  padding: var(--s-5) var(--s-6);
+}
+
+.inbox-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s-4);
+}
+
+.inbox-title {
+  font-size: var(--t-md);
+  font-weight: 600;
+}
+
+.inbox-meta {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+/* O texto da escalação é a pergunta: ganha o registro de prosa, não de chrome. */
+.inbox-reason {
+  border-left: 1px solid var(--rule-strong);
+  padding-left: var(--s-5);
+  margin-bottom: var(--s-5);
+}
+
+.inbox-actions {
+  display: flex;
+  gap: var(--s-4);
+  align-items: center;
+}
+
+/* ── Histórico ────────────────────────────────────────────────────────────── */
+
+.history-op {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+}
+
+.history-op.MOVE {
+  color: var(--accent);
+}
+
+.history-op.CREATE {
+  color: var(--ok);
+}
+
+.history-op.DELETE,
+.history-op.ARCHIVE {
+  color: var(--alert);
+}
+
+/* ── Seletor de cards ─────────────────────────────────────────────────────── */
+
+.pick {
+  list-style: none;
+  margin: 0;
+  padding: var(--s-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--ink-2);
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.pick > li > label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.pick > li > label:hover {
+  background: var(--ink-3);
+}
+
+.pick input {
+  accent-color: var(--accent);
+  margin: 0;
+  padding: 0;
+  width: auto;
+}
+
+.pick-title {
+  flex: 1;
+  font-size: var(--t-sm);
+}
+
+.pick-meta {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+
+/* ── Métricas ─────────────────────────────────────────────────────────────── */
+
+/* Um seletor de data não precisa de meia tela; sem isto o flex-basis do
+ * .form-row genérico os estica até 700px cada. */
+.filters > label {
+  flex: 0 0 auto;
+}
+
+.filters input[type='date'] {
+  width: 11rem;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--s-5);
+  margin-top: var(--s-6);
+}
+
+/* Número grande sobre rótulo pequeno: um número de destaque não é um gráfico. */
+.tile {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--ink-1);
+  padding: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.tile-value {
+  font-size: var(--t-2xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+/* "não reportado" não é um número: não deve ter o peso de um. */
+.tile-value.muted {
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--fg-2);
+  letter-spacing: 0;
+}
+
+.note {
+  margin: var(--s-6) 0 0;
+  padding: var(--s-5);
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--r-md);
+  color: var(--fg-1);
+  font-size: var(--t-xs);
+  line-height: var(--lh-prose);
+  max-width: var(--measure);
+}
+
+.note code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--fg-0);
+}
+
+.chart {
+  margin-top: var(--s-7);
+}
+
+.chart > .label {
+  display: block;
+  margin-bottom: var(--s-4);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+.bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.bars > li {
+  display: grid;
+  grid-template-columns: 8rem 1fr 4.5rem;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.bar-label {
+  font-size: var(--t-2xs);
+  color: var(--fg-1);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-track {
+  background: var(--ink-2);
+  border-radius: var(--r-sm);
+  height: 14px;
+  overflow: hidden;
+}
+
+/*
+ * Uma cor só, e não uma rampa: o validador do dataviz reprovou a rampa
+ * sequencial deste teal (passos escuros abaixo de 3:1 contra a superfície).
+ * Cada barra leva o valor escrito ao lado, então o gráfico se lê sem cor.
+ */
+.bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  transition: width var(--dur-2) var(--ease);
+}
+
+.bars > li:hover .bar-fill {
+  background: var(--accent-hover);
+}
+
+.bar-value {
+  font-size: var(--t-xs);
+  color: var(--fg-0);
+  text-align: right;
+}
+
+/* ── Tabela de dados ──────────────────────────────────────────────────────── */
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-xs);
+}
+
+.table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+  font-weight: 400;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.table td {
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table td.num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.table td.actions {
+  text-align: right;
+  white-space: nowrap;
+}

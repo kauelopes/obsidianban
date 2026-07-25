@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { type Card, type CardSummary, type Sprint, parseSections } from '@obsidiankan/types'
+import {
+  type Card,
+  type CardSummary,
+  type LogKind,
+  type Sprint,
+  parseLogEntries,
+  parseSections,
+} from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
+import { subscribe } from '../api/events.js'
 import { errorText, type McpResult } from '../api/result.js'
 import { Markdown } from '../markdown/Markdown.js'
+import { authorOf } from './author.js'
+import { CardActions } from './CardActions.js'
+import { CardHistory } from './CardHistory.js'
 import {
   changedFields,
   draftFromCard,
@@ -12,29 +23,46 @@ import {
 } from './FrontmatterForm.js'
 import { ConflictBar, type ConflictInfo, ZoneEditor } from './ZoneEditor.js'
 
-/** Splits the Agent Log into entries so each timestamp can be anchored. */
-export function splitLogEntries(log: string): Array<{ ts: string | null; text: string }> {
-  if (!log.trim()) return []
-  const out: Array<{ ts: string | null; text: string[] }> = []
-  const TS = /^\*\*(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)\*\*$/
+/**
+ * A divisão do Agent Log em entradas mora em @obsidiankan/types: é parte do
+ * contrato do formato, não desta tela. Havia uma segunda implementação aqui que
+ * não conhecia `log_kind` — duas fontes de verdade para o mesmo parse.
+ */
 
-  for (const line of log.split('\n')) {
-    const m = TS.exec(line.trim())
-    if (m) out.push({ ts: m[1]!, text: [] })
-    else if (out.length === 0) out.push({ ts: null, text: [line] })
-    else out[out.length - 1]!.text.push(line)
-  }
-  return out.map((e) => ({ ts: e.ts, text: e.text.join('\n').trim() }))
+/** Glifo e rótulo por natureza de entrada. Nunca só cor. */
+const KIND_MARK: Record<LogKind, { glyph: string; label: string }> = {
+  progress: { glyph: '·', label: 'progresso' },
+  escalate: { glyph: '▲', label: 'escalou' },
+  done: { glyph: '●', label: 'concluiu' },
+  pm_resolved: { glyph: '✓', label: 'resolvido' },
 }
 
+/**
+ * Mesma regra da inbox: vale o kind da entrada mais recente que declarou um.
+ * Um `progress` posterior não resolve uma escalação pendente.
+ */
+function lastKindOf(entries: ReadonlyArray<{ kind: LogKind; explicit: boolean }>): LogKind | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i]!
+    if (e.explicit) return e.kind
+  }
+  return null
+}
+
+/**
+ * Cada zona diz na própria borda quem pode escrever nela. O contrato de três
+ * zonas do PRD deixa de viver só no documento.
+ */
 function Zone({
   title,
+  who,
   kind,
   children,
   actions,
   defaultOpen = true,
 }: {
   title: string
+  who: string
   kind?: string
   children: React.ReactNode
   actions?: React.ReactNode
@@ -42,14 +70,24 @@ function Zone({
 }) {
   const [open, setOpen] = useState(defaultOpen)
   return (
-    <section className={`zone${kind ? ` ${kind}` : ''}`}>
+    <section className={`zone${kind ? ` ${kind}` : ''}${open ? '' : ' collapsed'}`}>
       <header>
-        <span onClick={() => setOpen((o) => !o)} style={{ flex: 1 }}>
-          {open ? '▾' : '▸'} {title}
-        </span>
+        <button
+          className="ghost chev"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          style={{ padding: 0 }}
+        >
+          ▾
+        </button>
+        <h2 onClick={() => setOpen((o) => !o)} style={{ cursor: 'pointer' }}>
+          {title}
+        </h2>
+        <span className="who">{who}</span>
+        <div className="spacer" />
         {open && actions}
       </header>
-      {open && <div className="body">{children}</div>}
+      {open && <div className="zone-body">{children}</div>}
     </section>
   )
 }
@@ -68,6 +106,7 @@ export function CardDetail({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [conflict, setConflict] = useState<ConflictInfo | null>(null)
+  const [stale, setStale] = useState(false)
 
   const [editingMeta, setEditingMeta] = useState(false)
   const [editingSpec, setEditingSpec] = useState(false)
@@ -90,11 +129,41 @@ export function CardDetail({
     setSpec(zones.spec)
     setNotes(zones.notes)
     setError(null)
+    setStale(false)
   }, [client, id])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  const dirty = editingSpec || editingNotes || editingMeta
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
+
+  /**
+   * O detail não assinava SSE: um agente escrevendo no card enquanto a tela
+   * estava aberta deixava a tela mentindo até um reload manual.
+   *
+   * Com edição em curso não recarregamos — isso apagaria o texto não salvo.
+   * Marcamos como desatualizado e deixamos a decisão para quem está editando.
+   */
+  useEffect(() => {
+    if (!id) return
+    return subscribe((ev) => {
+      if (ev.payload['card_id'] !== id) return
+      if (
+        ev.type !== 'CARD_UPDATED' &&
+        ev.type !== 'CARD_MOVED' &&
+        ev.type !== 'CARD_HUMAN_EDITED' &&
+        ev.type !== 'CARD_ARCHIVED' &&
+        ev.type !== 'CARD_UNARCHIVED'
+      ) {
+        return
+      }
+      if (dirtyRef.current) setStale(true)
+      else void load()
+    })
+  }, [id, load])
 
   /**
    * Every write funnels through here so conflict handling exists in exactly
@@ -115,6 +184,7 @@ export function CardDetail({
         setNotes(zones.notes)
         setConflict(null)
         setError(null)
+        setStale(false)
         return true
       }
       if (res.error.kind === 'conflict') {
@@ -155,137 +225,250 @@ export function CardDetail({
     if (ok) setEditingNotes(false)
   }, [client, notes, submit])
 
-  if (error && !card) return <div className="detail"><p className="banner">{error}</p></div>
-  if (!card || !draft) return <div className="detail"><p className="empty">carregando…</p></div>
+  if (error && !card) {
+    return (
+      <div className="detail">
+        <div className="detail-inner">
+          <p className="banner">{error}</p>
+          <p>
+            <Link to="/">← board</Link>
+          </p>
+        </div>
+      </div>
+    )
+  }
+  if (!card || !draft) {
+    return (
+      <div className="detail">
+        <p className="empty-lg">carregando o card…</p>
+      </div>
+    )
+  }
 
   const zones = parseSections(card.body ?? '')
-  const log = splitLogEntries(zones.agentLog)
-  const dirty = editingSpec || editingNotes || editingMeta
+  const log = parseLogEntries(zones.agentLog)
+  const pending = log.length > 0 && lastKindOf(log) === 'escalate'
+  const author = authorOf(card.updated_by)
 
   return (
     <div className="detail">
-      <p><Link to="/">← board</Link></p>
-      <h1>{card.title}</h1>
+      <div className="detail-inner">
+        <div className="detail-head">
+          <Link className="back" to="/">
+            ← board
+          </Link>
+          <h1>{card.title}</h1>
+          <div className="detail-ident">
+            <span>{card.id}</span>
+            <span className="sep">│</span>
+            <span>{card.project}</span>
+            <span className="sep">│</span>
+            <span>{card.status.replace(/_/g, ' ')}</span>
+            <span className="sep">│</span>
+            <span>{card.type}</span>
+            <span className="sep">│</span>
+            <span>v{card.version}</span>
+            <span className="sep">│</span>
+            <span title={`atualizado por ${card.updated_by}`}>
+              {author === 'human' ? 'humano' : author === 'agent' ? 'agente' : card.updated_by}
+            </span>
+            <span className="sep">│</span>
+            <span>{card.updated_at}</span>
+          </div>
+        </div>
 
-      {error && <p className="banner">{error}</p>}
-      {conflict && (
-        <ConflictBar
-          conflict={conflict}
-          onRetry={() => {
-            setConflict(null)
-            if (editingSpec) void saveSpec()
-            else if (editingNotes) void saveNotes()
-            else void saveMeta()
-          }}
-          onDiscard={() => {
-            setConflict(null)
-            setEditingSpec(false)
-            setEditingNotes(false)
-            setEditingMeta(false)
-            void load()
-          }}
-        />
-      )}
+        {error && <p className="banner">{error}</p>}
 
-      <Zone
-        title="Propriedades"
-        actions={
-          editingMeta ? (
-            <>
-              <button className="primary" disabled={saving} onClick={saveMeta}>salvar</button>
-              <button disabled={saving} onClick={() => { setEditingMeta(false); setDraft(draftFromCard(card)) }}>
-                cancelar
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setEditingMeta(true)}>editar</button>
-          )
-        }
-      >
-        <FrontmatterForm
-          card={card}
-          draft={draft}
-          onChange={setDraft}
-          sprints={sprintsFor(card.project)}
-          candidates={cardsFor(card.project)}
-          disabled={!editingMeta || saving}
-        />
-      </Zone>
+        {stale && (
+          <p className="banner">
+            Este card mudou no servidor enquanto você editava. Suas alterações não foram
+            descartadas.
+            <button className="ghost" onClick={() => void load()}>
+              recarregar e perder edições
+            </button>
+          </p>
+        )}
 
-      <Zone
-        title="Spec"
-        actions={
-          editingSpec ? (
-            <>
-              <button className="primary" disabled={saving} onClick={saveSpec}>salvar</button>
-              <button disabled={saving} onClick={() => { setEditingSpec(false); setSpec(zones.spec) }}>
-                cancelar
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setEditingSpec(true)}>editar</button>
-          )
-        }
-      >
-        {editingSpec ? (
-          <ZoneEditor
-            value={spec}
-            onChange={setSpec}
-            disabled={saving}
-            placeholder="Contexto, critérios de aceite, restrições."
+        {conflict && (
+          <ConflictBar
+            conflict={conflict}
+            onRetry={() => {
+              setConflict(null)
+              if (editingSpec) void saveSpec()
+              else if (editingNotes) void saveNotes()
+              else void saveMeta()
+            }}
+            onDiscard={() => {
+              setConflict(null)
+              setEditingSpec(false)
+              setEditingNotes(false)
+              setEditingMeta(false)
+              void load()
+            }}
           />
-        ) : (
-          <Markdown>{zones.spec}</Markdown>
         )}
-      </Zone>
 
-      <Zone
-        title="Notes"
-        kind="notes"
-        defaultOpen={zones.notes.trim().length > 0}
-        actions={
-          editingNotes ? (
-            <>
-              <button className="primary" disabled={saving} onClick={saveNotes}>salvar</button>
-              <button disabled={saving} onClick={() => { setEditingNotes(false); setNotes(zones.notes) }}>
-                cancelar
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setEditingNotes(true)}>editar</button>
-          )
-        }
-      >
-        {editingNotes ? (
-          <ZoneEditor
-            value={notes}
-            onChange={setNotes}
-            disabled={saving}
-            rows={8}
-            placeholder="Working memory do agente — substituível, não histórico."
+        <Zone
+          title="Propriedades"
+          who="humano e pm"
+          actions={
+            editingMeta ? (
+              <>
+                <button className="primary" disabled={saving} onClick={saveMeta}>
+                  salvar
+                </button>
+                <button
+                  disabled={saving}
+                  onClick={() => {
+                    setEditingMeta(false)
+                    setDraft(draftFromCard(card))
+                  }}
+                >
+                  cancelar
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditingMeta(true)}>editar</button>
+            )
+          }
+        >
+          <FrontmatterForm
+            card={card}
+            draft={draft}
+            onChange={setDraft}
+            sprints={sprintsFor(card.project)}
+            candidates={cardsFor(card.project)}
+            disabled={!editingMeta || saving}
           />
-        ) : (
-          <Markdown>{zones.notes}</Markdown>
-        )}
-      </Zone>
+        </Zone>
 
-      <Zone title={`Agent Log (${log.length})`} kind="log" defaultOpen={false}>
-        {log.length === 0 ? (
-          <p className="empty">sem entradas</p>
-        ) : (
-          log.map((e, i) => (
-            <div className="log-entry" key={`${e.ts ?? 'x'}-${i}`} id={e.ts ?? undefined}>
-              {e.ts && <time dateTime={e.ts}>{e.ts}</time>}
-              <Markdown>{e.text}</Markdown>
-            </div>
-          ))
-        )}
-      </Zone>
+        <Zone
+          title="Spec"
+          kind="spec"
+          who="humano e pm escrevem · dev só lê"
+          actions={
+            editingSpec ? (
+              <>
+                <button className="primary" disabled={saving} onClick={saveSpec}>
+                  salvar
+                </button>
+                <button
+                  disabled={saving}
+                  onClick={() => {
+                    setEditingSpec(false)
+                    setSpec(zones.spec)
+                  }}
+                >
+                  cancelar
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditingSpec(true)}>editar</button>
+            )
+          }
+        >
+          {editingSpec ? (
+            <ZoneEditor
+              value={spec}
+              onChange={setSpec}
+              disabled={saving}
+              placeholder="Contexto, critérios de aceite, restrições."
+            />
+          ) : (
+            <Markdown prose>{zones.spec}</Markdown>
+          )}
+        </Zone>
 
-      <p className="empty">
-        v{card.version} · atualizado em {card.updated_at} por {card.updated_by}
-        {dirty && ' · alterações não salvas'}
-      </p>
+        <Zone
+          title="Notes"
+          kind="notes"
+          who="memória de trabalho do agente · substituível"
+          defaultOpen={zones.notes.trim().length > 0}
+          actions={
+            editingNotes ? (
+              <>
+                <button className="primary" disabled={saving} onClick={saveNotes}>
+                  salvar
+                </button>
+                <button
+                  disabled={saving}
+                  onClick={() => {
+                    setEditingNotes(false)
+                    setNotes(zones.notes)
+                  }}
+                >
+                  cancelar
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setEditingNotes(true)}>editar</button>
+            )
+          }
+        >
+          {editingNotes ? (
+            <ZoneEditor
+              value={notes}
+              onChange={setNotes}
+              disabled={saving}
+              rows={8}
+              placeholder="Working memory do agente — substituível, não histórico."
+            />
+          ) : (
+            <Markdown>{zones.notes}</Markdown>
+          )}
+        </Zone>
+
+        {/* Escalação pendente abre o log automaticamente: é o que você veio ver. */}
+        <Zone
+          title={`Agent Log (${log.length})`}
+          kind={pending ? 'log pending' : 'log'}
+          who={pending ? 'esperando sua decisão' : 'append-only · agentes escrevem'}
+          defaultOpen={pending || (log.length > 0 && log.length <= 12)}
+        >
+          {log.length === 0 ? (
+            <p className="empty">sem entradas</p>
+          ) : (
+            <ol className="tape">
+              {log.map((e, i) => {
+                const mark = KIND_MARK[e.kind]
+                return (
+                  <li
+                    className={`tape-entry kind-${e.kind}${e.ts ? '' : ' loose'}`}
+                    key={`${e.ts ?? 'x'}-${i}`}
+                    id={e.ts ?? undefined}
+                  >
+                    <span className="tick" aria-hidden="true">
+                      {mark.glyph}
+                    </span>
+                    <span className="tape-head">
+                      {e.ts ? (
+                        <time dateTime={e.ts}>{e.ts}</time>
+                      ) : (
+                        <time>sem timestamp</time>
+                      )}
+                      {/*
+                        O rótulo acompanha o glifo sempre: a natureza da entrada
+                        nunca é dita só por cor ou só por forma.
+                      */}
+                      {e.explicit && <span className="kind-label">{mark.label}</span>}
+                    </span>
+                    <Markdown>{e.text}</Markdown>
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </Zone>
+
+        {/* Fechado por padrão: é auditoria, não leitura corrente. */}
+        <Zone title="Histórico" who="audit log · append-only" defaultOpen={false}>
+          <CardHistory client={client} cardId={card.id} />
+        </Zone>
+
+        <CardActions client={client} card={card} onDone={() => void load()} />
+
+        {dirty && <p className="empty">alterações não salvas</p>}
+      </div>
     </div>
   )
 }

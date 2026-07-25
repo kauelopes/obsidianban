@@ -1,0 +1,654 @@
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--ink-0);
+  color: var(--fg-0);
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  line-height: var(--lh-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Um único anel de foco em toda a aplicação. O CSS anterior não tinha nenhum:
+ * navegar por teclado era invisível. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+::placeholder {
+  color: var(--fg-2);
+}
+
+/* ── Primitivos de formulário ─────────────────────────────────────────────── */
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: var(--fg-0);
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: var(--s-3) var(--s-4);
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--rule-strong);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+}
+
+button {
+  cursor: pointer;
+  color: var(--fg-1);
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  background: var(--ink-3);
+  color: var(--fg-0);
+  border-color: var(--rule-strong);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+button.danger {
+  color: var(--alert);
+  border-color: color-mix(in srgb, var(--alert) 45%, var(--rule));
+}
+
+button.danger:hover:not(:disabled) {
+  background: var(--alert-weak);
+  color: var(--alert);
+}
+
+button.ghost {
+  background: none;
+  border-color: transparent;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--ink-3);
+}
+
+/* Label em caixa alta e mono: é rótulo de instrumento, não texto de leitura. */
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+}
+
+/* Todo dado de máquina — id, versão, timestamp, contagem — em mono, para o
+ * olho poder varrer coluna abaixo sem reler. */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Casca ────────────────────────────────────────────────────────────────── */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: 0 var(--s-6);
+  height: 46px;
+  flex: 0 0 auto;
+  background: var(--ink-1);
+  border-bottom: 1px solid var(--rule);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  font-size: var(--t-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.brand a:hover {
+  text-decoration: none;
+}
+
+/* A marca é o único lugar com um traço de identidade não-semântico: um ponto
+ * teal que pulsa devagar quando o SSE está vivo. É o "sinal de portadora". */
+.brand::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.tabs-nav {
+  display: flex;
+  gap: var(--s-1);
+  margin-left: var(--s-5);
+}
+
+.tabs-nav a {
+  padding: var(--s-3) var(--s-5);
+  border-radius: var(--r-md);
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+}
+
+.tabs-nav a:hover {
+  background: var(--ink-3);
+  color: var(--fg-0);
+  text-decoration: none;
+}
+
+.tabs-nav a.active {
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+/* Estado da conexão: ponto + palavra. Verde não é "ok", é "aberto" — o canal
+ * de cor aqui é o mesmo do resto (alert/run/ok), sem inventar matiz nova. */
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+}
+
+.conn::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--fg-2);
+  flex: 0 0 auto;
+}
+
+.conn.open::before {
+  background: var(--ok);
+}
+
+.conn.connecting::before {
+  background: var(--run);
+  animation: pulse 1.1s var(--ease) infinite;
+}
+
+.conn.closed::before {
+  background: var(--alert);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn.connecting::before {
+    animation: none;
+  }
+}
+
+.search {
+  min-width: 200px;
+  font-size: var(--t-sm);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--t-xs);
+  color: var(--fg-1);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toggle input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+/* ── Board ────────────────────────────────────────────────────────────────── */
+
+.board {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--s-6) 0 var(--s-8);
+}
+
+.project {
+  margin-bottom: var(--s-8);
+}
+
+.project-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  padding: 0 var(--s-6) var(--s-4);
+  position: sticky;
+  left: 0;
+}
+
+.project-head h2 {
+  font-size: var(--t-lg);
+  font-weight: 600;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.project-head select,
+.project-head button {
+  font-size: var(--t-xs);
+  padding: var(--s-2) var(--s-4);
+}
+
+/* O scroll horizontal é POR PROJETO. Antes o board inteiro rolava junto, o que
+ * arrastava o cabeçalho do projeto para fora da tela. */
+.columns {
+  display: flex;
+  gap: var(--s-5);
+  align-items: flex-start;
+  overflow-x: auto;
+  padding: 0 var(--s-6) var(--s-3);
+  scrollbar-width: thin;
+}
+
+.column {
+  flex: 0 0 var(--col-w);
+  background: var(--ink-1);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  min-height: 96px;
+  display: flex;
+  flex-direction: column;
+}
+
+.column-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-5);
+  flex: 0 0 auto;
+  background: var(--ink-1);
+  border-bottom: 1px solid var(--rule);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-1);
+}
+
+.column-head .count {
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Cada coluna rola por dentro em vez de esticar a página.
+ *
+ * Com agentes gerando cards, uma coluna de 19 itens empurrava as outras quatro
+ * para fora da tela e destruía a comparação lado a lado, que é o motivo de um
+ * board existir. O cabeçalho fica fora do contêiner de scroll, então continua
+ * visível sem precisar de position:sticky.
+ */
+.column-body {
+  padding: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  overflow-y: auto;
+  max-height: 68vh;
+  scrollbar-width: thin;
+}
+
+/* Alvo de drop válido: o acento interativo, porque é uma afordância, não um
+ * estado do card. */
+.column.over {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--ink-1));
+}
+
+/* Alvo recusado: hachura, não vermelho. Vermelho está reservado para "precisa
+ * de você"; um drop inválido é uma afordância negada, não um alerta. */
+.column.blocked {
+  border-color: var(--rule-strong);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0 1px,
+    transparent 1px 7px
+  );
+}
+
+.column .hint {
+  margin: 0;
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  font-size: var(--t-2xs);
+  color: var(--alert);
+  border-top: 1px dashed var(--rule-strong);
+}
+
+/* ── Card do board ────────────────────────────────────────────────────────── */
+
+/*
+ * O trilho na borda esquerda é o canal de autoria: sólido = último a escrever
+ * foi humano, tracejado = agente, apagado = desconhecido (o vault real tem
+ * atores sem prefixo, então "desconhecido" é um estado de verdade e não um
+ * caso impossível).
+ */
+.card {
+  position: relative;
+  background: var(--ink-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  padding: var(--s-4) var(--s-5) var(--s-4) calc(var(--s-5) + var(--rail-w));
+  cursor: grab;
+  transition: border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+
+.card:hover {
+  border-color: var(--rule-strong);
+}
+
+.card:active {
+  cursor: grabbing;
+}
+
+.card.dragging {
+  opacity: 0.35;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--rail-w);
+  border-radius: var(--r-md) 0 0 var(--r-md);
+  background: var(--fg-2);
+  opacity: 0.35;
+}
+
+.card.by-human::before {
+  background: var(--fg-1);
+  opacity: 1;
+}
+
+/* Tracejado feito com gradiente: o agente escreve em pulsos, não contínuo. */
+.card.by-agent::before {
+  opacity: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--accent) 0 4px,
+    transparent 4px 8px
+  );
+}
+
+.card-title {
+  font-size: var(--t-md);
+  font-weight: 500;
+  line-height: var(--lh-tight);
+  margin-bottom: var(--s-3);
+}
+
+.card-title a:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/*
+ * Linha de meta em mono com slots de ordem fixa: id, prioridade, prazo,
+ * responsável. Posição estável é o que permite varrer a coluna sem ler.
+ */
+.card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+.card-meta .id {
+  letter-spacing: -0.02em;
+}
+
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+.tag {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+.tag::before {
+  content: '#';
+  opacity: 0.5;
+}
+
+/* ── Marcadores de estado ─────────────────────────────────────────────────── */
+
+/*
+ * Prioridade é um degrau, não uma cor por nível: só critical e high ganham
+ * matiz, porque só eles mudam o que você faz agora. medium/low ficam em texto
+ * apagado — pintar quatro níveis gasta o canal de cor sem informar.
+ */
+.prio {
+  font-weight: 600;
+}
+
+.prio.critical {
+  color: var(--alert);
+}
+
+.prio.high {
+  color: var(--run);
+}
+
+.prio.medium,
+.prio.low {
+  color: var(--fg-2);
+  font-weight: 400;
+}
+
+.flag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  padding: 0 var(--s-3);
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+}
+
+.flag.overdue {
+  color: var(--alert);
+  background: var(--alert-weak);
+}
+
+/* Bloqueado não é vermelho: é hachurado. Coerente com o alvo de drop recusado. */
+.flag.blocked {
+  color: var(--fg-1);
+  border-color: var(--rule-strong);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0 1px,
+    transparent 1px 5px
+  );
+}
+
+.flag.archived {
+  color: var(--fg-2);
+  border-color: var(--rule);
+}
+
+.flag.claimed {
+  color: var(--run);
+  background: var(--run-weak);
+}
+
+/* Escalado é a única coisa do board que exige ação sua. */
+.flag.escalated {
+  color: var(--alert);
+  background: var(--alert-weak);
+  font-weight: 600;
+}
+
+/*
+ * O trilho de autoria vira o de alerta quando há escalação pendente. Autoria
+ * continua legível pelo tipo e pela linha de meta; "precisa de você" ganha o
+ * canal mais forte porque é o que interrompe o seu dia.
+ */
+.card.escalated::before {
+  background: var(--alert);
+  opacity: 1;
+}
+
+.card.escalated {
+  border-color: color-mix(in srgb, var(--alert) 40%, var(--rule));
+}
+
+.pill {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  padding: var(--s-1) var(--s-3);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule);
+  color: var(--fg-1);
+}
+
+.pill.active {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 50%, var(--rule));
+}
+
+.pill.planning {
+  color: var(--fg-1);
+}
+
+.pill.closed {
+  color: var(--fg-2);
+  border-color: var(--rule);
+}
+
+.empty {
+  color: var(--fg-2);
+  font-size: var(--t-xs);
+  margin: 0;
+  padding: var(--s-4) var(--s-5);
+}
+
+/* Aviso informativo dentro do board: não bloqueia, e carrega a ação junto. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+  margin: 0 var(--s-6) var(--s-6);
+  padding: var(--s-4) var(--s-5);
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--r-md);
+  color: var(--fg-1);
+  font-size: var(--t-xs);
+  line-height: var(--lh-prose);
+}
+
+.empty-lg {
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+  max-width: 52ch;
+  line-height: var(--lh-prose);
+  padding: var(--s-8) var(--s-6);
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-4) var(--s-6);
+  background: var(--alert-weak);
+  color: var(--alert);
+  font-size: var(--t-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--alert) 40%, transparent);
+}
+
+.banner button {
+  margin-left: auto;
+}

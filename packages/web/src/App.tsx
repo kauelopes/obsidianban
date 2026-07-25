@@ -1,28 +1,54 @@
 import { useCallback, useMemo, useState } from 'react'
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Link, NavLink, Route, Routes } from 'react-router-dom'
 import type { CardSummary, Sprint } from '@obsidiankan/types'
 import { KanbanClient } from './api/client.js'
 import { errorText } from './api/result.js'
 import { Board } from './board/Board.js'
 import { useBoard } from './board/useBoard.js'
 import { CardDetail } from './card/CardDetail.js'
+import { Inbox } from './inbox/Inbox.js'
+import { Metrics } from './metrics/Metrics.js'
+import { ThemeContext } from './markdown/Markdown.js'
 import { CreateCard } from './ui/CreateCard.js'
+import { CreateProject } from './ui/CreateProject.js'
+import { ProjectPanel } from './ui/ProjectPanel.js'
 import { SprintPanel } from './ui/SprintPanel.js'
+import { ThemeToggle, useTheme } from './ui/theme.js'
 import { TokenGate, useToken } from './TokenGate.js'
 
 function Shell({
   children,
   right,
+  onLogout,
 }: {
   children: React.ReactNode
   right?: React.ReactNode
+  onLogout: () => void
 }) {
+  const { pref, cycle } = useTheme()
   return (
     <div className="app">
       <div className="topbar">
-        <h1><Link to="/">ObsidianKan</Link></h1>
+        <h1 className="brand">
+          <Link to="/">ObsidianKan</Link>
+        </h1>
+        <nav className="tabs-nav">
+          <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
+            Board
+          </NavLink>
+          <NavLink to="/inbox" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Escalações
+          </NavLink>
+          <NavLink to="/atividade" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Atividade
+          </NavLink>
+        </nav>
         <div className="spacer" />
         {right}
+        <ThemeToggle pref={pref} cycle={cycle} />
+        <button className="ghost" onClick={onLogout}>
+          sair
+        </button>
       </div>
       {children}
     </div>
@@ -33,12 +59,22 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
   const board = useBoard(client)
   const [creatingIn, setCreatingIn] = useState<string | null>(null)
   const [sprintsIn, setSprintsIn] = useState<string | null>(null)
+  const [projectIn, setProjectIn] = useState<string | null>(null)
+  const [creatingProject, setCreatingProject] = useState(false)
   const [query, setQuery] = useState('')
 
   const sprintsFor = useCallback(
     (project: string): readonly Sprint[] =>
       board.projects.find((p) => p.project === project)?.sprints ?? [],
     [board.projects],
+  )
+
+  const cardsFor = useCallback(
+    (project: string): readonly CardSummary[] =>
+      board.groups
+        .filter((g) => g.project === project)
+        .flatMap((g) => Object.values(g.cards).flat()),
+    [board.groups],
   )
 
   /**
@@ -54,7 +90,7 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
       }
       const sprint = sprintsFor(card.project).find((s) => s.id === card.sprint_id)
       if (advancing && sprint && sprint.status !== 'active') {
-        return `sprint "${sprint.name}" não está ativa`
+        return `sprint “${sprint.name}” não está ativa`
       }
       return null
     },
@@ -88,6 +124,28 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
     [board, client],
   )
 
+  /**
+   * Reorder não é otimista: kanban_reorder_card renumera e sobe a `version` de
+   * todos os outros cards da coluna, então adivinhar o resultado no cliente
+   * garantiria uma cascata de 409 no próximo movimento. Recarregamos.
+   */
+  const onReorder = useCallback(
+    async (card: CardSummary, afterCardId: string | null) => {
+      const res = await client.reorderCard({
+        id: card.id,
+        version: card.version,
+        after_card_id: afterCardId,
+        input_tokens: 0,
+        output_tokens: 0,
+        model: 'human',
+      })
+      if (!res.ok) board.setError(errorText(res.error))
+      else board.setError(null)
+      void board.reload()
+    },
+    [board, client],
+  )
+
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return board.groups
@@ -110,12 +168,14 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
 
   return (
     <Shell
+      onLogout={onLogout}
       right={
         <>
           <input
             className="search"
             value={query}
             placeholder="buscar título, tag, assignee…"
+            aria-label="Buscar cards"
             onChange={(e) => setQuery(e.target.value)}
           />
           <label className="toggle" title="Fechar uma sprint arquiva os cards em done">
@@ -126,21 +186,33 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
             />
             arquivados
           </label>
+          <button onClick={() => setCreatingProject(true)}>+ projeto</button>
           <span className={`conn ${board.conn}`}>{board.conn}</span>
-          <button onClick={onLogout}>sair</button>
         </>
       }
     >
-      {board.error && <p className="banner">{board.error}</p>}
+      {board.error && (
+        <p className="banner">
+          {board.error}
+          <button className="ghost" onClick={() => board.setError(null)}>
+            fechar
+          </button>
+        </p>
+      )}
       {board.loading ? (
-        <p className="empty" style={{ padding: 16 }}>carregando o board…</p>
+        <p className="empty-lg">carregando o board…</p>
       ) : (
         <Board
           groups={groups}
           onMove={onMove}
+          onReorder={onReorder}
+          escalated={board.escalated}
+          showArchived={board.showArchived}
+          onShowArchived={board.setShowArchived}
           moveHint={moveHint}
           onCreateCard={setCreatingIn}
           onOpenSprints={setSprintsIn}
+          onOpenProject={setProjectIn}
           sprintFilter={board.sprintFilter}
           onSprintFilter={(project, sprintId) =>
             board.setSprintFilter((prev) => ({ ...prev, [project]: sprintId }))
@@ -163,7 +235,23 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
           client={client}
           project={sprintsIn}
           sprints={sprintsFor(sprintsIn)}
+          cards={cardsFor(sprintsIn)}
           onClose={() => setSprintsIn(null)}
+          onChanged={board.reload}
+        />
+      )}
+      {creatingProject && (
+        <CreateProject
+          client={client}
+          onClose={() => setCreatingProject(false)}
+          onCreated={board.reload}
+        />
+      )}
+      {projectIn && (
+        <ProjectPanel
+          client={client}
+          project={projectIn}
+          onClose={() => setProjectIn(null)}
           onChanged={board.reload}
         />
       )}
@@ -189,7 +277,7 @@ function CardPage({ client, onLogout }: { client: KanbanClient; onLogout: () => 
   )
 
   return (
-    <Shell right={<button onClick={onLogout}>sair</button>}>
+    <Shell onLogout={onLogout}>
       <CardDetail client={client} sprintsFor={sprintsFor} cardsFor={cardsFor} />
     </Shell>
   )
@@ -198,15 +286,34 @@ function CardPage({ client, onLogout }: { client: KanbanClient; onLogout: () => 
 export function App() {
   const { token, setToken, clearToken } = useToken()
   const client = useMemo(() => (token ? new KanbanClient({ token }) : null), [token])
+  const { resolved } = useTheme()
 
   if (!client) return <TokenGate onSubmit={setToken} />
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<BoardPage client={client} onLogout={clearToken} />} />
-        <Route path="/card/:id" element={<CardPage client={client} onLogout={clearToken} />} />
-      </Routes>
-    </BrowserRouter>
+    <ThemeContext.Provider value={resolved}>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<BoardPage client={client} onLogout={clearToken} />} />
+          <Route path="/card/:id" element={<CardPage client={client} onLogout={clearToken} />} />
+          <Route
+            path="/inbox"
+            element={
+              <Shell onLogout={clearToken}>
+                <Inbox client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/atividade"
+            element={
+              <Shell onLogout={clearToken}>
+                <Metrics client={client} />
+              </Shell>
+            }
+          />
+        </Routes>
+      </BrowserRouter>
+    </ThemeContext.Provider>
   )
 }

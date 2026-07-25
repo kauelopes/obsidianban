@@ -1,0 +1,188 @@
+/*
+ * Camada de tokens — mesa de controle.
+ *
+ * Duas regras governam tudo aqui e explicam as escolhas:
+ *
+ * 1. AUTORIA não usa cor. Quem escreveu (humano ou agente) é dito por
+ *    tipografia e textura: serif para prosa humana, mono para dado de
+ *    máquina, e um trilho sólido vs. tracejado na borda do bloco. O problema
+ *    central do PRD é justamente não distinguir isso.
+ * 2. COR só significa ESTADO. Três matizes e nada mais: alert (precisa de
+ *    você), run (agente trabalhando), ok (pronto). Bloqueio usa hachura, não
+ *    cor, para não competir com "precisa de você". O acento interativo é teal
+ *    e fica de fora do conjunto de estado, então foco e link nunca são
+ *    confundidos com status.
+ *
+ * Os nomes herdados do tema Obsidian (--background-modifier-form-field e
+ * companhia) saíram: nada mais depende deles fora do plugin congelado.
+ */
+
+/* Sans é variable (um arquivo, 100–700). Mono e Serif só existem em pesos
+ * estáticos no fontsource — conferido no registry, não suposto. */
+@import '@fontsource-variable/ibm-plex-sans/wght.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+@import '@fontsource/ibm-plex-serif/latin-400.css';
+@import '@fontsource/ibm-plex-serif/latin-400-italic.css';
+@import '@fontsource/ibm-plex-serif/latin-600.css';
+
+:root {
+  /* ── Tipografia ──────────────────────────────────────────────────────── */
+  --font-ui: 'IBM Plex Sans Variable', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-prose: 'IBM Plex Serif', Georgia, serif;
+
+  /* Escala de 13px, não 16: o board é denso e fica lado a lado. Passos de
+   * ~1.15 na faixa de UI, mais abertos nos títulos. */
+  --t-2xs: 0.6875rem; /* 11px — meta de card, glifos da fita */
+  --t-xs: 0.75rem;    /* 12px — labels, cabeçalho de coluna */
+  --t-sm: 0.8125rem;  /* 13px — corpo da UI */
+  --t-md: 0.875rem;   /* 14px — título de card, input */
+  --t-lg: 1.0625rem;  /* 17px — título de seção */
+  --t-xl: 1.375rem;   /* 22px — título de card detail */
+  --t-2xl: 1.75rem;   /* 28px — número de destaque em métricas */
+
+  --lh-tight: 1.25;
+  --lh-ui: 1.4;
+  --lh-prose: 1.65;
+  --tracking-label: 0.06em;
+
+  /* Medida da prosa humana. MathJax quebra feio em linha curta. */
+  --measure: 68ch;
+
+  /* ── Espaçamento (base 4) ────────────────────────────────────────────── */
+  --s-1: 2px;
+  --s-2: 4px;
+  --s-3: 6px;
+  --s-4: 8px;
+  --s-5: 12px;
+  --s-6: 16px;
+  --s-7: 24px;
+  --s-8: 32px;
+  --s-9: 48px;
+
+  /* ── Forma ───────────────────────────────────────────────────────────── */
+  --r-sm: 3px;
+  --r-md: 5px;
+  --r-lg: 8px;
+  --r-pill: 999px;
+  --rail-w: 3px;
+  --col-w: 264px;
+
+  /* ── Movimento ───────────────────────────────────────────────────────── */
+  --dur-1: 90ms;
+  --dur-2: 160ms;
+  --ease: cubic-bezier(0.2, 0, 0.3, 1);
+
+  /* ── Elevação ────────────────────────────────────────────────────────── */
+  --z-sticky: 10;
+  --z-overlay: 50;
+  --z-toast: 60;
+
+  color-scheme: dark;
+
+  /* ── Cor: dark é o default ───────────────────────────────────────────── */
+  /* Base fria e dessaturada, não preto neutro: o cinza puro achata a
+   * hierarquia quando há muitas caixas empilhadas. */
+  --ink-0: #0f1216; /* fundo da aplicação */
+  --ink-1: #151a20; /* superfície de coluna / painel */
+  --ink-2: #1c2229; /* card, campo de formulário */
+  --ink-3: #232b34; /* hover */
+
+  --rule: #2b333d;        /* borda padrão */
+  --rule-strong: #3b4652; /* borda de ênfase / divisor de seção */
+
+  --fg-0: #e6e9ed; /* texto principal */
+  --fg-1: #a8b1bb; /* secundário */
+  --fg-2: #6f7a86; /* terciário / desabilitado */
+
+  /* Acento interativo — fora do conjunto de estado. */
+  --accent: #4bb3c4;
+  --accent-hover: #63c6d6;
+  --accent-weak: #12313a;
+  --on-accent: #06171b;
+
+  /* Estado. Exatamente três. */
+  --alert: #e0664a; /* precisa de decisão: review, escalado, atraso, conflito */
+  --alert-weak: #3a1d16;
+  --run: #d99a2b; /* agente trabalhando agora */
+  --run-weak: #392a11;
+  --ok: #58a06d; /* pronto */
+  --ok-weak: #17301f;
+
+  --hatch: color-mix(in srgb, var(--fg-2) 22%, transparent);
+  --shadow-pop: 0 8px 24px -6px rgb(0 0 0 / 0.55), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* Papel levemente quente contra a UI fria: dá profundidade sem introduzir
+   * uma cor de marca que competiria com o canal de estado. */
+  --ink-0: #fbfaf8;
+  --ink-1: #f2f1ed;
+  --ink-2: #ffffff;
+  --ink-3: #e8e7e2;
+
+  --rule: #dcdad3;
+  --rule-strong: #bfbdb4;
+
+  --fg-0: #191d22;
+  --fg-1: #4e565f;
+  --fg-2: #7d848d;
+
+  --accent: #0f7d8e;
+  --accent-hover: #0b6675;
+  --accent-weak: #dcf0f3;
+  --on-accent: #ffffff;
+
+  --alert: #b4442a;
+  --alert-weak: #fbe6e0;
+  --run: #9a6a10;
+  --run-weak: #f8eed6;
+  --ok: #35704a;
+  --ok-weak: #e0efe4;
+
+  --shadow-pop: 0 8px 24px -8px rgb(24 28 33 / 0.18), 0 2px 6px -2px rgb(24 28 33 / 0.1);
+}
+
+/* Sem data-theme explícito, segue o sistema. O toggle na topbar grava
+ * data-theme e passa a ganhar dos dois lados. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+
+    --ink-0: #fbfaf8;
+    --ink-1: #f2f1ed;
+    --ink-2: #ffffff;
+    --ink-3: #e8e7e2;
+
+    --rule: #dcdad3;
+    --rule-strong: #bfbdb4;
+
+    --fg-0: #191d22;
+    --fg-1: #4e565f;
+    --fg-2: #7d848d;
+
+    --accent: #0f7d8e;
+    --accent-hover: #0b6675;
+    --accent-weak: #dcf0f3;
+    --on-accent: #ffffff;
+
+    --alert: #b4442a;
+    --alert-weak: #fbe6e0;
+    --run: #9a6a10;
+    --run-weak: #f8eed6;
+    --ok: #35704a;
+    --ok-weak: #e0efe4;
+
+    --shadow-pop: 0 8px 24px -8px rgb(24 28 33 / 0.18), 0 2px 6px -2px rgb(24 28 33 / 0.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+  }
+}

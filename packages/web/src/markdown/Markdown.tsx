@@ -1,22 +1,43 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useId, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeMathjax from 'rehype-mathjax'
 import mermaid from 'mermaid'
+import type { Resolved } from '../ui/theme.js'
+
+/**
+ * O tema resolvido chega por contexto porque o mermaid é um singleton com
+ * estado global: só dá para ter uma configuração por vez, e ela precisa ser
+ * reaplicada antes de cada render. Antes o tema era fixo em 'dark', o que
+ * deixava todo diagrama ilegível no tema claro.
+ */
+export const ThemeContext = createContext<Resolved>('dark')
 
 // securityLevel 'strict' is mermaid's own default: it escapes HTML in labels
 // and ignores click directives. Left explicit so a future edit has to be
 // deliberate about weakening it. rehype-raw is intentionally NOT enabled.
-mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'dark' })
+function configure(theme: Resolved): void {
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: theme === 'light' ? 'neutral' : 'dark',
+    fontFamily: "'IBM Plex Sans Variable', system-ui, sans-serif",
+  })
+}
 
 function MermaidBlock({ code }: { code: string }) {
+  const theme = useContext(ThemeContext)
   const id = useId().replace(/[^a-zA-Z0-9]/g, '')
   const [svg, setSvg] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let alive = true
+    setFailed(false)
+    // Reconfigurar a cada render: outro bloco pode ter reconfigurado o
+    // singleton com outro tema entre um render e o próximo.
+    configure(theme)
     mermaid
       .render(`m${id}`, code)
       .then((r) => alive && setSvg(r.svg))
@@ -24,7 +45,7 @@ function MermaidBlock({ code }: { code: string }) {
     return () => {
       alive = false
     }
-  }, [code, id])
+  }, [code, id, theme])
 
   // A diagram that fails to parse falls back to its source rather than
   // vanishing — the text is the card's content either way.
@@ -43,12 +64,11 @@ function MermaidBlock({ code }: { code: string }) {
  * proofread inside Obsidian, which renders $...$ and $$...$$ with MathJax 3.
  * The larger bundle and async typesetting are irrelevant on localhost.
  */
-export function Markdown({ children }: { children: string }) {
-  const ref = useRef<HTMLDivElement>(null)
+export function Markdown({ children, prose = false }: { children: string; prose?: boolean }) {
   if (!children.trim()) return <p className="empty">vazio</p>
 
   return (
-    <div className="md" ref={ref}>
+    <div className={prose ? 'md prose' : 'md'}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeMathjax]}
