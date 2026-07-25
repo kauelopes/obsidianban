@@ -289,10 +289,17 @@ Mitigações:
 | **1 — Backend de zonas** | R4.1–R4.5, R5.1 | Contrato de três zonas via HTTP, ainda sem UI |
 | **2 — Board MVP** | `packages/web/`, cliente `fetch`, `EventSource`, board com dnd-kit, card detail read-only com MathJax + mermaid | Board web usável em paralelo ao Obsidian |
 | **3 — Edição** | R5.2, criação de card/projeto/sprint, substituição dos 14 modais de `plugin/src/ui/` | Paridade funcional com o plugin |
-| **4 — Supervisão** | F1 (+ `log_kind`), F3, F4, F2 | Supera o plugin |
+| **4 — Supervisão** | F1 (+ `log_kind`), F3, F4, e o redesenho da interface | Supera o plugin |
 | **5 — Desligamento** | Remover `packages/plugin`; atualizar docs e skills | Migração concluída |
 
 As fases 0 e 1 valem mesmo que a migração não aconteça.
+
+### O que ficou de fora da fase 4, e por quê
+
+- **F2 — painel do sprint workflow.** Cortado por falta de produtor de dados: o runner é processo independente, não publica estado e não existe evento `WORKFLOW_*` no SSE. A UI viria antes do dado. Ordem correta quando for feito: runner publica → SSE transporta → painel consome.
+- **F5 (templates de card) e F6 (subtasks).** Não priorizados; nenhum é pré-requisito do desligamento do plugin.
+- **`kanban_pick_next`, `kanban_claim_card`, `kanban_release_card` sem UI.** São o protocolo do dev agent. Um humano clicando "claim" compete com o agente pelo mesmo card sem ganhar nada.
+- **`kanban_bulk_create_cards` sem UI.** Existe para o PM agent criar um sprint inteiro numa chamada; o equivalente humano é criar card a card, que já existe.
 
 ---
 

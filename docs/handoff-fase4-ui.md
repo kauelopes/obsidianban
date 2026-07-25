@@ -1,14 +1,14 @@
-# Handoff — completar e redesenhar a interface web
+# Handoff — estado da migração web após a fase 4
 
 **Para:** próxima sessão
-**Branch:** `web-migration` (4 commits à frente da `main`, nada mergeado ainda)
+**Branch:** `web-migration` (nada mergeado na `main` ainda)
 **Contexto obrigatório:** leia `docs/prd-web-migration.md` primeiro. Ele é o plano; este documento é o estado atual e o que falta.
 
 ---
 
 ## Onde o projeto está
 
-As fases 0 a 3 do PRD estão feitas e commitadas. O servidor MCP não mudou de arquitetura: continua sendo a única autoridade, e o web app é cliente HTTP/SSE puro.
+As fases 0 a 4 do PRD estão feitas. O servidor MCP não mudou de arquitetura: continua sendo a única autoridade, e o web app é cliente HTTP/SSE puro.
 
 | Fase | Estado |
 |---|---|
@@ -16,66 +16,63 @@ As fases 0 a 3 do PRD estão feitas e commitadas. O servidor MCP não mudou de a
 | 1 — Contrato de três zonas | feito (`kanban_update_spec`, `kanban_update_notes`, parser em `packages/shared/src/sections.ts`) |
 | 2 — Board MVP | feito (`packages/web`, board com dnd-kit, SPA servido da mesma origem) |
 | 3 — Edição | feito (editor de card, formulário de frontmatter, criação de card/sprint) |
-| **4 — Supervisão** | **não iniciado — é o seu escopo, junto com o redesenho** |
-| 5 — Desligamento do plugin | não iniciado |
+| 4 — Supervisão + redesenho | feito quanto a F1, F3 e F4; **F2 fora de escopo por falta de produtor de dados** (ver abaixo) |
+| 5 — Desligamento do plugin | não iniciado — é o próximo escopo |
 
-Build e testes: `pnpm run build && pnpm run build:web && pnpm run typecheck && pnpm run test` — 408 testes verdes. Use `~/.local/share/pnpm/bin/pnpm` em shell não-interativo.
-
----
-
-## Sua tarefa
-
-Duas coisas, e elas devem ser planejadas juntas porque uma condiciona a outra:
-
-1. **Levantar o que já existe no servidor e não está exposto na interface**, e decidir o que precisa subir para a UI para o produto web ficar utilizável de fato.
-2. **Redesenhar a interface.** A atual é funcional mas feia — CSS escrito às pressas, sem hierarquia visual, sem identidade. Trate isso como parte do trabalho, não como polimento posterior.
-
-**Comece em plan mode.** Apresente um plano antes de escrever código. O usuário quer avaliar o escopo e as escolhas de design antes da execução.
+Build e testes: `pnpm run build && pnpm run build:web && pnpm run typecheck && pnpm run test` — 466 testes verdes (342 server + 41 plugin + 83 web). Use `~/.local/share/pnpm/bin/pnpm` em shell não-interativo.
 
 ---
 
-## Dado apurado: 13 das 30 tools não têm interface
+## O que a fase 4 entregou
 
-Levantado com diff entre `packages/server/src/server/tool-catalog.ts` e `packages/web/src/api/client.ts`:
+**F1 — Inbox de escalações** (`/inbox`). O marker `[ESCALATE]` em texto livre virou o campo estruturado `log_kind: progress | escalate | done | pm_resolved` em `kanban_log_on_card`. A tool nova `kanban_list_escalations` (`src/services/supervision.ts`) devolve os cards cuja última entrada explícita do `# Agent Log` é uma escalação, com o texto da pergunta. Responder grava um `pm_resolved`, o que tira o card da lista pela mesma regra que o pôs nela. O estado é derivado do arquivo, não indexado — uma escalação escrita à mão no Obsidian também aparece.
 
-```
-kanban_add_to_sprint          kanban_move_between_sprints
-kanban_archive_project        kanban_pick_next
-kanban_bulk_create_cards      kanban_release_card
-kanban_claim_card             kanban_set_project_repo
-kanban_create_agent_token     kanban_unarchive_project
-kanban_delete_project         kanban_get_sprint
-kanban_log_on_card
-```
+**F3 — Histórico do card** (aba no card detail). `kanban_get_card_history` (`src/services/history.ts`) lê `.kanban/audit.ndjson` de volta — até aqui nada em `src/` lia esse arquivo. O registro não é um formato plano: campos além de `ts` e `op` variam por call site, não só por `op`; quem consome checa presença.
 
-Rotas HTTP existentes e não consumidas: **`/metrics`** (agrega por dia, modelo, agente e operação; loopback-only).
+**F4 — Custo visível** (`/atividade`). Painel sobre `/metrics`, com `estimateUsd` em `packages/shared`. O valor é **estimado** e a tela diz isso: o número autoritativo é o `total_cost_usd` que o harness reporta ao sprint workflow.
 
-Não trate essa lista como um checklist a implementar cegamente. Várias dessas tools são para agentes, não para humanos — `pick_next`, `claim_card` e `release_card` existem para o dev agent. A pergunta certa é *o que o humano precisa fazer que hoje não consegue*, e a resposta provável tem mais a ver com **supervisão de agentes** do que com gestão de cards.
-
-O PRD §7 argumenta exatamente isso: o gargalo do humano não é gerenciar cards, é supervisionar agentes autônomos. Leia essa seção antes de priorizar. As features propostas lá (F1 inbox de escalações, F2 painel do workflow, F3 histórico do card, F4 custo visível) foram pensadas com esse critério, e F1 sugere promover o marker `[ESCALATE]` de convenção-em-texto para um campo estruturado `log_kind` — o que é mudança de servidor, não só de UI.
-
-Também faltam capacidades óbvias que não são tools novas: **não há como arquivar, desarquivar ou deletar um card pela interface**, embora o cliente já tenha os métodos. E não há painel de métricas — o plugin tinha um (`packages/plugin/src/view/metrics-view.ts`) que morreu na migração e precisa ser reconstruído de qualquer forma.
+**Redesenho.** `packages/web/src/styles/` (`tokens.css`, `components.css`, `detail.css`) substitui o CSS portado do Obsidian. Duas regras governam: autoria não usa cor (tipografia e textura distinguem humano de agente) e cor só significa estado (alert / run / ok, com o acento interativo fora desse conjunto). Fontes IBM Plex via `@fontsource`, locais — sem CDN.
 
 ---
 
-## Sobre o redesenho
+## Fora de escopo, com o motivo
 
-O CSS atual está em `packages/web/src/styles.css`. Ele define as ~19 variáveis que o plugin herdava do Obsidian (`--background-primary`, `--text-muted`, `--interactive-accent`, etc.) porque as regras foram portadas de lá. Você pode manter esses nomes ou abandoná-los — não há mais nada dependendo deles no web.
+Registrado aqui para o próximo Claude não reabrir a decisão:
 
-Restrições reais:
+- **F2 — Painel do sprint workflow: não feito, falta o produtor.** O runner (`packages/server/scripts/sprint-workflow.ts`) é processo independente e não publica estado; não existe evento `WORKFLOW_*` no SSE. Construir a UI antes disso seria uma tela sem dado. Ordem correta: runner publica → SSE transporta → painel consome.
+- **F5 (templates de card por projeto) e F6 (subtasks via `parent_card_id`): não priorizados.** Nenhum dos dois é pré-requisito do desligamento do plugin.
+- **`kanban_pick_next`, `kanban_claim_card`, `kanban_release_card`: sem UI, de propósito.** São o protocolo do dev agent. Um humano clicando "claim" compete com o agente pelo mesmo card sem ganhar nada.
+- **`kanban_bulk_create_cards`: sem UI.** Existe para o PM agent criar um sprint inteiro numa chamada. O equivalente humano é criar card a card, que já existe.
 
-- **Sem CDN.** O SPA é servido pelo servidor kanban em `127.0.0.1:9375`. Fontes e assets precisam ser locais ou embutidos.
-- **Densidade importa.** É um board kanban operado junto com agentes: muitos cards, colunas lado a lado, leitura rápida de estado. Não é uma landing page.
-- **Tema claro e escuro.** O atual usa `prefers-color-scheme`. Manter os dois.
-- **O conteúdo dos cards é markdown rico** — MathJax e mermaid renderizam dentro do card detail. A tipografia precisa acomodar isso sem ficar apertada.
+---
 
-Carregue a skill `frontend-design` antes de decidir direção visual. Se for construir gráficos para o painel de custo, carregue `dataviz` antes de escrever a primeira linha de chart.
+## O que ficou por verificar
+
+A fase 4 rodou sem browser. Isto **não** foi validado em tela de verdade:
+
+1. **MathJax numa tela real.** Só exercitado em jsdom, e nenhum card dos dois vaults tem `$…$` — é preciso escrever um. A escolha de serif para o `# Spec` foi feita por causa do MathJax, então está sem prova.
+2. **Ida e volta do SSE.** Editar o `.md` no disco → `CARD_HUMAN_EDITED` → a tela atualiza sem reload, inclusive com o card detail aberto. O caminho disco→tela nunca foi exercitado.
+3. **Conflito 409.** Mesma `version` alterada pela UI e por `curl`. A tela deve mostrar resolução, não erro cru.
+
+---
+
+## Decisões conscientes, não pendências
+
+- **Teto de 200 cards sem paginação no `useBoard`.** Adequado à escala real do vault; vira problema em milhares.
+- **`listEscalations` faz uma leitura de arquivo por card ativo.** Deliberado: sem índice derivado não há o que dessincronizar, e o `.md` é a fonte de verdade. Em milhares de cards valeria uma coluna preenchida na reconciliação.
+- **`health()` é o único método do cliente sem call site.** Mantido como sonda de diagnóstico.
+
+---
+
+## Sobre a fase 5
+
+Remover `packages/plugin`, atualizar docs e skills. Antes de deletar, confirme que o web cobre o fluxo completo — o plugin congelado é o rollback natural. `packages/plugin/src/view/metrics-view.ts` já foi reconstruído como `/atividade`, então não há mais nada de único lá.
 
 ---
 
 ## Como verificar o que você fizer
 
-**Isto é o mais importante deste documento.** Nas três fases anteriores eu não consegui abrir a interface em browser — a extensão do Chrome não estava conectada — e isso deixou passar três bugs que só apareceram quando o usuário abriu a tela:
+**Isto é o mais importante deste documento.** Nas fases 0 a 3 eu não consegui abrir a interface em browser — a extensão do Chrome não estava conectada — e isso deixou passar três bugs que só apareceram quando o usuário abriu a tela:
 
 1. O filtro de sprint vinha sempre vazio, porque eu li `sprints` da resposta de `kanban_list_projects`, que não tem esse campo.
 2. O board aparecia vazio, porque `kanban_list_cards` esconde arquivados por padrão e eu não portei o toggle `showArchived` que o plugin tinha. No vault real do usuário, os 30 cards de `avare` estão todos arquivados.
@@ -88,7 +85,7 @@ Então:
 - **Tente o browser primeiro.** `mcp__claude-in-chrome__*` via ToolSearch. Se conectar, use — screenshots e interação real valem mais que qualquer teste que você escreva.
 - **Se não conectar, diga isso explicitamente no relatório**, e não deixe implícito que a UI foi validada.
 - **Verifique toda forma de resposta contra o servidor rodando** antes de escrever o tipo. Suba o servidor contra uma cópia do `test-vault/` e chame a tool com `curl`. Nunca derive o tipo do que parece razoável.
-- Testes de cliente com `fetch` stubado existem em `packages/web/tests/client.test.ts` e travam os parâmetros enviados. Estenda esse padrão.
+- Testes de cliente com `fetch` stubado existem em `packages/web/tests/client.test.ts` e travam os parâmetros enviados. Respostas reais capturadas do servidor estão em `packages/web/tests/fixtures/` — estenda esse padrão em vez de inventar a forma.
 
 Setup para testar sem tocar no vault real:
 
@@ -105,9 +102,10 @@ O card `card-2vorDD5G` do `test-vault` tem mermaid no Agent Log — é o caso de
 
 ## Armadilhas conhecidas
 
+- **O `access` do `TOOL_CATALOG` não é controle de acesso.** Ele filtra o `tools/list` do MCP; a rota REST `/mcp/tool/:name` executa qualquer tool registrada para qualquer token válido. A recusa por papel mora no serviço — `requirePmOrManager` em `src/services/guards.ts`. Marcar uma tool nova como `'pm'` no catálogo e parar por aí deixa o dev agent chamá-la.
 - **`kanban-token create --role agent` sempre grava `agent_type: 'pm'`.** Não existe flag `--agent-type` no CLI. Só a tool MCP `kanban_create_agent_token` minta um token dev de verdade. Já perdi tempo com um "dev token" que era pm disfarçado e passava onde devia falhar.
 - **`packages/shared` compila para CommonJS** porque o servidor é CJS. O Vite precisa de `commonjsOptions.include` apontando para ele, senão exports de runtime como `parseSections` somem no build. Já está configurado em `packages/web/vite.config.ts` — não remova.
-- **Não toque em `packages/plugin`.** Ele está congelado e é o rollback natural até a fase 5.
+- **Não toque em `packages/plugin`** até decidir removê-lo na fase 5. Ele é o rollback natural.
 - **O servidor é a autoridade.** Regras de negócio replicadas no cliente são hint de UX, nunca decisão. O 409 do servidor é que manda. Ver `packages/web/src/App.tsx`, `moveHint`.
 - **`pnpm install --filter <pkg>` desconfigura o `node_modules` dos outros pacotes.** Use `pnpm install` sem filtro.
 
