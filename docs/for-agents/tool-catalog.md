@@ -6,7 +6,7 @@
 
 ---
 
-## Cards (13 tools)
+## Cards (15 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -15,6 +15,8 @@
 | `kanban_create_card` | PM/manager only — create a new card. Required: title, type, sprint_id. body is write-once; use kanban_log_on_card afterwards. IMPORTANT: the response includes file_basename — a URL-style slug derived from the title (lowercase, accents removed, non-alphanumeric sequences replaced by hyphens). Always read file_basename from the response rather than deriving it yourself. |  | ✓ |
 | `kanban_bulk_create_cards` | PM/manager only — create up to 100 cards in one call from the cards array (each item like kanban_create_card). Per-item partial success: the response splits into created[] and failed[], each carrying the original array index so you can match and retry only the failures. |  | ✓ |
 | `kanban_update_card` | Update fields of a card: title, status, priority, tags, due_date, assigned_to, blocked_by, agent_notes, sprint_id. Requires the card's current version (optimistic locking). |  | ✓ |
+| `kanban_update_spec` | PM/manager only — replace the # Spec section (what to do: context, acceptance criteria, constraints). Dev agents are refused: Spec is the instruction, not the workspace. Requires the card's current version (optimistic locking). Leaves # Notes and # Agent Log untouched. Pass an empty string to clear the section. |  | ✓ |
+| `kanban_update_notes` | Replace the # Notes section — agent working memory (approach decisions, links, findings). Replaceable by design, NOT history: use kanban_log_on_card for anything that must survive. Available to all agent types. Requires the card's current version (optimistic locking). Leaves # Spec and # Agent Log untouched. | ✓ | ✓ |
 | `kanban_log_on_card` | Append a timestamped log entry to the # Agent Log section. Available to all agent types (including dev). Supports markdown and mermaid diagrams. DEV AGENT ESCALATION PROTOCOL: if you are blocked or want to propose something (new card, change of scope, etc.), log your reasoning here and then call kanban_move_card to move the card to 'review' — the PM agent will read it and decide. PM agents: prefer kanban_update_card when you need to update other fields at the same time as logging. | ✓ | ✓ |
 | `kanban_move_card` | Move a card to another column. Default columns: backlog, todo, in_progress, review, done. Pass input_tokens/output_tokens to record cost. | ✓ | ✓ |
 | `kanban_reorder_card` | Reorder a card within its column. WARNING: bumps the version of every other card in the same column — check affected_cards in the response to update cached versions. |  | ✓ |

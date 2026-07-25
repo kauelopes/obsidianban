@@ -49,7 +49,7 @@ Referência completa em `docs/reference/config.md`.
 # Build do plugin Obsidian
 ~/.local/share/pnpm/bin/pnpm run build:plugin
 
-# Testes (275 testes: unit + service + integration)
+# Testes (308 testes: unit + service + integration)
 ~/.local/share/pnpm/bin/pnpm run test
 ~/.local/share/pnpm/bin/pnpm run test:watch
 ~/.local/share/pnpm/bin/pnpm run test:coverage

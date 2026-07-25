@@ -23,6 +23,7 @@ import {
   requireString,
 } from './validation.js'
 import { readCardFile, readCardBody } from '../vault/card-file.js'
+import { replaceZone } from '../cards/sections.js'
 import {
   assertWritable,
   isAdvancingBeyondTodo,
@@ -77,6 +78,14 @@ const DELETE_ALLOWED = [
 const ARCHIVE_ALLOWED = [
   'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
 ] as const
+
+const ZONE_ALLOWED_BASE = [
+  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+] as const
+const UPDATE_SPEC_ALLOWED = [...ZONE_ALLOWED_BASE, 'spec'] as const
+const UPDATE_NOTES_ALLOWED = [...ZONE_ALLOWED_BASE, 'notes'] as const
+
+const MAX_ZONE_LENGTH = 100_000
 
 export class CardWriter {
   constructor(
@@ -238,7 +247,11 @@ export class CardWriter {
     return { ...card, body, file_basename: fileBasename }
   }
 
-  async update(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+  async update(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+    zoneWrite?: { zone: 'spec' | 'notes'; content: string },
+  ): Promise<Card> {
     // Dev agents may not call update — they must use kanban_log_on_card.
     if (claims.role === 'agent' && claims.agent_type === 'dev') {
       throw forbidden('dev_agent_restricted', {
@@ -346,6 +359,11 @@ export class CardWriter {
       const next = this.normalizeBlockedBy(params['blocked_by'], current.id, row.project)
       proposed.blocked_by = next
     }
+    // Zone writes rewrite exactly one section and leave the other two byte
+    // for byte — which is what keeps # Agent Log append-only.
+    if (zoneWrite) {
+      proposed.body = replaceZone(currentBody, zoneWrite.zone, zoneWrite.content)
+    }
 
     // Status change: if we're advancing into "in_progress" or beyond, the
     // card must not have unsatisfied blockers. We compare against `proposed`
@@ -446,6 +464,41 @@ export class CardWriter {
       payload: { card_id: id, project: row.project, changed_fields: changedFields },
     })
     return { ...merged, body: newBody, file_basename: newBasename }
+  }
+
+  /**
+   * Rewrite the # Spec zone. Dev agents are refused by update()'s existing
+   * guard: Spec is the statement of what to do, and an executor rewriting its
+   * own instructions defeats the point of the separation.
+   */
+  async updateSpec(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    // update() would refuse dev agents anyway, but its message points at
+    // kanban_log_on_card — wrong advice for someone trying to write Spec.
+    if (claims.role === 'agent' && claims.agent_type === 'dev') {
+      throw forbidden('spec_is_read_only_for_dev', {
+        message:
+          'Dev agents cannot rewrite # Spec — it is the instruction, written by the PM. Use kanban_update_notes for your working memory, or kanban_log_on_card to record progress and escalate.',
+        allowed_tool: 'kanban_update_notes',
+      })
+    }
+    rejectDisallowed(params, UPDATE_SPEC_ALLOWED)
+    const { content, rest } = splitZoneParam(params, 'spec')
+    return this.update(rest, claims, { zone: 'spec', content })
+  }
+
+  /**
+   * Rewrite the # Notes zone — agent working memory, replaceable by design.
+   * Dev agents are elevated for the delegated call the same way logOnCard
+   * does it: update() refuses dev outright, but Notes is explicitly theirs.
+   */
+  async updateNotes(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    rejectDisallowed(params, UPDATE_NOTES_ALLOWED)
+    const { content, rest } = splitZoneParam(params, 'notes')
+    const elevated: TokenClaims =
+      claims.role === 'agent' && claims.agent_type === 'dev'
+        ? { ...claims, agent_type: 'pm' }
+        : claims
+    return this.update(rest, elevated, { zone: 'notes', content })
   }
 
   async delete(params: Record<string, unknown>, claims: TokenClaims): Promise<{ deleted: true; id: string }> {
@@ -623,4 +676,34 @@ export class CardWriter {
     }
     return false
   }
+}
+
+/**
+ * Pull the zone content out of the params and hand the remainder to update(),
+ * which must not see a field outside its own allow-list. An empty string is
+ * legitimate — it clears the zone.
+ */
+function splitZoneParam(
+  params: Record<string, unknown>,
+  key: 'spec' | 'notes',
+): { content: string; rest: Record<string, unknown> } {
+  if (!(key in params)) {
+    throw badRequest('missing_field', {
+      field: key,
+      message: `${key} is required — pass an empty string to clear the section.`,
+    })
+  }
+  const raw = params[key]
+  if (typeof raw !== 'string') {
+    throw badRequest('invalid_field', { field: key, message: `${key} must be a string.` })
+  }
+  if (raw.length > MAX_ZONE_LENGTH) {
+    throw badRequest('invalid_field', {
+      field: key,
+      message: `${key} exceeds ${MAX_ZONE_LENGTH} characters.`,
+    })
+  }
+  const rest = { ...params }
+  delete rest[key]
+  return { content: raw, rest }
 }

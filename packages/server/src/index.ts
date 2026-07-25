@@ -62,6 +62,8 @@ async function main(): Promise<void> {
     kanban_create_card: async (p, c) => cards.create(p, c),
     kanban_bulk_create_cards: async (p, c) => cards.bulkCreate(p, c),
     kanban_update_card: async (p, c) => cards.update(p, c),
+    kanban_update_spec: async (p, c) => cards.updateSpec(p, c),
+    kanban_update_notes: async (p, c) => cards.updateNotes(p, c),
     kanban_log_on_card: async (p, c) => cards.logOnCard(p, c),
     kanban_move_card: async (p, c) => cards.move(p, c),
     kanban_reorder_card: async (p, c) => cards.reorder(p, c),

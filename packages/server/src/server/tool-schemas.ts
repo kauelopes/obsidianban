@@ -117,6 +117,30 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     additionalProperties: false,
   },
 
+  kanban_update_spec: {
+    type: 'object',
+    required: ['id', 'version', 'spec'],
+    properties: {
+      id:      { type: 'string' },
+      version: { type: 'integer', minimum: 1 },
+      spec:    { type: 'string', maxLength: 100000, description: 'full replacement text for the # Spec section (markdown; supports mermaid and $...$ math). Empty string clears it.' },
+      ...TOKEN_FIELDS,
+    },
+    additionalProperties: false,
+  },
+
+  kanban_update_notes: {
+    type: 'object',
+    required: ['id', 'version', 'notes'],
+    properties: {
+      id:      { type: 'string' },
+      version: { type: 'integer', minimum: 1 },
+      notes:   { type: 'string', maxLength: 100000, description: 'full replacement text for the # Notes section (markdown). Empty string clears it.' },
+      ...TOKEN_FIELDS,
+    },
+    additionalProperties: false,
+  },
+
   kanban_log_on_card: {
     type: 'object',
     required: ['id', 'version', 'log_entry'],

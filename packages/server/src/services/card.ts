@@ -60,6 +60,15 @@ export class CardService {
     return this.cardWriter.update(params, claims)
   }
 
+  async updateSpec(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    return this.cardWriter.updateSpec(params, claims)
+  }
+
+  async updateNotes(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
+    return this.cardWriter.updateNotes(params, claims)
+  }
+
   async move(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
     if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
     return this.cardMover.move(params, claims)
