@@ -1,10 +1,21 @@
 import type {
+  AddToSprintResult,
   Card,
+  CardHistoryResult,
   CardSummary,
+  CreateAgentTokenResult,
+  EscalationsResult,
+  LogKind,
+  DeleteProjectResult,
+  GetSprintResult,
   ListCardsParams,
+  Metrics,
+  MoveBetweenSprintsResult,
   MoveCardParams,
+  ProjectShapeResult,
   ReorderCardParams,
   ReorderResult,
+  SetProjectRepoResult,
   Sprint,
 } from '@obsidiankan/types'
 import { type McpResult, toMcpResult } from './result.js'
@@ -123,6 +134,30 @@ export class KanbanClient {
     return this.call('kanban_update_card', this.human(params))
   }
 
+  /**
+   * `log_kind` é o que coloca (ou tira) o card da inbox de escalações. Sem ele
+   * a entrada conta como `progress`.
+   */
+  logOnCard(params: {
+    id: string
+    version: number
+    log_entry: string
+    log_kind?: LogKind
+  }): Promise<McpResult<Card>> {
+    return this.call('kanban_log_on_card', this.human(params))
+  }
+
+  listEscalations(params: { project?: string } = {}): Promise<McpResult<EscalationsResult>> {
+    return this.call('kanban_list_escalations', params)
+  }
+
+  getCardHistory(params: {
+    id: string
+    limit?: number
+  }): Promise<McpResult<CardHistoryResult>> {
+    return this.call('kanban_get_card_history', params)
+  }
+
   updateSpec(params: { id: string; version: number; spec: string }): Promise<McpResult<Card>> {
     return this.call('kanban_update_spec', this.human(params))
   }
@@ -176,6 +211,102 @@ export class KanbanClient {
 
   listSprints(params: { project: string; status?: string }): Promise<McpResult<{ sprints: Sprint[] }>> {
     return this.call('kanban_list_sprints', params)
+  }
+
+  /** Os agregados vêm aninhados em `aggregates`, não no topo da resposta. */
+  getSprint(params: { sprint_id: string }): Promise<McpResult<GetSprintResult>> {
+    return this.call('kanban_get_sprint', params)
+  }
+
+  addToSprint(params: {
+    sprint_id: string
+    card_ids: string[]
+    move_to_todo?: boolean
+  }): Promise<McpResult<AddToSprintResult>> {
+    return this.call('kanban_add_to_sprint', params)
+  }
+
+  /** `sprint_id` + `target_sprint_id` — não `from_`/`to_`. Conferido por curl. */
+  moveBetweenSprints(params: {
+    sprint_id: string
+    target_sprint_id: string
+    card_ids: string[]
+  }): Promise<McpResult<MoveBetweenSprintsResult>> {
+    return this.call('kanban_move_between_sprints', params)
+  }
+
+  /**
+   * Definir o repo também instala as skills, escreve os configs e minta os
+   * tokens de pm/dev que faltarem — tudo em `workflow_readiness`.
+   * Passar `null` limpa o repo, e nesse caso a resposta não traz
+   * `workflow_readiness` nem `target_repo`.
+   */
+  setProjectRepo(params: {
+    project: string
+    target_repo: string | null
+  }): Promise<McpResult<SetProjectRepoResult>> {
+    return this.call('kanban_set_project_repo', params)
+  }
+
+  archiveProject(params: { project: string }): Promise<McpResult<ProjectShapeResult>> {
+    return this.call('kanban_archive_project', params)
+  }
+
+  unarchiveProject(params: { project: string }): Promise<McpResult<ProjectShapeResult>> {
+    return this.call('kanban_unarchive_project', params)
+  }
+
+  /** `confirm` tem de ser igual ao nome do projeto, senão o servidor recusa. */
+  deleteProject(params: {
+    project: string
+    confirm: string
+  }): Promise<McpResult<DeleteProjectResult>> {
+    return this.call('kanban_delete_project', params)
+  }
+
+  /** O token bruto aparece uma vez só na resposta e não é recuperável depois. */
+  createAgentToken(params: {
+    project: string
+    actor: string
+    agent_type?: 'pm' | 'dev'
+  }): Promise<McpResult<CreateAgentTokenResult>> {
+    return this.call('kanban_create_agent_token', params)
+  }
+
+  /**
+   * Libera o claim de um card. Existe na UI como ação de supervisão: um agente
+   * que morreu deixa o card preso em `assigned_to` para sempre.
+   * `revert_to_status: null` mantém a coluna atual.
+   */
+  releaseCard(params: {
+    id: string
+    version: number
+    revert_to_status?: string | null
+  }): Promise<McpResult<Card>> {
+    return this.call('kanban_release_card', this.human(params))
+  }
+
+  /** GET /metrics é rota própria, loopback-only, e não pede token. */
+  async getMetrics(params: { from_date?: string; to_date?: string } = {}): Promise<
+    McpResult<Metrics>
+  > {
+    const qs = new URLSearchParams()
+    if (params.from_date) qs.set('from_date', params.from_date)
+    if (params.to_date) qs.set('to_date', params.to_date)
+    const suffix = qs.size > 0 ? `?${qs.toString()}` : ''
+    try {
+      const res = await fetch(`${this.baseUrl}/metrics${suffix}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler as métricas',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
   }
 
   /** GET /health is a plain route, not a tool — and it needs no token. */
