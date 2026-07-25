@@ -44,7 +44,7 @@ export class StaticSite {
    * extension 404s instead, so a missing bundle fails loudly rather than
    * returning HTML that the browser then refuses to execute.
    */
-  async serve(urlPath: string, res: ServerResponse): Promise<void> {
+  async serve(urlPath: string, res: ServerResponse, sessionToken?: string | null): Promise<void> {
     const clean = decodeURIComponent((urlPath.split('?')[0] ?? '/').split('#')[0] ?? '/')
     const candidate = path.resolve(this.root, '.' + path.posix.normalize(clean))
 
@@ -58,7 +58,7 @@ export class StaticSite {
 
     const direct = await readFileOrNull(candidate)
     if (direct) {
-      send(res, candidate, direct)
+      send(res, candidate, direct, sessionToken)
       return
     }
 
@@ -75,8 +75,33 @@ export class StaticSite {
       res.end('not found')
       return
     }
-    send(res, index, html)
+    send(res, index, html, sessionToken)
   }
+}
+
+/**
+ * Injeta o token de sessão no HTML de entrada.
+ *
+ * Por que aqui e não numa rota `/session`: o HTML é o único recurso que a
+ * política de mesma origem protege de leitura por outra aba. Um endpoint que
+ * devolvesse o token seria alcançável por qualquer página — ela não leria a
+ * resposta, mas bastaria um `<script src>` ou um vazamento por outro canal
+ * para o desenho ficar frágil. Entregar junto com o documento não abre porta
+ * nova nenhuma.
+ *
+ * O token é base64url, então não existe caractere capaz de fechar a tag. A
+ * checagem abaixo é o que garante isso: se um dia o formato mudar e trouxer
+ * algo fora do alfabeto, a injeção é abortada em vez de produzir HTML quebrado.
+ */
+function injectSession(html: Buffer, token: string): Buffer {
+  if (!/^[A-Za-z0-9_-]+$/.test(token)) {
+    logger.warn('static: session token has unexpected characters — not injected')
+    return html
+  }
+  const text = html.toString('utf8')
+  if (!text.includes('</head>')) return html
+  const tag = `<script>window.__KANBAN_SESSION__=${JSON.stringify(token)}</script>`
+  return Buffer.from(text.replace('</head>', `  ${tag}\n  </head>`), 'utf8')
 }
 
 async function readFileOrNull(p: string): Promise<Buffer | null> {
@@ -89,14 +114,28 @@ async function readFileOrNull(p: string): Promise<Buffer | null> {
   }
 }
 
-function send(res: ServerResponse, filePath: string, data: Buffer): void {
+function send(
+  res: ServerResponse,
+  filePath: string,
+  data: Buffer,
+  sessionToken?: string | null,
+): void {
+  const isIndex = path.basename(filePath) === 'index.html'
+  const body = isIndex && sessionToken ? injectSession(data, sessionToken) : data
+
   res.statusCode = 200
   res.setHeader('content-type', MIME[path.extname(filePath)] ?? 'application/octet-stream')
   // Vite fingerprints asset filenames, so they are safe to cache hard; the
-  // entry HTML must not be, or a rebuild would never reach the browser.
+  // entry HTML must not be, or a rebuild would never reach the browser. Com o
+  // token dentro, no-store: o documento deixa de ser cacheável em qualquer
+  // camada, não só revalidável.
   res.setHeader(
     'cache-control',
-    path.basename(filePath) === 'index.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+    isIndex
+      ? sessionToken
+        ? 'no-store'
+        : 'no-cache'
+      : 'public, max-age=31536000, immutable',
   )
-  res.end(data)
+  res.end(body)
 }

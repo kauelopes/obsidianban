@@ -7,6 +7,7 @@ import { AuditLogger } from './audit/logger.js'
 import { FileWatcher } from './watcher/file-watcher.js'
 import { reconcile } from './startup/reconcile.js'
 import { TokenValidator, extractBearer } from './auth/validator.js'
+import { mintSessionToken } from './auth/session.js'
 import { IdempotencyStore } from './server/idempotency.js'
 import { HttpServer, type ServerState } from './server/http.js'
 import { SSEEventBus } from './server/sse.js'
@@ -42,6 +43,10 @@ async function main(): Promise<void> {
   const audit = new AuditLogger(config.paths.auditLog)
 
   const validator = new TokenValidator(config.paths)
+  // Sessão do navegador: só existe enquanto este processo viver, e o SPA a
+  // recebe injetada no index.html. Nada disso toca o vault.
+  const session = mintSessionToken()
+  validator.useSession(session)
   const idempotency = new IdempotencyStore(config.paths.idempotencyStore)
   await idempotency.load()
 
@@ -180,7 +185,7 @@ async function main(): Promise<void> {
   const site = (await candidate.isAvailable()) ? candidate : undefined
   if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
 
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcp, site })
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcp, site, session })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }

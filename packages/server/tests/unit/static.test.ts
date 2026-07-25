@@ -115,3 +115,51 @@ describe('StaticSite.serve — path traversal', () => {
     }
   })
 })
+
+describe('StaticSite.serve — injeção da sessão', () => {
+  const HTML = '<!doctype html><html><head><title>k</title></head><body>spa</body></html>'
+
+  beforeEach(async () => {
+    await fs.writeFile(path.join(root, 'index.html'), HTML, 'utf8')
+  })
+
+  it('injeta o token no index.html quando a sessão é passada', async () => {
+    const res = fakeRes()
+    await new StaticSite(root).serve('/', res as never, 'tok3n_ABC-xyz')
+    expect(res.body).toContain('window.__KANBAN_SESSION__="tok3n_ABC-xyz"')
+    expect(res.body).toContain('</head>')
+  })
+
+  it('injeta também no fallback de rota do SPA', async () => {
+    const res = fakeRes()
+    await new StaticSite(root).serve('/card/card-abc', res as never, 'tok3n')
+    expect(res.body).toContain('window.__KANBAN_SESSION__')
+  })
+
+  it('não injeta quando a sessão é ausente — o gate é que assume', async () => {
+    const res = fakeRes()
+    await new StaticSite(root).serve('/', res as never, null)
+    expect(res.body).not.toContain('__KANBAN_SESSION__')
+    expect(res.header('cache-control')).toBe('no-cache')
+  })
+
+  it('HTML com token nunca é cacheável', async () => {
+    const res = fakeRes()
+    await new StaticSite(root).serve('/', res as never, 'tok3n')
+    expect(res.header('cache-control')).toBe('no-store')
+  })
+
+  it('não injeta em asset, só no documento', async () => {
+    const res = fakeRes()
+    await new StaticSite(root).serve('/assets/app-abc123.js', res as never, 'tok3n')
+    expect(res.body).toBe('console.log(1)')
+    expect(res.header('cache-control')).toContain('immutable')
+  })
+
+  it('token fora do alfabeto base64url é recusado em vez de gerar HTML quebrado', async () => {
+    const res = fakeRes()
+    await new StaticSite(root).serve('/', res as never, '</script><script>alert(1)')
+    expect(res.body).not.toContain('alert(1)')
+    expect(res.body).toBe(HTML)
+  })
+})

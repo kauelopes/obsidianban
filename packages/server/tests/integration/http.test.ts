@@ -360,6 +360,69 @@ describe('POST /mcp/tool/kanban_list_escalations', () => {
   })
 })
 
+describe('requisição que um site de terceiros poderia ter disparado', () => {
+  /** Um POST cru, sem os headers que o helper sempre põe. */
+  function rawPost(headers: Record<string, string>): Promise<Response> {
+    return fetch(`http://127.0.0.1:${port}/mcp/tool/kanban_create_card`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${pmTokenRaw}`, ...headers },
+      body: JSON.stringify({ title: 'CSRF', type: 'task', sprint_id: sprintId, ...TOKEN }),
+    })
+  }
+
+  it('sem content-type json retorna 415 — é o POST simples que dispensa preflight', async () => {
+    const res = await rawPost({ 'content-type': 'text/plain;charset=UTF-8' })
+    expect(res.status).toBe(415)
+    expect(((await res.json()) as Record<string, unknown>)['error']).toBe('unsupported_media_type')
+  })
+
+  it('sem content-type nenhum retorna 415', async () => {
+    const res = await rawPost({})
+    expect(res.status).toBe(415)
+  })
+
+  it('Sec-Fetch-Site cross-site retorna 403 mesmo com token válido', async () => {
+    const res = await rawPost({
+      'content-type': 'application/json',
+      'sec-fetch-site': 'cross-site',
+    })
+    expect(res.status).toBe(403)
+    expect(((await res.json()) as Record<string, unknown>)['reason']).toBe('cross_site')
+  })
+
+  it('Origin de outro host retorna 403', async () => {
+    const res = await rawPost({
+      'content-type': 'application/json',
+      origin: 'https://evil.example',
+    })
+    expect(res.status).toBe(403)
+    expect(((await res.json()) as Record<string, unknown>)['reason']).toBe('cross_origin')
+  })
+
+  it('same-origin do próprio SPA passa', async () => {
+    const res = await rawPost({
+      'content-type': 'application/json',
+      'sec-fetch-site': 'same-origin',
+      origin: `http://127.0.0.1:${port}`,
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('cliente não-navegador passa: curl e agentes não mandam Sec-Fetch-Site', async () => {
+    const res = await rawPost({ 'content-type': 'application/json' })
+    expect(res.status).toBe(200)
+  })
+
+  it('a recusa vem antes da autenticação — token inválido não muda o veredito', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/mcp/tool/kanban_create_card`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer lixo', 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      body: '{}',
+    })
+    expect(res.status).toBe(403)
+  })
+})
+
 describe('unknown tool', () => {
   it('POST to a non-existent tool returns 501', async () => {
     const res = await httpPost(port, '/mcp/tool/kanban_nonexistent', {}, pmTokenRaw)

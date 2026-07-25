@@ -10,6 +10,7 @@ import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
 import type { McpHttpManager } from './mcp-http.js'
 import type { StaticSite } from './static.js'
+import type { SessionToken } from '../auth/session.js'
 
 export interface ServerState {
   startedAt: number
@@ -29,6 +30,8 @@ export interface HttpServerDeps {
   mcp: McpHttpManager
   /** Built web SPA, served from the same origin. Absent when not built. */
   site?: StaticSite | undefined
+  /** Ephemeral browser session token, injected into the served index.html. */
+  session?: SessionToken | undefined
 }
 
 interface ToolHandler {
@@ -94,9 +97,12 @@ export class HttpServer {
       return this.handleMcp(req, res)
     }
 
-    // The SPA is served last so it can never shadow an API route.
+    // The SPA is served last so it can never shadow an API route. A sessão só
+    // acompanha o documento quando ele sai para o loopback: se o bind um dia
+    // mudar, o token não vaza junto com o HTML.
     if (req.method === 'GET' && this.deps.site) {
-      return this.deps.site.serve(url, res)
+      const session = isLoopback(req.socket.remoteAddress ?? '') ? this.deps.session?.raw : null
+      return this.deps.site.serve(url, res, session)
     }
 
     sendJson(res, 404, { error: 'not_found' })
@@ -157,11 +163,55 @@ export class HttpServer {
     }
   }
 
+  /**
+   * Recusa requisição que um site de terceiros poderia ter disparado.
+   *
+   * O servidor escuta em 127.0.0.1, mas isso não protege do navegador: qualquer
+   * aba aberta alcança essa porta. O que impede o abuso é o header
+   * `Authorization`, que exige preflight e portanto não pode ser forjado
+   * cross-origin — só que a defesa inteira estava apoiada nesse detalhe. Estas
+   * três checagens tiram a dependência:
+   *
+   * - `content-type: application/json` é obrigatório. Sem isso, uma página
+   *   qualquer manda um POST "simples" com `text/plain`, sem preflight, e o
+   *   readJsonBody parseia do mesmo jeito.
+   * - `Sec-Fetch-Site` é posto pelo navegador e não é falsificável por script.
+   *   Ausente significa cliente não-navegador (curl, agente, SDK) — permitido.
+   * - `Origin` cross-origin é recusado por redundância, para navegador antigo
+   *   sem Sec-Fetch-Site.
+   */
+  private rejectUnsafeRequest(req: IncomingMessage, res: ServerResponse): boolean {
+    const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase()
+    if (contentType !== 'application/json') {
+      sendJson(res, 415, {
+        error: 'unsupported_media_type',
+        hint: 'send content-type: application/json',
+      })
+      return true
+    }
+
+    const fetchSite = req.headers['sec-fetch-site']
+    if (typeof fetchSite === 'string' && fetchSite !== 'same-origin' && fetchSite !== 'none') {
+      sendJson(res, 403, { error: 'forbidden', reason: 'cross_site' })
+      return true
+    }
+
+    const origin = req.headers['origin']
+    if (typeof origin === 'string' && !sameHost(origin, req.headers.host)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'cross_origin' })
+      return true
+    }
+
+    return false
+  }
+
   private async handleToolCall(
     req: IncomingMessage,
     res: ServerResponse,
     toolName: string,
   ): Promise<void> {
+    if (this.rejectUnsafeRequest(req, res)) return
+
     const claims = await this.authenticate(req, res)
     if (!claims) return
 
@@ -215,6 +265,8 @@ export class HttpServer {
       })
       return
     }
+    if (this.rejectUnsafeRequest(req, res)) return
+
     const claims = await this.authenticate(req, res)
     if (!claims) return
     const body = await readJsonBody(req).catch((_err) => null)
@@ -248,6 +300,20 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
   res.end(JSON.stringify(body))
+}
+
+/**
+ * O header Origin traz esquema + host + porta; o Host, só host + porta. A
+ * comparação é entre as duas últimas partes — o esquema não entra porque o
+ * servidor é http puro em loopback.
+ */
+function sameHost(origin: string, host: string | undefined): boolean {
+  if (!host) return false
+  try {
+    return new URL(origin).host === host
+  } catch {
+    return false
+  }
 }
 
 function isLoopback(addr: string): boolean {
