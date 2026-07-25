@@ -310,7 +310,7 @@ export class CardService {
    */
   async logOnCard(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
     if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
-    const LOG_ONLY = ['id', 'version', 'log_entry', 'input_tokens', 'output_tokens', 'model', 'request_id'] as const
+    const LOG_ONLY = ['id', 'version', 'log_entry', 'log_kind', 'input_tokens', 'output_tokens', 'model', 'request_id'] as const
     rejectDisallowed(params, LOG_ONLY)
     if (!('log_entry' in params) || !params['log_entry']) {
       throw badRequest('missing_field', { field: 'log_entry', message: 'log_entry is required for kanban_log_on_card.' })

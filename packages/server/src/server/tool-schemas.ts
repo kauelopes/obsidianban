@@ -110,6 +110,7 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
       blocked_by:  { type: 'array', items: { type: 'string' } },
       agent_notes: { type: 'string', maxLength: 2000 },
       log_entry:   { type: 'string', maxLength: 4000, description: 'appended to # Agent Log with ISO 8601 timestamp. Prefer kanban_log_on_card when the sole purpose is logging; use this field in kanban_update_card when updating other fields at the same time.' },
+      log_kind:    { type: 'string', enum: ['progress', 'escalate', 'done', 'pm_resolved'], description: "nature of the log_entry above. Defaults to 'progress'." },
       sprint_id:   { type: 'string' },
       actor:       { type: 'string' },
       ...TOKEN_FIELDS,
@@ -148,7 +149,30 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
       id:        { type: 'string' },
       version:   { type: 'integer', minimum: 1 },
       log_entry: { type: 'string', maxLength: 4000, description: 'appended to # Agent Log with ISO 8601 timestamp; supports markdown and mermaid diagrams. Use kanban_log_on_card when you ONLY want to log progress without changing other fields; use kanban_update_card when you need to update other fields AND log at the same time.' },
+      log_kind: {
+        type: 'string',
+        enum: ['progress', 'escalate', 'done', 'pm_resolved'],
+        description: "nature of this entry. Defaults to 'progress'. Use 'escalate' when you are blocked and need a human decision — this is what puts the card in the human's escalation inbox, so prefer it over writing [ESCALATE] in the text. Use 'pm_resolved' when answering an escalation.",
+      },
       ...TOKEN_FIELDS,
+    },
+    additionalProperties: false,
+  },
+
+  kanban_get_card_history: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      id:    { type: 'string' },
+      limit: { type: 'integer', minimum: 1, maximum: 500 },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_list_escalations: {
+    type: 'object',
+    properties: {
+      project: { type: 'string', description: 'restrict to one project; omit for the whole vault (managers only — agent tokens are always scoped to their own project)' },
     },
     additionalProperties: false,
   },

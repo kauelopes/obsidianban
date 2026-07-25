@@ -297,6 +297,117 @@ export interface WorkflowReadinessResult {
   all_ok: boolean  // true = nothing needed to be installed or generated
 }
 
+// ─── Tool response envelopes ──────────────────────────────────────────────────
+//
+// Todas as formas abaixo foram capturadas de um servidor rodando e gravadas em
+// packages/web/tests/fixtures/. Não derive nenhuma delas "do que parece
+// razoável": as três fases anteriores da migração web quebraram exatamente
+// assim. Em particular, note que:
+//   - add_to_sprint e move_between_sprints NÃO têm a mesma forma;
+//   - failed[] carrega objetos, não ids;
+//   - target_repo é AUSENTE (não null) quando não está definido.
+
+/** Motivo por card numa operação de lote parcialmente bem-sucedida. */
+export interface CardOpFailure {
+  card_id: string
+  reason: string
+}
+
+export interface SprintAggregates {
+  cards_total: number
+  cards_done: number
+  cards_in_progress: number
+  cards_todo: number
+  cards_other: number
+  total_input_tokens: number
+  total_output_tokens: number
+}
+
+export interface GetSprintResult {
+  sprint: Sprint
+  project: string
+  cards: CardSummary[]
+  aggregates: SprintAggregates
+}
+
+export interface AddToSprintResult {
+  sprint_id: string
+  updated: string[]
+  added: string[]
+  moved_to_todo: string[]
+  failed: CardOpFailure[]
+}
+
+/** Sem `added`/`moved_to_todo` — a forma difere de AddToSprintResult. */
+export interface MoveBetweenSprintsResult {
+  sprint_id: string
+  target_sprint_id: string
+  updated: string[]
+  failed: CardOpFailure[]
+}
+
+export interface ProjectShapeResult {
+  project: string
+  columns: string[]
+  archived: boolean
+  /** Ausente quando não há repo definido — não é null. */
+  target_repo?: string
+}
+
+/**
+ * `kanban_set_project_repo` devolve a forma do projeto MAIS um relatório de
+ * prontidão do workflow, e como efeito colateral minta os tokens de pm e dev
+ * quando eles ainda não existem. É a única via de UI para os tokens que o
+ * sprint workflow precisa.
+ */
+export interface SetProjectRepoResult extends ProjectShapeResult {
+  workflow_readiness?: WorkflowReadinessResult
+}
+
+export interface DeleteProjectResult {
+  project: string
+  cards_deleted: number
+}
+
+export interface CardHistoryResult {
+  card_id: string
+  /**
+   * Mais recente primeiro. Além de `ts` e `op`, todo campo é opcional e varia
+   * por call site — checar presença, não inferir a forma pelo `op`.
+   */
+  entries: AuditEntry[]
+  truncated: boolean
+}
+
+export interface EscalationItem {
+  card_id: string
+  project: string
+  title: string
+  status: string
+  version: number
+  priority: string
+  assigned_to: string | null
+  updated_at: string
+  escalated_at: string | null
+  /** O texto da entrada que escalou: é a pergunta esperando decisão. */
+  reason: string
+}
+
+export interface EscalationsResult {
+  escalations: EscalationItem[]
+  /** Quantos cards foram varridos, para a UI poder dizer do que fala. */
+  scanned: number
+}
+
+export interface CreateAgentTokenResult {
+  project: string
+  token: string
+  token_id: string
+  actor: string
+  agent_type: 'pm' | 'dev'
+  created_at: string
+}
+
 // ─── Plugin-specific ─────────────────────────────────────────────────────────
 
 export type Resolution = 'keep-mine' | 'keep-theirs' | 'manual'

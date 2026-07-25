@@ -13,6 +13,8 @@ import { SSEEventBus } from './server/sse.js'
 import { StdioMcpServer } from './server/stdio.js'
 import { CardService } from './services/card.js'
 import { QueryService } from './services/query.js'
+import { HistoryService } from './services/history.js'
+import { SupervisionService } from './services/supervision.js'
 import { MetricsService } from './services/metrics.js'
 import { AdminService } from './services/admin.js'
 import { createAgentToken } from './auth/tokens.js'
@@ -52,6 +54,8 @@ async function main(): Promise<void> {
   const admin = new AdminService(config.paths, repo, audit, sse)
   const sprints = new SprintService(config.paths, repo, writer, audit, sse)
   const queries = new QueryService(repo, config.paths, () => admin.getArchivedProjects())
+  const history = new HistoryService(config.paths)
+  const supervision = new SupervisionService(config.paths, repo)
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   type ToolDef = { name: string; description: string; inputSchema?: Record<string, unknown>; access: ToolAccess; handler: ToolFn }
@@ -72,6 +76,8 @@ async function main(): Promise<void> {
     kanban_delete_card: async (p, c) => cards.delete(p, c),
     kanban_archive_card: async (p, c) => cards.archive(p, c),
     kanban_unarchive_card: async (p, c) => cards.unarchive(p, c),
+    kanban_get_card_history: async (p, c) => history.getCardHistory(p, c),
+    kanban_list_escalations: async (p, c) => supervision.listEscalations(p, c),
     kanban_claim_card: async (p, c) => cards.claim(p, c),
     kanban_release_card: async (p, c) => cards.release(p, c),
     kanban_pick_next: async (p, c) => cards.pickNext(p, c),

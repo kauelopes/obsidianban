@@ -6,7 +6,7 @@
 
 ---
 
-## Cards (15 tools)
+## Cards (17 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -17,12 +17,14 @@
 | `kanban_update_card` | Update fields of a card: title, status, priority, tags, due_date, assigned_to, blocked_by, agent_notes, sprint_id. Requires the card's current version (optimistic locking). |  | ✓ |
 | `kanban_update_spec` | PM/manager only — replace the # Spec section (what to do: context, acceptance criteria, constraints). Dev agents are refused: Spec is the instruction, not the workspace. Requires the card's current version (optimistic locking). Leaves # Notes and # Agent Log untouched. Pass an empty string to clear the section. |  | ✓ |
 | `kanban_update_notes` | Replace the # Notes section — agent working memory (approach decisions, links, findings). Replaceable by design, NOT history: use kanban_log_on_card for anything that must survive. Available to all agent types. Requires the card's current version (optimistic locking). Leaves # Spec and # Agent Log untouched. | ✓ | ✓ |
-| `kanban_log_on_card` | Append a timestamped log entry to the # Agent Log section. Available to all agent types (including dev). Supports markdown and mermaid diagrams. DEV AGENT ESCALATION PROTOCOL: if you are blocked or want to propose something (new card, change of scope, etc.), log your reasoning here and then call kanban_move_card to move the card to 'review' — the PM agent will read it and decide. PM agents: prefer kanban_update_card when you need to update other fields at the same time as logging. | ✓ | ✓ |
+| `kanban_log_on_card` | Append a timestamped log entry to the # Agent Log section. Available to all agent types (including dev). Supports markdown and mermaid diagrams. DEV AGENT ESCALATION PROTOCOL: if you are blocked or want to propose something (new card, change of scope, etc.), log your reasoning here with log_kind: 'escalate' and then call kanban_move_card to move the card to 'review' — that surfaces the card in the human's escalation inbox and the PM agent will read it and decide. Use log_kind rather than writing [ESCALATE] in the text. PM agents: answer an escalation with log_kind: 'pm_resolved'; prefer kanban_update_card when you need to update other fields at the same time as logging. | ✓ | ✓ |
 | `kanban_move_card` | Move a card to another column. Default columns: backlog, todo, in_progress, review, done. Pass input_tokens/output_tokens to record cost. | ✓ | ✓ |
 | `kanban_reorder_card` | Reorder a card within its column. WARNING: bumps the version of every other card in the same column — check affected_cards in the response to update cached versions. |  | ✓ |
 | `kanban_delete_card` | Delete a card permanently. Requires the card's current version (optimistic locking). |  | ✓ |
 | `kanban_archive_card` | Archive a card so it stops appearing in default listings |  | ✓ |
 | `kanban_unarchive_card` | Restore an archived card to the default listing |  | ✓ |
+| `kanban_get_card_history` | Full mutation history of a card, read from the append-only audit log: who changed what and when, with changed_fields, status transitions and recorded token cost. Newest first. Fields other than ts and op are all optional and vary by call site, not just by op: MOVE adds from_status/to_status, UPDATE adds changed_fields, and token fields are present only when the caller reported them. Check for presence rather than inferring the shape from op. |  | ✓ |
+| `kanban_list_escalations` | Cards whose most recent explicitly-marked Agent Log entry is an escalation — i.e. work that is waiting on a human decision. Returns the escalation timestamp and the entry text, which is the question being asked. Derived from the card files, so an escalation written by hand in Obsidian shows up too. Answer one with kanban_log_on_card using log_kind: 'pm_resolved', which removes it from this list. |  | ✓ |
 | `kanban_claim_card` | Claim a card for yourself — sets assigned_to to your actor (inferred from the token, not a parameter). Idempotent: calling it on a card you already own returns success without changing version. 409 already_claimed if held by another agent. Does NOT change the card status — call kanban_move_card separately if needed. | ✓ | ✓ |
 | `kanban_release_card` | Release a card you own so another agent can claim it. By default moves the card back to 'todo' (revert_to_status) so pick_next can find it — pass revert_to_status: null to keep the current status unchanged. | ✓ | ✓ |
 

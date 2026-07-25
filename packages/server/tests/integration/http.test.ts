@@ -9,6 +9,8 @@ import { TokenValidator } from '../../src/auth/validator.js'
 import { MetricsService } from '../../src/services/metrics.js'
 import { CardService } from '../../src/services/card.js'
 import { SprintService } from '../../src/services/sprint.js'
+import { HistoryService } from '../../src/services/history.js'
+import { SupervisionService } from '../../src/services/supervision.js'
 import { AtomicWriter } from '../../src/writer/atomic.js'
 import { AuditLogger } from '../../src/audit/logger.js'
 import { createAgentToken, createManagerToken, revokeAgentToken } from '../../src/auth/tokens.js'
@@ -47,6 +49,8 @@ beforeAll(async () => {
 
   const cardService = new CardService(paths, repo, writer, audit, sse)
   const sprintService = new SprintService(paths, repo, writer, audit, sse)
+  const historyService = new HistoryService(paths)
+  const supervisionService = new SupervisionService(paths, repo)
 
   // Create and activate a sprint so card creation has a valid sprint_id
   const mgr = makeManagerClaims()
@@ -74,6 +78,15 @@ beforeAll(async () => {
   )
   server.registerTool('kanban_create_sprint', (p, c) =>
     sprintService.createSprint(p as Record<string, unknown>, c),
+  )
+  server.registerTool('kanban_log_on_card', (p, c) =>
+    cardService.logOnCard(p as Record<string, unknown>, c),
+  )
+  server.registerTool('kanban_get_card_history', (p, c) =>
+    historyService.getCardHistory(p as Record<string, unknown>, c),
+  )
+  server.registerTool('kanban_list_escalations', (p, c) =>
+    supervisionService.listEscalations(p as Record<string, unknown>, c),
   )
 
   await server.start()
@@ -204,6 +217,145 @@ describe('access control', () => {
       { name: 'New Sprint', project: 'test-project' },
       devTokenRaw,
     )
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('POST /mcp/tool/kanban_get_card_history', () => {
+  it('returns the audit trail of a card, newest first', async () => {
+    const created = await httpPost(
+      port,
+      '/mcp/tool/kanban_create_card',
+      { title: 'History Card', type: 'task', sprint_id: sprintId, ...TOKEN },
+      pmTokenRaw,
+    )
+    const card = created.body as Record<string, unknown>
+
+    await httpPost(
+      port,
+      '/mcp/tool/kanban_log_on_card',
+      { id: card['id'], version: card['version'], log_entry: 'first step done', ...TOKEN },
+      pmTokenRaw,
+    )
+
+    const res = await httpPost(
+      port,
+      '/mcp/tool/kanban_get_card_history',
+      { id: card['id'] },
+      pmTokenRaw,
+    )
+    expect(res.status).toBe(200)
+    const body = res.body as Record<string, unknown>
+    expect(body['card_id']).toBe(card['id'])
+    const entries = body['entries'] as Array<Record<string, unknown>>
+    expect(entries.map((e) => e['op'])).toEqual(['UPDATE', 'CREATE'])
+    expect(body['truncated']).toBe(false)
+  })
+
+  it('honours limit and reports truncation', async () => {
+    const created = await httpPost(
+      port,
+      '/mcp/tool/kanban_create_card',
+      { title: 'Truncation Card', type: 'task', sprint_id: sprintId, ...TOKEN },
+      pmTokenRaw,
+    )
+    const card = created.body as Record<string, unknown>
+    await httpPost(
+      port,
+      '/mcp/tool/kanban_log_on_card',
+      { id: card['id'], version: card['version'], log_entry: 'entry', ...TOKEN },
+      pmTokenRaw,
+    )
+
+    const res = await httpPost(
+      port,
+      '/mcp/tool/kanban_get_card_history',
+      { id: card['id'], limit: 1 },
+      pmTokenRaw,
+    )
+    const body = res.body as Record<string, unknown>
+    expect((body['entries'] as unknown[]).length).toBe(1)
+    expect(body['truncated']).toBe(true)
+  })
+
+  it('unknown card id returns an empty history, not an error', async () => {
+    const res = await httpPost(
+      port,
+      '/mcp/tool/kanban_get_card_history',
+      { id: 'card-doesnotexist' },
+      pmTokenRaw,
+    )
+    expect(res.status).toBe(200)
+    expect((res.body as Record<string, unknown>)['entries']).toEqual([])
+  })
+
+  it('dev agent returns 403', async () => {
+    const res = await httpPost(
+      port,
+      '/mcp/tool/kanban_get_card_history',
+      { id: 'card-anything' },
+      devTokenRaw,
+    )
+    expect(res.status).toBe(403)
+  })
+})
+
+describe('POST /mcp/tool/kanban_list_escalations', () => {
+  it('lists a card whose last explicit log entry is an escalation, and drops it once resolved', async () => {
+    const created = await httpPost(
+      port,
+      '/mcp/tool/kanban_create_card',
+      { title: 'Escalated Card', type: 'task', sprint_id: sprintId, ...TOKEN },
+      pmTokenRaw,
+    )
+    const card = created.body as Record<string, unknown>
+
+    const escalated = await httpPost(
+      port,
+      '/mcp/tool/kanban_log_on_card',
+      {
+        id: card['id'],
+        version: card['version'],
+        log_entry: 'schema migration needs a call: drop or backfill?',
+        log_kind: 'escalate',
+        ...TOKEN,
+      },
+      pmTokenRaw,
+    )
+    expect(escalated.status).toBe(200)
+
+    const res = await httpPost(port, '/mcp/tool/kanban_list_escalations', {}, pmTokenRaw)
+    expect(res.status).toBe(200)
+    const body = res.body as Record<string, unknown>
+    expect(typeof body['scanned']).toBe('number')
+    const items = body['escalations'] as Array<Record<string, unknown>>
+    const mine = items.find((e) => e['card_id'] === card['id'])
+    expect(mine).toBeDefined()
+    expect(mine!['reason']).toContain('drop or backfill')
+    expect(mine!['title']).toBe('Escalated Card')
+
+    await httpPost(
+      port,
+      '/mcp/tool/kanban_log_on_card',
+      {
+        id: card['id'],
+        version: (escalated.body as Record<string, unknown>)['version'],
+        log_entry: 'decided: backfill',
+        log_kind: 'pm_resolved',
+        ...TOKEN,
+      },
+      pmTokenRaw,
+    )
+
+    const after = await httpPost(port, '/mcp/tool/kanban_list_escalations', {}, pmTokenRaw)
+    const remaining = (after.body as Record<string, unknown>)['escalations'] as Array<
+      Record<string, unknown>
+    >
+    expect(remaining.find((e) => e['card_id'] === card['id'])).toBeUndefined()
+  })
+
+  it('dev agent returns 403', async () => {
+    const res = await httpPost(port, '/mcp/tool/kanban_list_escalations', {}, devTokenRaw)
     expect(res.status).toBe(403)
   })
 })

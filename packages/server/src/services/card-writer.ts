@@ -23,7 +23,7 @@ import {
   requireString,
 } from './validation.js'
 import { readCardFile, readCardBody } from '../vault/card-file.js'
-import { replaceZone } from '@obsidiankan/types'
+import { formatLogHeading, isLogKind, replaceZone, type LogKind } from '@obsidiankan/types'
 import {
   assertWritable,
   isAdvancingBeyondTodo,
@@ -48,6 +48,7 @@ const UPDATE_ALLOWED_AGENT = [
   'assigned_to',
   'agent_notes',
   'log_entry',
+  'log_kind',
   'blocked_by',
 ] as const
 const UPDATE_ALLOWED_MANAGER = [...UPDATE_ALLOWED_AGENT, 'owner'] as const
@@ -344,7 +345,18 @@ export class CardWriter {
         // normalize both forms to actual newlines.
         entry = entry.replace(/\\n/g, '\n').replace(/\\t/g, '\t')
         const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-        const block = `**${ts}**\n\n${entry.trimEnd()}`
+        // O kind vai no cabeçalho da entrada, e não no frontmatter, porque o
+        // log é append-only: a natureza pertence à entrada e não ao card. O
+        // estado atual do card é derivado daí na leitura.
+        const rawKind = params['log_kind']
+        if (rawKind !== undefined && !isLogKind(rawKind)) {
+          throw badRequest('invalid_field', {
+            field: 'log_kind',
+            expected: 'progress | escalate | done | pm_resolved',
+          })
+        }
+        const kind: LogKind = isLogKind(rawKind) ? rawKind : 'progress'
+        const block = `${formatLogHeading(ts, kind)}\n\n${entry.trimEnd()}`
         const SECTION = '# Agent Log'
         if (currentBody.includes(SECTION)) {
           proposed.body = `${currentBody.trimEnd()}\n\n${block}`

@@ -16,6 +16,7 @@ import {
 import { parseCardFile } from '../cards/serialize.js'
 import { generateSprintId, requireString, optString } from './validation.js'
 import { badRequest, HttpError, notFound } from './errors.js'
+import { requirePmOrManager } from './guards.js'
 
 interface SprintAggregates {
   cards_total: number
@@ -570,12 +571,6 @@ export class SprintService {
       .then((p) => p.body)
       .catch((_err) => '') // missing or unreadable card body is non-fatal
   }
-}
-
-function requirePmOrManager(claims: TokenClaims): void {
-  if (claims.role === 'manager') return
-  if (claims.role === 'agent' && claims.agent_type === 'pm') return
-  throw new HttpError(403, { error: 'forbidden', reason: 'pm_agent_or_manager_required' })
 }
 
 function requireStringArray(p: Record<string, unknown>, key: string): string[] {
