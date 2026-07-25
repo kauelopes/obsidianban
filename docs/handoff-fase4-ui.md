@@ -17,9 +17,10 @@ As fases 0 a 4 do PRD estão feitas. O servidor MCP não mudou de arquitetura: c
 | 2 — Board MVP | feito (`packages/web`, board com dnd-kit, SPA servido da mesma origem) |
 | 3 — Edição | feito (editor de card, formulário de frontmatter, criação de card/sprint) |
 | 4 — Supervisão + redesenho | feito quanto a F1, F3 e F4; **F2 fora de escopo por falta de produtor de dados** (ver abaixo) |
+| 4.1 — Sessão e lacunas de paridade | feito (sessão injetada, endurecimento cross-site, provisionamento na criação de projeto, rota `/ajuda`) |
 | 5 — Desligamento do plugin | não iniciado — é o próximo escopo |
 
-Build e testes: `pnpm run build && pnpm run build:web && pnpm run typecheck && pnpm run test` — 466 testes verdes (342 server + 41 plugin + 83 web). Use `~/.local/share/pnpm/bin/pnpm` em shell não-interativo.
+Build e testes: `pnpm run build && pnpm run build:web && pnpm run typecheck && pnpm run test` — 499 testes verdes (365 server + 41 plugin + 93 web). Use `~/.local/share/pnpm/bin/pnpm` em shell não-interativo.
 
 ---
 
@@ -46,13 +47,23 @@ Registrado aqui para o próximo Claude não reabrir a decisão:
 
 ---
 
-## O que ficou por verificar
+## O que a fase 4.1 entregou
 
-A fase 4 rodou sem browser. Isto **não** foi validado em tela de verdade:
+**Sessão do navegador injetada.** O gate pedia um token de 43 caracteres a cada navegador novo. O servidor passou a cunhar um token de sessão ao subir — só em memória, nunca gravado no vault — e a injetá-lo no `index.html` que ele mesmo serve (`src/auth/session.ts`, `src/server/static.ts`). Rodar em loopback não dispensa autenticação: o token é a identidade de onde saem `role` e `agent_type`, sem a qual RBAC e audit log perdem sentido. O que se dispensou foi o humano digitar. Token colado continua vencendo a sessão, que é como se entra com um token de agente para conferir o que ele enxerga.
 
-1. **MathJax numa tela real.** Só exercitado em jsdom, e nenhum card dos dois vaults tem `$…$` — é preciso escrever um. A escolha de serif para o `# Spec` foi feita por causa do MathJax, então está sem prova.
-2. **Ida e volta do SSE.** Editar o `.md` no disco → `CARD_HUMAN_EDITED` → a tela atualiza sem reload, inclusive com o card detail aberto. O caminho disco→tela nunca foi exercitado.
-3. **Conflito 409.** Mesma `version` alterada pela UI e por `curl`. A tela deve mostrar resolução, não erro cru.
+**Endurecimento das rotas POST.** A defesa contra uma aba de terceiros estava apoiada num único detalhe — header `Authorization` exige preflight —, mas o `readJsonBody` parseava o corpo sem olhar o `content-type`, então um POST "simples" com `text/plain` passava sem preflight nenhum. Agora `/mcp/tool/:name` e `/mcp` exigem `application/json`, recusam `Sec-Fetch-Site` cross-site e `Origin` de outro host, e recusam **antes de autenticar**. Cliente não-navegador não manda `Sec-Fetch-Site` e segue passando — curl, o CLI do dev agent e o `/mcp` foram verificados contra o servidor rodando.
+
+**Provisionamento na criação de projeto.** `kanban_create_project` com `target_repo` só gravava o caminho; a provisão (skills, `mcp.json`, tokens de pm e dev) rodava apenas em `kanban_set_project_repo`. Os dois caminhos agora fazem a mesma coisa e devolvem o mesmo `workflow_readiness`.
+
+**Rota `/ajuda`.** O briefing do agente, que só existia no `help-modal` do plugin e sairia junto com ele na fase 5. Texto atualizado: as três zonas, o `log_kind` no lugar do `[ESCALATE]` em texto livre, e as tools de supervisão.
+
+---
+
+## Verificação em browser
+
+As três checagens que as fases 0–4 não conseguiram fazer — **MathJax em tela real, ida e volta do SSE (disco → tela) e o 409 exibido como resolução** — foram feitas manualmente pelo usuário em **2026-07-25**, junto com o resto da interface, e passaram.
+
+Duas ressalvas para quem ler isto depois: a verificação foi **manual**, não há teste automatizado cobrindo esses três caminhos, e ela vale para o estado daquela data. Uma mudança no `Markdown.tsx`, no `ZoneEditor` ou no barramento SSE volta a ficar sem rede — o `jsdom` não pega renderização de MathJax nem `EventSource` de verdade.
 
 ---
 
@@ -103,6 +114,7 @@ O card `card-2vorDD5G` do `test-vault` tem mermaid no Agent Log — é o caso de
 ## Armadilhas conhecidas
 
 - **O `access` do `TOOL_CATALOG` não é controle de acesso.** Ele filtra o `tools/list` do MCP; a rota REST `/mcp/tool/:name` executa qualquer tool registrada para qualquer token válido. A recusa por papel mora no serviço — `requirePmOrManager` em `src/services/guards.ts`. Marcar uma tool nova como `'pm'` no catálogo e parar por aí deixa o dev agent chamá-la.
+- **Em `vite dev` não há sessão injetada — o gate aparece, e isso é o esperado.** O `index.html` do dev server é o do Vite (porta 5273); só o `/mcp`, `/events`, `/health` e `/metrics` são proxied para o servidor kanban. A injeção acontece no `index.html` que o **servidor** serve, então ela só existe no build servido pela mesma origem. Em dev, cole um token — não é bug.
 - **`kanban-token create --role agent` sempre grava `agent_type: 'pm'`.** Não existe flag `--agent-type` no CLI. Só a tool MCP `kanban_create_agent_token` minta um token dev de verdade. Já perdi tempo com um "dev token" que era pm disfarçado e passava onde devia falhar.
 - **`packages/shared` compila para CommonJS** porque o servidor é CJS. O Vite precisa de `commonjsOptions.include` apontando para ele, senão exports de runtime como `parseSections` somem no build. Já está configurado em `packages/web/vite.config.ts` — não remova.
 - **Não toque em `packages/plugin`** até decidir removê-lo na fase 5. Ele é o rollback natural.
@@ -113,5 +125,5 @@ O card `card-2vorDD5G` do `test-vault` tem mermaid no Agent Log — é o caso de
 
 ## Pendências do usuário, não suas
 
-- `KANBAN_DEV_TOKEN` e `KANBAN_PM_TOKEN` não estão no `.env`. Sem eles o sprint workflow encerra com exit 2. Só o usuário pode gerar (precisa do token de manager contra o vault real).
+- `KANBAN_DEV_TOKEN` e `KANBAN_PM_TOKEN` não estão no `.env`. Sem eles o sprint workflow encerra com exit 2. Só o usuário pode gerar, e o caminho mais curto é a própria UI: em “ajustes” do projeto, reapontar o `target_repo` provisiona e devolve os dois já formatados como linha de env. Eles aparecem uma única vez.
 - O branch `web-migration` não foi mergeado na `main`.
