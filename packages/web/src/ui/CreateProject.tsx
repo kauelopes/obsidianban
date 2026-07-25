@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import type { WorkflowReadinessResult } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
 import { Dialog } from './Dialog.js'
+import { Readiness } from './ProjectPanel.js'
 
 /**
  * Criar projeto.
@@ -10,6 +12,11 @@ import { Dialog } from './Dialog.js'
  * para criar projeto por curl, não pela tela. A tool minta um token de pm
  * inicial e o devolve **uma única vez** — o plugin gravava isso num arquivo do
  * vault (`_kanban-secrets/`), que é a dívida D4. Aqui ele só existe nesta tela.
+ *
+ * Informar o repo aqui provisiona o ambiente do workflow na mesma chamada:
+ * copia as skills, escreve os configs e minta os tokens de pm e dev. Antes o
+ * campo só gravava o caminho no _meta.json, e o projeto ficava com cara de
+ * pronto e sem nada dentro.
  */
 export function CreateProject({
   client,
@@ -24,14 +31,23 @@ export function CreateProject({
   const [actor, setActor] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [created, setCreated] = useState<{ project: string; token: string; token_id: string } | null>(
-    null,
-  )
+  const [repo, setRepo] = useState('')
+  const [created, setCreated] = useState<{
+    project: string
+    token: string
+    token_id: string
+    readiness: WorkflowReadinessResult | null
+  } | null>(null)
 
   async function submit() {
     setBusy(true)
     setError(null)
-    const res = await client.createProject({ project: project.trim(), actor: actor.trim() })
+    const target = repo.trim()
+    const res = await client.createProject({
+      project: project.trim(),
+      actor: actor.trim(),
+      ...(target ? { target_repo: target } : {}),
+    })
     setBusy(false)
     if (!res.ok) {
       setError(errorText(res.error))
@@ -41,6 +57,7 @@ export function CreateProject({
       project: res.data.project,
       token: res.data.token,
       token_id: res.data.token_id,
+      readiness: res.data.workflow_readiness ?? null,
     })
     onCreated()
   }
@@ -64,6 +81,7 @@ export function CreateProject({
             token_id <span className="mono">{created.token_id}</span>. Para gerar um token de dev,
             abra “ajustes” no projeto.
           </p>
+          {created.readiness && <Readiness r={created.readiness} />}
         </>
       ) : (
         <div className="form">
@@ -86,6 +104,20 @@ export function CreateProject({
               placeholder="human:kaue"
               onChange={(e) => setActor(e.target.value)}
             />
+          </label>
+          <label>
+            <span>Repo do workflow (opcional)</span>
+            <input
+              className="mono"
+              value={repo}
+              placeholder="/home/voce/projetos/meu-repo"
+              onChange={(e) => setRepo(e.target.value)}
+            />
+            <span className="field-help">
+              Caminho absoluto. Preenchido, o servidor já instala as skills, escreve o{' '}
+              <code>mcp.json</code> e gera os tokens que o sprint workflow exige. Dá para deixar
+              vazio e configurar depois em “ajustes”.
+            </span>
           </label>
           <button
             className="primary"

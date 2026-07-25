@@ -183,7 +183,12 @@ export function ProjectPanel({
   )
 }
 
-function Readiness({ r }: { r: WorkflowReadinessResult }) {
+/**
+ * Checklist de prontidão. Exportado porque a criação de projeto com repo passa
+ * pelo mesmo provisionamento e deve mostrar o mesmo relatório — inclusive os
+ * tokens, que só existem naquele instante.
+ */
+export function Readiness({ r }: { r: WorkflowReadinessResult }) {
   const pending = [
     ...r.skills.filter((s) => !s.was_present && !s.installed).map((s) => s.path),
     ...r.config_files.filter((c) => !c.was_present && !c.written).map((c) => c.path),

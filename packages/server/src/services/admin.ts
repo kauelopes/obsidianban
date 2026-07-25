@@ -46,6 +46,8 @@ export interface CreateProjectResult {
   token: string
   actor: string
   created_at: string
+  /** Presente quando veio `target_repo` — mesma forma de kanban_set_project_repo. */
+  workflow_readiness?: WorkflowReadinessResult
 }
 
 export class AdminService {
@@ -201,19 +203,26 @@ export class AdminService {
     // The onboarding content lives in the plugin's Help button instead.
     const issued: IssuedToken = await createAgentToken(this.paths, project, actor)
 
-    if (targetRepo !== undefined) {
-      const meta = await loadProjectMeta(this.paths, project)
-      meta.target_repo = targetRepo
-      await saveProjectMeta(this.paths, project, meta)
-    }
-
-    return {
+    const base = {
       project,
       token_id: issued.token_id,
       token: issued.raw,
       actor: issued.actor,
       created_at: issued.created_at,
     }
+
+    if (targetRepo === undefined) return base
+
+    const meta = await loadProjectMeta(this.paths, project)
+    meta.target_repo = targetRepo
+    await saveProjectMeta(this.paths, project, meta)
+
+    // Gravar target_repo sem provisionar deixava o projeto com cara de pronto e
+    // sem nada dentro: skills ausentes, mcp.json ausente, tokens do workflow
+    // inexistentes. Quem informa o repo aqui recebe o mesmo tratamento de
+    // kanban_set_project_repo — é a mesma intenção declarada em outro momento.
+    const workflow_readiness = await checkWorkflowReadiness(project, targetRepo, this.paths)
+    return { ...base, workflow_readiness }
   }
 
   async setProjectRepo(

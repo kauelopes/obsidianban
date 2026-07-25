@@ -38,7 +38,7 @@
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
-| `kanban_create_project` | Create a project folder and mint an initial pm agent token (returned in the response). |  |  |
+| `kanban_create_project` | Create a project folder and mint an initial pm agent token (returned in the response). Passing target_repo also provisions the sprint workflow for that repo — installs the agent skills, writes .claude/mcp.json and settings.local.json, and mints the pm and dev tokens — and returns the same workflow_readiness report as kanban_set_project_repo. The generated tokens appear once and are not recoverable. |  |  |
 | `kanban_list_projects` | List all projects, with optional archive filters. |  |  |
 | `kanban_archive_project` | Hide a project from default listings. |  |  |
 | `kanban_unarchive_project` | Restore a previously archived project to default listings. |  |  |

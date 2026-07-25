@@ -17,6 +17,7 @@ import type {
   ReorderResult,
   SetProjectRepoResult,
   Sprint,
+  WorkflowReadinessResult,
 } from '@obsidiankan/types'
 import { type McpResult, toMcpResult } from './result.js'
 
@@ -191,13 +192,15 @@ export class KanbanClient {
   }
 
   /** Mints an initial pm token, returned raw exactly once. */
-  createProject(params: { project: string; actor: string }): Promise<
+  createProject(params: { project: string; actor: string; target_repo?: string }): Promise<
     McpResult<{
       project: string
       actor: string
       created_at: string
       token: string
       token_id: string
+      /** Só vem quando target_repo foi informado — mesma forma de setProjectRepo. */
+      workflow_readiness?: WorkflowReadinessResult
     }>
   > {
     return this.call('kanban_create_project', params)

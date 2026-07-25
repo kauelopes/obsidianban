@@ -6,6 +6,7 @@ import { errorText } from './api/result.js'
 import { Board } from './board/Board.js'
 import { useBoard } from './board/useBoard.js'
 import { CardDetail } from './card/CardDetail.js'
+import { Help } from './help/Help.js'
 import { Inbox } from './inbox/Inbox.js'
 import { Metrics } from './metrics/Metrics.js'
 import { ThemeContext } from './markdown/Markdown.js'
@@ -41,6 +42,9 @@ function Shell({
           </NavLink>
           <NavLink to="/atividade" className={({ isActive }) => (isActive ? 'active' : '')}>
             Atividade
+          </NavLink>
+          <NavLink to="/ajuda" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Ajuda
           </NavLink>
         </nav>
         <div className="spacer" />
@@ -301,6 +305,14 @@ export function App() {
             element={
               <Shell onLogout={clearToken}>
                 <Inbox client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/ajuda"
+            element={
+              <Shell onLogout={clearToken}>
+                <Help />
               </Shell>
             }
           />
