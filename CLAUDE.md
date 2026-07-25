@@ -53,7 +53,7 @@ Referência completa em `docs/reference/config.md`.
 # Build do plugin Obsidian
 ~/.local/share/pnpm/bin/pnpm run build:plugin
 
-# Testes (383 no workspace: 317 server + 41 plugin + 25 web)
+# Testes (397 no workspace: 317 server + 41 plugin + 39 web)
 ~/.local/share/pnpm/bin/pnpm run test
 ~/.local/share/pnpm/bin/pnpm run test:watch
 ~/.local/share/pnpm/bin/pnpm run test:coverage
