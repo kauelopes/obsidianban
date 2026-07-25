@@ -54,7 +54,7 @@ src/
 ├── audit/            # Audit log append-only (NDJSON)
 ├── cards/            # Repositório SQLite + serialização Markdown
 ├── db/               # Conexão SQLite, schema
-├── server/           # HTTP (Hono), SSE bus, MCP protocol, RBAC
+├── server/           # HTTP (node:http), SSE bus, MCP protocol, RBAC
 ├── services/         # Lógica de negócio (13 arquivos)
 │   ├── card.ts       # Façade de card (317 linhas)
 │   ├── card-reader.ts

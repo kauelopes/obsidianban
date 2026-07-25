@@ -9,9 +9,9 @@
 ```
 packages/
   server/    # obsidiankan-mcp — MCP Server principal
+    scripts/ # sprint-workflow.ts — orquestrador autônomo de sprint
   plugin/    # @obsidiankan/plugin — Plugin Obsidian
   shared/    # @obsidiankan/types — Tipos TypeScript compartilhados
-scripts/     # sprint-workflow.ts — orquestrador autônomo de sprint
 ```
 
 **Gerenciador de pacotes:** pnpm (workspace). Em shells não-interativos, usar `~/.local/share/pnpm/bin/pnpm`.
@@ -25,7 +25,7 @@ scripts/     # sprint-workflow.ts — orquestrador autônomo de sprint
 | `packages/server/src/index.ts` | MCP Server — modo HTTP (padrão) ou stdio (`--stdio`) |
 | `packages/server/src/auth/cli.ts` | CLI para gerar tokens (`kanban-token generate-token`) |
 | `packages/plugin/src/main.ts` | Plugin Obsidian — views, comandos, SSE subscriber |
-| `scripts/sprint-workflow.ts` | Workflow autônomo — orquestra PM + Dev agents |
+| `packages/server/scripts/sprint-workflow.ts` | Workflow autônomo — orquestra PM + Dev agents |
 
 ---
 
@@ -49,7 +49,7 @@ Referência completa em `docs/reference/config.md`.
 # Build do plugin Obsidian
 ~/.local/share/pnpm/bin/pnpm run build:plugin
 
-# Testes (267 testes: unit + service + integration)
+# Testes (275 testes: unit + service + integration)
 ~/.local/share/pnpm/bin/pnpm run test
 ~/.local/share/pnpm/bin/pnpm run test:watch
 ~/.local/share/pnpm/bin/pnpm run test:coverage
@@ -74,7 +74,7 @@ Referência completa em `docs/reference/config.md`.
 | `auth/` | Validação de tokens JWT, CLI de geração |
 | `cards/` | Repositório SQLite de cards, sincronização |
 | `db/` | Conexão SQLite, schema, migrations |
-| `server/` | HTTP (Hono), SSE, MCP protocol, RBAC, tool catalog |
+| `server/` | HTTP (`node:http` cru), SSE, MCP protocol, RBAC, tool catalog |
 | `services/` | Lógica de negócio — card, sprint, query, admin, metrics |
 | `startup/` | Reconciliação vault → SQLite no startup |
 | `util/` | Logger (pino), constantes |

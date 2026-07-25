@@ -8,6 +8,12 @@
 # Dev-only test vault (plugin output target)
 test-vault/
 
+# Local env — carries real API keys and tokens. Use .env.example as the template.
+.env
+
+# Test coverage output
+coverage/
+
 # Node
 node_modules/
 packages/*/node_modules/

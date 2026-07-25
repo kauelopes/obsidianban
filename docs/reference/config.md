@@ -28,12 +28,17 @@ Requer `claude` CLI no PATH e tokens válidos.
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `WORKFLOW_ENABLED` | `false` | Ativa auto-launch do sprint workflow ao iniciar uma sprint |
-| `WORKFLOW_SCRIPT_PATH` | `/app/dist/sprint-workflow.js` | Caminho para o script compilado do workflow |
-| `WORKFLOW_TARGET_REPO` | — | Diretório do repositório trabalhado pelo dev agent |
-| `WORKFLOW_LOG_DIR` | — | Diretório para logs por sprint. Ex: `/vault/.sprint-logs` |
+| `WORKFLOW_SCRIPT_PATH` | — | Path absoluto para `packages/server/scripts/sprint-workflow.ts`. **Sem default:** se `WORKFLOW_ENABLED=true` e esta variável não estiver definida, o auto-launch é desligado com um `logger.warn` e a sprint inicia sem workflow |
+| `WORKFLOW_LOG_DIR` | — | Diretório para logs por sprint. Ex: `<vault>/.sprint-logs` |
 | `ANTHROPIC_API_KEY` | — | API key Anthropic para o LLM de triagem e dev harness |
 | `KANBAN_PM_TOKEN` | — | Token PM (gerado via `kanban_create_agent_token`) |
 | `KANBAN_DEV_TOKEN` | — | Token Dev (gerado via `kanban_create_agent_token`) |
+
+O script é lançado com `node --import tsx`, por isso `WORKFLOW_SCRIPT_PATH` aponta para o `.ts` fonte — o build não emite `scripts/` (o `tsconfig.json` do server usa `rootDir: src`).
+
+O diretório de trabalho do dev harness **não** vem do ambiente: é o `target_repo` do projeto, definido por `kanban_set_project_repo`. Não existe fallback global.
+
+`KANBAN_PM_TOKEN` e `KANBAN_DEV_TOKEN` são obrigatórios — o workflow encerra com exit 2 se algum faltar.
 
 ---
 

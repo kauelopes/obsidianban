@@ -76,7 +76,7 @@ flowchart TB
     end
 
     USER -->|"HTTP POST /mcp/tool\nBearer manager-token"| SRV
-    OBS -->|"HTTP /mcp\nSSE /sse"| SRV
+    OBS -->|"HTTP /mcp\nSSE /events"| SRV
     WF -->|"HTTP POST /mcp/tool\nBearer pm-token"| SRV
     WF -->|"HTTPS — SDK direto\n(triage LLM)"| CLAUDE_API
     WF -->|"spawn('claude', args)"| CLI

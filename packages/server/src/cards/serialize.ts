@@ -36,6 +36,23 @@ export function parseCardFile(content: string): ParsedCardFile {
   return { data: parsed.data as Record<string, unknown>, body: parsed.content }
 }
 
+/**
+ * Recover the markdown body without going through the YAML parser. Used when
+ * gray-matter rejects the frontmatter outright: the block is unusable but the
+ * body below it is still the human's content and must survive the revert.
+ * An unterminated opening fence yields the whole file — losing nothing beats
+ * guessing where the frontmatter ends.
+ */
+export function extractBodyRaw(content: string): string {
+  const text = content.startsWith('﻿') ? content.slice(1) : content
+  const lines = text.split(/\r?\n/)
+  if (lines[0]?.trim() !== '---') return text
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]?.trim() === '---') return lines.slice(i + 1).join('\n')
+  }
+  return text
+}
+
 export function serializeCard(card: Omit<Card, 'body'>, body: string): string {
   const ordered: Record<string, unknown> = {}
   for (const k of FRONTMATTER_KEYS) ordered[k] = card[k]

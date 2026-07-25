@@ -6,7 +6,7 @@ import type { AuditLogger } from '../audit/logger.js'
 import type { CardRepository } from '../cards/repository.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
-import { parseCardFile, cardFromFrontmatter } from '../cards/serialize.js'
+import { parseCardFile, cardFromFrontmatter, extractBodyRaw } from '../cards/serialize.js'
 import { loadProjectMetaOrNull } from '../vault/layout.js'
 import { logger } from '../util/logger.js'
 import { sha256 } from '../writer/atomic.js'
@@ -114,7 +114,7 @@ export class FileWatcher {
       const byBasename = this.repo.findByBasename(project, basename)
       if (byBasename) {
         const canonical = this.repo.toCard(byBasename)
-        await this.revertToCanonical(canonical)
+        await this.revertToCanonical(canonical, parsed?.body ?? extractBodyRaw(content))
         if (parsed && idFromFile && idFromFile !== canonical.id) {
           // Human tampered with the immutable id field.
           await this.audit.log({
@@ -174,7 +174,7 @@ export class FileWatcher {
     try {
       humanCard = cardFromFrontmatter(parsed.data)
     } catch (err) {
-      await this.revertWholeFile(sqliteCard, (err as Error).message)
+      await this.revertWholeFile(sqliteCard, parsed.body, (err as Error).message)
       return
     }
     // Detect user-driven rename within the same project folder. We accept
@@ -238,14 +238,20 @@ export class FileWatcher {
     })
   }
 
-  private async revertToCanonical(card: Omit<Card, 'body'>): Promise<void> {
+  // The body is never mirrored in SQLite, so the file on disk is its only
+  // copy — the revert restores canonical frontmatter around it, never over it.
+  private async revertToCanonical(card: Omit<Card, 'body'>, body: string): Promise<void> {
     // file_basename always populated for cards loaded from the repo.
     const basename = card.file_basename ?? card.id
-    await this.writer.write(card, '', basename)
+    await this.writer.write(card, body, basename)
   }
 
-  private async revertWholeFile(card: Omit<Card, 'body'>, reason: string): Promise<void> {
-    await this.revertToCanonical(card)
+  private async revertWholeFile(
+    card: Omit<Card, 'body'>,
+    body: string,
+    reason: string,
+  ): Promise<void> {
+    await this.revertToCanonical(card, body)
     await this.audit.log({
       op: 'PARSE_ERROR',
       project: card.project,

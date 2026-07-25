@@ -401,18 +401,21 @@ sobe o `src/index.ts`):
 | Variável | Obrigatória | Default | Para quê |
 |---|---|---|---|
 | `WORKFLOW_ENABLED` | sim (para ativar) | `false` | Defina `true` para habilitar o auto-launch. |
-| `WORKFLOW_SCRIPT_PATH` | sim (quando habilitado) | — | Path absoluto para `scripts/sprint-workflow.ts`. |
-| `WORKFLOW_TARGET_REPO` | não | `process.cwd()` do servidor | Diretório do repo que o harness dev vai trabalhar (`TARGET_REPO` do workflow). |
+| `WORKFLOW_SCRIPT_PATH` | sim (quando habilitado) | — | Path absoluto para `packages/server/scripts/sprint-workflow.ts`. Sem default: se faltar, o auto-launch é desligado com um `logger.warn`. |
 | `WORKFLOW_LOG_DIR` | não | — | Diretório para logs por sprint. Quando definido, o servidor cria `<dir>/sprint-<id>.log`, redireciona stdout+stderr do processo filho para ele e injeta `DEBUG_LOG=<caminho>` no env do workflow. |
 
+O diretório de trabalho do harness dev vem do `target_repo` do projeto (definido por
+`kanban_set_project_repo`), que o servidor usa como `cwd` do processo filho — não há
+variável de ambiente para isso.
+
 Os tokens (`ANTHROPIC_API_KEY`, `KANBAN_DEV_TOKEN`, `KANBAN_PM_TOKEN`) são **herdados do
-env do servidor** — basta que estejam presentes lá.
+env do servidor** — basta que estejam presentes lá. `KANBAN_DEV_TOKEN` e `KANBAN_PM_TOKEN`
+são obrigatórios: o workflow encerra com exit 2 se algum faltar.
 
 ```bash
 # Exemplo: .env do servidor com auto-launch ligado
 WORKFLOW_ENABLED=true
-WORKFLOW_SCRIPT_PATH=/abs/path/to/scripts/sprint-workflow.ts
-WORKFLOW_TARGET_REPO=/abs/path/to/repo-do-projeto
+WORKFLOW_SCRIPT_PATH=/abs/path/to/packages/server/scripts/sprint-workflow.ts
 WORKFLOW_LOG_DIR=/abs/path/to/logs/sprints
 
 ANTHROPIC_API_KEY=sk-ant-...

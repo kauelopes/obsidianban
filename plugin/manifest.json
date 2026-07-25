@@ -1,9 +1,0 @@
-{
-  "id": "obsidiankan-mcp",
-  "name": "ObsidianKan MCP",
-  "version": "0.1.0",
-  "minAppVersion": "1.4.0",
-  "description": "Multi-agent Kanban board via MCP",
-  "author": "",
-  "isDesktopOnly": true
-}
