@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useRef, useState, type MutableRefObject } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   DndContext,
   DragOverlay,
@@ -53,6 +53,9 @@ export function Board({
   sprintsFor,
 }: Props) {
   const [dragging, setDragging] = useState<CardSummary | null>(null)
+  // Um drag solto dispara um click no mesmo card logo em seguida; o flag vive
+  // só até o fim do tick para esse click não virar navegação acidental.
+  const justDragged = useRef(false)
   const sensors = useSensors(
     // A small threshold keeps a click on the card from starting a drag, so
     // the link to the detail view still works.
@@ -72,6 +75,10 @@ export function Board({
   function handleEnd(e: DragEndEvent) {
     const card = (e.active.data.current as { card: CardSummary } | undefined)?.card
     setDragging(null)
+    justDragged.current = true
+    setTimeout(() => {
+      justDragged.current = false
+    }, 0)
     if (!card || !e.over) return
 
     const overId = String(e.over.id)
@@ -151,7 +158,9 @@ export function Board({
             <section className="project" key={g.project}>
               <div className="project-head">
                 <h2>{g.project}</h2>
-                <span className="label">{count} cards</span>
+                <span className="label">
+                  {count} card{count === 1 ? '' : 's'}
+                </span>
                 <div className="spacer" />
                 <select
                   aria-label={`Filtrar sprint de ${g.project}`}
@@ -186,6 +195,7 @@ export function Board({
                     dragging={dragging}
                     moveHint={moveHint}
                     escalated={escalated}
+                    justDragged={justDragged}
                   />
                 ))}
               </div>
@@ -256,6 +266,7 @@ function Column({
   dragging,
   moveHint,
   escalated,
+  justDragged,
 }: {
   project: string
   status: string
@@ -264,6 +275,7 @@ function Column({
   dragging: CardSummary | null
   moveHint: Props['moveHint']
   escalated: ReadonlySet<string>
+  justDragged: MutableRefObject<boolean>
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId(project, status) })
   const hint = dragging && dragging.project === project ? moveHint(dragging, status) : null
@@ -292,6 +304,7 @@ function Column({
                 card={c}
                 today={today}
                 escalated={escalated.has(c.id)}
+                justDragged={justDragged}
               />
             ))}
           </SortableContext>
@@ -311,27 +324,45 @@ function DraggableCard({
   card,
   today,
   escalated,
+  justDragged,
 }: {
   card: CardSummary
   today: string
   escalated: boolean
+  justDragged: MutableRefObject<boolean>
 }) {
+  const navigate = useNavigate()
   // useSortable em vez de useDraggable: é o que dá o alvo de drop por card, e
   // portanto o reorder dentro da coluna.
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { card },
   })
+
+  /**
+   * O card inteiro navega, não só o título: o corpo era apenas alça de drag e
+   * clicar nele não fazia nada. O threshold de 4px do PointerSensor separa
+   * clique de drag; o flag cobre o click sintético que chega depois do drop.
+   * O <a> do título continua por cima (teclado, middle-click) e fica de fora
+   * para não navegar duas vezes.
+   */
+  function onClick(e: React.MouseEvent) {
+    if (justDragged.current) return
+    if ((e.target as HTMLElement).closest('a')) return
+    navigate(`/card/${card.id}`)
+  }
+
   return (
     <div
       ref={setNodeRef}
-      className={`card${authorClass(card.updated_by)}${escalated ? ' escalated' : ''}${isDragging ? ' dragging' : ''}`}
+      className={`card${authorClass(card.updated_by)}${escalated ? ' escalated' : ''}${card.archived ? ' archived' : ''}${isDragging ? ' dragging' : ''}`}
       style={{
         transform: transform
           ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
           : undefined,
         transition,
       }}
+      onClick={onClick}
       {...listeners}
       {...attributes}
     >

@@ -109,11 +109,14 @@ export function SprintPanel({
                 {s.status === 'active' && (
                   <button
                     disabled={busy}
+                    // "fechar" lia-se como fechar o modal; isto encerra a
+                    // sprint e arquiva os done — merece nome de ciclo de vida.
+                    title="Encerra a sprint e arquiva os cards em done"
                     onClick={() =>
                       run(() => client.closeSprint({ sprint_id: s.id, rollover_to: null }))
                     }
                   >
-                    fechar
+                    encerrar sprint
                   </button>
                 )}
               </td>
@@ -216,26 +219,30 @@ export function SprintPanel({
           <span>Objetivo (opcional)</span>
           <input value={goal} maxLength={1000} onChange={(e) => setGoal(e.target.value)} />
         </label>
-        <button
-          className="primary"
-          disabled={busy || !name.trim()}
-          onClick={() =>
-            run(async () => {
-              const r = await client.createSprint({
-                project,
-                name: name.trim(),
-                ...(goal.trim() ? { goal: goal.trim() } : {}),
+        {/* Ação primária à direita, como no footer dos outros dialogs. */}
+        <div className="form-row">
+          <div className="spacer" />
+          <button
+            className="primary"
+            disabled={busy || !name.trim()}
+            onClick={() =>
+              run(async () => {
+                const r = await client.createSprint({
+                  project,
+                  name: name.trim(),
+                  ...(goal.trim() ? { goal: goal.trim() } : {}),
+                })
+                if (r.ok) {
+                  setName('')
+                  setGoal('')
+                }
+                return r
               })
-              if (r.ok) {
-                setName('')
-                setGoal('')
-              }
-              return r
-            })
-          }
-        >
-          Criar sprint
-        </button>
+            }
+          >
+            Criar sprint
+          </button>
+        </div>
       </div>
     </Dialog>
   )
@@ -299,16 +306,19 @@ function AddCards({
         />
         mover para todo ao anexar
       </label>
-      <button
-        className="primary"
-        disabled={busy || picked.size === 0}
-        onClick={() => {
-          onAdd([...picked], moveToTodo)
-          setPicked(new Set())
-        }}
-      >
-        Anexar {picked.size > 0 ? `${picked.size} card(s)` : ''}
-      </button>
+      <div className="form-row">
+        <div className="spacer" />
+        <button
+          className="primary"
+          disabled={busy || picked.size === 0}
+          onClick={() => {
+            onAdd([...picked], moveToTodo)
+            setPicked(new Set())
+          }}
+        >
+          Anexar {picked.size > 0 ? `${picked.size} card(s)` : ''}
+        </button>
+      </div>
     </div>
   )
 }

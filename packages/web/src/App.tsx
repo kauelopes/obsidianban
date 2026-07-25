@@ -1,5 +1,14 @@
 import { useCallback, useMemo, useState } from 'react'
-import { BrowserRouter, Link, NavLink, Route, Routes } from 'react-router-dom'
+import {
+  BrowserRouter,
+  Link,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useNavigate,
+  useParams,
+} from 'react-router-dom'
 import type { CardSummary, Sprint } from '@obsidiankan/types'
 import { KanbanClient } from './api/client.js'
 import { errorText } from './api/result.js'
@@ -7,6 +16,7 @@ import { Board } from './board/Board.js'
 import { useBoard } from './board/useBoard.js'
 import { CardDetail } from './card/CardDetail.js'
 import { Help } from './help/Help.js'
+import { Home } from './home/Home.js'
 import { Inbox } from './inbox/Inbox.js'
 import { Metrics } from './metrics/Metrics.js'
 import { ThemeContext } from './markdown/Markdown.js'
@@ -35,7 +45,7 @@ function Shell({
         </h1>
         <nav className="tabs-nav">
           <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
-            Board
+            Home
           </NavLink>
           <NavLink to="/inbox" className={({ isActive }) => (isActive ? 'active' : '')}>
             Escalações
@@ -59,12 +69,49 @@ function Shell({
   )
 }
 
-function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () => void }) {
+function HomePage({ client, onLogout }: { client: KanbanClient; onLogout: () => void }) {
   const board = useBoard(client)
+  const [creatingProject, setCreatingProject] = useState(false)
+  return (
+    <Shell
+      onLogout={onLogout}
+      right={
+        <>
+          <button onClick={() => setCreatingProject(true)}>+ projeto</button>
+          <span className={`conn ${board.conn}`}>{board.conn}</span>
+        </>
+      }
+    >
+      {board.error && (
+        <p className="banner">
+          {board.error}
+          <button className="ghost" onClick={() => void board.reload()}>
+            tentar de novo
+          </button>
+          <button className="ghost" onClick={() => board.setError(null)}>
+            fechar
+          </button>
+        </p>
+      )}
+      <Home client={client} board={board} onCreateProject={() => setCreatingProject(true)} />
+      {creatingProject && (
+        <CreateProject
+          client={client}
+          onClose={() => setCreatingProject(false)}
+          onCreated={board.reload}
+        />
+      )}
+    </Shell>
+  )
+}
+
+function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () => void }) {
+  const { project = '' } = useParams()
+  const navigate = useNavigate()
+  const board = useBoard(client, { project })
   const [creatingIn, setCreatingIn] = useState<string | null>(null)
   const [sprintsIn, setSprintsIn] = useState<string | null>(null)
   const [projectIn, setProjectIn] = useState<string | null>(null)
-  const [creatingProject, setCreatingProject] = useState(false)
   const [query, setQuery] = useState('')
 
   const sprintsFor = useCallback(
@@ -170,15 +217,37 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
     }))
   }, [board.groups, query])
 
+  const knownProjects = board.projects.filter((p) => !p.archived).map((p) => p.project)
+  const notFound =
+    !board.loading &&
+    board.groups.length === 0 &&
+    knownProjects.length > 0 &&
+    !knownProjects.includes(project)
+
   return (
     <Shell
       onLogout={onLogout}
       right={
         <>
+          {/* Token de dev não enxerga listProjects: sem lista, sem seletor. */}
+          {knownProjects.length > 1 && (
+            <select
+              aria-label="Trocar de projeto"
+              value={project}
+              onChange={(e) => navigate(`/board/${e.target.value}`)}
+            >
+              {!knownProjects.includes(project) && <option value={project}>{project}</option>}
+              {knownProjects.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             className="search"
             value={query}
-            placeholder="buscar título, tag, assignee…"
+            placeholder="buscar título, tag, responsável…"
             aria-label="Buscar cards"
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -190,7 +259,6 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
             />
             arquivados
           </label>
-          <button onClick={() => setCreatingProject(true)}>+ projeto</button>
           <span className={`conn ${board.conn}`}>{board.conn}</span>
         </>
       }
@@ -205,6 +273,11 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
       )}
       {board.loading ? (
         <p className="empty-lg">carregando o board…</p>
+      ) : notFound ? (
+        <p className="empty-lg">
+          O projeto <strong>{project}</strong> não existe (ou foi arquivado).{' '}
+          <Link to="/">← voltar para a home</Link>
+        </p>
       ) : (
         <Board
           groups={groups}
@@ -242,13 +315,6 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
           cards={cardsFor(sprintsIn)}
           onClose={() => setSprintsIn(null)}
           onChanged={board.reload}
-        />
-      )}
-      {creatingProject && (
-        <CreateProject
-          client={client}
-          onClose={() => setCreatingProject(false)}
-          onCreated={board.reload}
         />
       )}
       {projectIn && (
@@ -298,7 +364,9 @@ export function App() {
     <ThemeContext.Provider value={resolved}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<BoardPage client={client} onLogout={clearToken} />} />
+          <Route path="/" element={<HomePage client={client} onLogout={clearToken} />} />
+          <Route path="/board/:project" element={<BoardPage client={client} onLogout={clearToken} />} />
+          <Route path="/board" element={<Navigate to="/" replace />} />
           <Route path="/card/:id" element={<CardPage client={client} onLogout={clearToken} />} />
           <Route
             path="/inbox"

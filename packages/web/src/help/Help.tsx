@@ -22,6 +22,8 @@ export function Help() {
           <h1>Briefing do agente</h1>
           <div className="detail-ident">
             <span>o que um agente lê antes de tocar num card</span>
+            <span className="sep">│</span>
+            <span>em inglês de propósito — é o texto que se cola no prompt do agente</span>
           </div>
         </div>
         <Markdown prose>{BRIEFING}</Markdown>

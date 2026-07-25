@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CardSummary, Sprint } from '@obsidiankan/types'
+import type { CardSummary, EscalationItem, Sprint } from '@obsidiankan/types'
 import { KanbanClient } from '../api/client.js'
 import { type ConnectionState, subscribe } from '../api/events.js'
 import { errorText } from '../api/result.js'
@@ -12,7 +12,13 @@ export interface ProjectInfo {
   sprints: Sprint[]
 }
 
-export function useBoard(client: KanbanClient) {
+/**
+ * Com `project`, cards e shapes ficam restritos a ele — e o limite de 200 do
+ * servidor passa a valer POR projeto, não pelo vault inteiro. Sem `project`
+ * (home), carrega tudo como antes.
+ */
+export function useBoard(client: KanbanClient, opts: { project?: string } = {}) {
+  const { project } = opts
   const [cards, setCards] = useState<readonly CardSummary[]>([])
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [sprintFilter, setSprintFilter] = useState<Record<string, string | undefined>>({})
@@ -55,12 +61,20 @@ export function useBoard(client: KanbanClient) {
   // auto-archives everything in 'done', so a project whose sprints are all
   // closed looks completely empty without this toggle — which is exactly what
   // the plugin's showArchived existed for.
-  const [showArchived, setShowArchived] = useState(false)
+  // sessionStorage, não useState puro: entrar num card e voltar remonta o
+  // hook, e perder o filtro a cada navegação custava re-descobrir onde estava.
+  const [showArchived, setShowArchived] = useState(
+    () => sessionStorage.getItem('kanban.showArchived') === '1',
+  )
   const showArchivedRef = useRef(showArchived)
   showArchivedRef.current = showArchived
+  useEffect(() => {
+    sessionStorage.setItem('kanban.showArchived', showArchived ? '1' : '0')
+  }, [showArchived])
 
   const loadCards = useCallback(async () => {
     const res = await clientRef.current.listCards({
+      ...(project ? { project } : {}),
       limit: 200,
       include_archived: showArchivedRef.current,
     })
@@ -70,7 +84,7 @@ export function useBoard(client: KanbanClient) {
     }
     setError(null)
     setCards(res.data.cards)
-  }, [])
+  }, [project])
 
   useEffect(() => {
     void loadCards()
@@ -90,14 +104,20 @@ export function useBoard(client: KanbanClient) {
    * inbox nunca discordam. A alternativa seria carregar o log de cada card na
    * listagem, que é o caminho quente do board; uma chamada só resolve.
    */
-  const [escalated, setEscalated] = useState<ReadonlySet<string>>(new Set())
+  // Itens completos, não só ids: a home precisa de reason/projeto/prioridade.
+  // O Set continua derivado para o board marcar cards sem reprocessar nada.
+  const [escalations, setEscalations] = useState<readonly EscalationItem[]>([])
+  const escalated: ReadonlySet<string> = useMemo(
+    () => new Set(escalations.map((e) => e.card_id)),
+    [escalations],
+  )
 
   const loadEscalations = useCallback(async () => {
     const res = await clientRef.current.listEscalations()
     // Um token de dev não enxerga esta tool. O board segue sem as marcas em vez
     // de mostrar erro por algo que é sinal informativo, não conteúdo.
     if (!res.ok) return
-    setEscalated(new Set(res.data.escalations.map((e) => e.card_id)))
+    setEscalations(res.data.escalations)
   }, [])
 
   useEffect(() => {
@@ -147,6 +167,7 @@ export function useBoard(client: KanbanClient) {
     () =>
       projects
         .filter((p) => !p.archived)
+        .filter((p) => !project || p.project === project)
         .map((p) => ({
           project: p.project,
           columns: p.columns,
@@ -154,13 +175,14 @@ export function useBoard(client: KanbanClient) {
           sprints: p.sprints,
           selectedSprint: sprintFilter[p.project],
         })),
-    [projects, sprintFilter],
+    [projects, sprintFilter, project],
   )
 
   const groups = useMemo(() => groupBoard(cards, shapes), [cards, shapes])
 
   return {
     groups,
+    cards,
     projects,
     conn,
     error,
@@ -171,6 +193,7 @@ export function useBoard(client: KanbanClient) {
     setShowArchived,
     setCards,
     escalated,
+    escalations,
     reload: loadCards,
     reloadEscalations: loadEscalations,
     setError,

@@ -321,8 +321,13 @@ button.ghost:hover:not(:disabled) {
   scrollbar-width: thin;
 }
 
+/* Fluidas, não fixas: com 5 × 264px fixos a coluna done — a que fecha a
+ * leitura do fluxo — caía fora de viewports comuns (~1100px). Encolhendo até
+ * 216px as cinco cabem; o scroll horizontal vira o caso raro, não o padrão. */
 .column {
-  flex: 0 0 var(--col-w);
+  flex: 1 1 var(--col-w);
+  min-width: 216px;
+  max-width: 340px;
   background: var(--ink-1);
   border: 1px solid var(--rule);
   border-radius: var(--r-lg);
@@ -559,9 +564,38 @@ button.ghost:hover:not(:disabled) {
   border-color: var(--rule);
 }
 
+/*
+ * Arquivado é o estado mais forte do card — ele saiu do jogo — e por isso o
+ * card INTEIRO recua: sem elevação, meia opacidade. Um chip sozinho perdia
+ * para os chips de prioridade e claim, e 30 arquivados em done ficavam
+ * idênticos aos ativos.
+ */
+.card.archived {
+  opacity: 0.55;
+  background: transparent;
+  border-style: dashed;
+}
+
+.card.archived::before {
+  opacity: 0.35;
+}
+
+/* Claim é identidade (quem segura o card), não estado: neutro com borda. O
+ * âmbar ficava idêntico ao de prioridade high, dando dois sentidos à cor. */
 .flag.claimed {
-  color: var(--run);
-  background: var(--run-weak);
+  color: var(--fg-1);
+  border-color: var(--rule-strong);
+}
+
+/* Review também espera humano — mesmo canal de alerta do escalado. */
+.flag.review {
+  color: var(--alert);
+  background: var(--alert-weak);
+}
+
+/* Valor ausente ou secundário, sem inventar cor nova. */
+.muted {
+  color: var(--fg-2);
 }
 
 /* Escalado é a única coisa do board que exige ação sua. */
@@ -615,6 +649,13 @@ button.ghost:hover:not(:disabled) {
   padding: var(--s-4) var(--s-5);
 }
 
+/* Num board com vários projetos o "vazio" repete uma dúzia de vezes; dentro da
+ * coluna ele é só afordância de drop, então fala mais baixo que o conteúdo. */
+.column .empty {
+  font-style: italic;
+  opacity: 0.6;
+}
+
 /* Aviso informativo dentro do board: não bloqueia, e carrega a ação junto. */
 .notice {
   display: flex;
@@ -636,6 +677,14 @@ button.ghost:hover:not(:disabled) {
   max-width: 52ch;
   line-height: var(--lh-prose);
   padding: var(--s-8) var(--s-6);
+  /* Também é a linha de "carregando…": no canto ela parecia texto esquecido. */
+  margin-inline: auto;
+  text-align: center;
+}
+
+/* O empty state carrega a própria ação: o texto que descreve vira o botão. */
+.empty-lg p {
+  margin: 0 0 var(--s-5);
 }
 
 .banner {

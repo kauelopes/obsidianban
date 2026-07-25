@@ -48,6 +48,7 @@ export function FrontmatterForm({
   onChange,
   sprints,
   candidates,
+  editing,
   disabled,
 }: {
   card: Card
@@ -56,10 +57,27 @@ export function FrontmatterForm({
   sprints: readonly Sprint[]
   /** Other cards in the same project — the autocomplete pool for blocked_by. */
   candidates: readonly CardSummary[]
+  /** Fora de edição a zona mostra texto, não formulário desabilitado. */
+  editing: boolean
   disabled: boolean
 }) {
   const set = <K extends keyof FrontmatterDraft>(k: K, v: FrontmatterDraft[K]) =>
     onChange({ ...draft, [k]: v })
+
+  /*
+   * Leitura sem cromo de formulário. Inputs desabilitados com placeholder
+   * ("nova tag + Enter", "mm/dd/yyyy") faziam a zona parecer editável sempre —
+   * e o botão "editar" parecia não fazer nada. Valor ausente é "—", não um
+   * campo vazio convidando a digitar.
+   */
+  if (!editing) {
+    return (
+      <div className="form">
+        <ReadProps card={card} sprints={sprints} candidates={candidates} />
+        <ManagedFields card={card} />
+      </div>
+    )
+  }
 
   return (
     <div className="form">
@@ -88,7 +106,7 @@ export function FrontmatterForm({
         </label>
 
         <label>
-          <span>Due date</span>
+          <span>Prazo</span>
           <input
             type="date"
             value={draft.due_date ?? ''}
@@ -98,7 +116,7 @@ export function FrontmatterForm({
         </label>
 
         <label>
-          <span>Assignee</span>
+          <span>Responsável</span>
           <input
             value={draft.assigned_to ?? ''}
             placeholder="agent:dev-1"
@@ -140,6 +158,54 @@ export function FrontmatterForm({
 
       <ManagedFields card={card} />
     </div>
+  )
+}
+
+function ReadProps({
+  card,
+  sprints,
+  candidates,
+}: {
+  card: Card
+  sprints: readonly Sprint[]
+  candidates: readonly CardSummary[]
+}) {
+  const byId = new Map(candidates.map((c) => [c.id, c] as const))
+  const sprint = sprints.find((s) => s.id === card.sprint_id)
+  const dash = <span className="muted">—</span>
+  return (
+    <dl className="props-read">
+      <dt>prioridade</dt>
+      <dd>
+        <span className={`prio ${card.priority}`}>{card.priority}</span>
+      </dd>
+      <dt>prazo</dt>
+      <dd>{card.due_date ?? dash}</dd>
+      <dt>responsável</dt>
+      <dd>{card.assigned_to ? <span className="mono">{card.assigned_to}</span> : dash}</dd>
+      <dt>sprint</dt>
+      <dd>{sprint ? `${sprint.name} — ${sprint.status}` : (card.sprint_id ?? dash)}</dd>
+      <dt>tags</dt>
+      <dd>
+        {card.tags.length > 0
+          ? card.tags.map((t) => (
+              <span className="tag" key={t}>
+                {t}
+              </span>
+            ))
+          : dash}
+      </dd>
+      <dt>bloqueado por</dt>
+      <dd>
+        {card.blocked_by.length > 0
+          ? card.blocked_by.map((id) => (
+              <span className="chip blocked" key={id} title={id}>
+                {byId.get(id)?.title ?? id}
+              </span>
+            ))
+          : dash}
+      </dd>
+    </dl>
   )
 }
 

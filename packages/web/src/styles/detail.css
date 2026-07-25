@@ -256,6 +256,14 @@
   max-width: var(--measure);
 }
 
+/* O SVG do MathJax pinta com currentColor, mas o container mjx traz color
+ * próprio no estilo embutido — no tema escuro a fórmula saía tinta-sobre-tinta.
+ * Forçar a cor do texto no container devolve a equação à paleta do tema. */
+.md mjx-container,
+.md mjx-container svg {
+  color: var(--fg-0) !important;
+}
+
 .md > :first-child {
   margin-top: 0;
 }
@@ -605,6 +613,38 @@
   color: var(--fg-2);
 }
 
+/* Propriedades em modo leitura: grid de definição, valores como texto. O
+ * formulário só aparece em edição — é o que devolve sentido ao "editar". */
+.props-read {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s-4) var(--s-6);
+  align-items: baseline;
+  font-size: var(--t-sm);
+}
+
+.props-read dt {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+}
+
+.props-read dd {
+  margin: 0;
+  color: var(--fg-0);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-3);
+}
+
+.props-read .muted {
+  color: var(--fg-2);
+}
+
 /* Campos gerenciados pelo sistema: visíveis (o PRD pede read-only, não
  * escondido), em mono, num grid de definição. */
 .managed {
@@ -946,7 +986,9 @@
 }
 
 .bar-track {
-  background: var(--ink-2);
+  /* ink-3, não ink-2: no tema claro ink-2 é branco sobre fundo claro e o
+   * trilho sumia — a mesma barra comunicava coisas diferentes por tema. */
+  background: var(--ink-3);
   border-radius: var(--r-sm);
   height: 14px;
   overflow: hidden;
@@ -1014,4 +1056,174 @@
 .table td.actions {
   text-align: right;
   white-space: nowrap;
+}
+
+/* ── Home ─────────────────────────────────────────────────────────────────── */
+
+/* "Precisa de você" abre a página: é a fila de decisão, não decoração. A borda
+ * é o mesmo canal de alerta do trilho de card escalado. */
+.needs-you {
+  margin-bottom: var(--s-7);
+  border: 1px solid color-mix(in srgb, var(--alert) 40%, var(--rule));
+  border-left: var(--rail-w) solid var(--alert);
+  border-radius: var(--r-md);
+  padding: var(--s-5) var(--s-6);
+}
+
+.needs-you > .label {
+  margin: 0 0 var(--s-4);
+  color: var(--alert);
+}
+
+.pending {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.pending a {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+}
+
+.pending a:hover {
+  background: var(--ink-3);
+  text-decoration: none;
+}
+
+.pending strong {
+  font-weight: 500;
+}
+
+.pending .where {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+.pending .why {
+  flex-basis: 100%;
+  font-size: var(--t-xs);
+  color: var(--fg-1);
+  padding-left: var(--s-6);
+}
+
+/* Idade da espera: o dado que transforma a fila em ordem de ataque. */
+.pending .age {
+  margin-left: auto;
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+
+/* "Tudo em ordem" é resultado, não ausência — abre a página com a mesma
+ * hierarquia que a fila teria, só que em repouso. */
+.all-clear {
+  margin-bottom: var(--s-7);
+  padding: var(--s-6) 0;
+}
+
+.all-clear .headline {
+  margin: 0;
+  font-size: var(--t-xl);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.all-clear .next {
+  margin: var(--s-3) 0 0;
+  font-size: var(--t-sm);
+  color: var(--fg-1);
+}
+
+/* Grid de projetos: um tile por projeto, o tile inteiro é o link. */
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--s-5);
+  margin-bottom: var(--s-8);
+}
+
+.project-grid .empty-lg {
+  grid-column: 1 / -1;
+}
+
+.project-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  background: var(--ink-1);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: var(--s-5) var(--s-6);
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+
+.project-tile:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--accent) 4%, var(--ink-1));
+}
+
+.project-tile.alert {
+  border-color: color-mix(in srgb, var(--alert) 40%, var(--rule));
+}
+
+.pt-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+
+.pt-head h2 {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.pt-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-1);
+}
+
+.pt-sprint {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
+  font-size: var(--t-xs);
+}
+
+.pt-sprint-name {
+  font-weight: 500;
+}
+
+.pt-sprint .mono {
+  font-size: var(--t-2xs);
+  color: var(--fg-1);
+}
+
+.pt-planned {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  font-size: var(--t-xs);
+}
+
+.pt-updated {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  margin-top: auto;
 }

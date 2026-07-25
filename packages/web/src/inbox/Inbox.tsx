@@ -99,7 +99,8 @@ export function Inbox({ client }: { client: KanbanClient }) {
           <h1>Escalações</h1>
           <div className="detail-ident">
             <span>
-              {items.length} esperando decisão de {scanned} cards ativos
+              {items.length} esperando decisão de {scanned} card{scanned === 1 ? '' : 's'}{' '}
+              ativo{scanned === 1 ? '' : 's'}
             </span>
           </div>
         </div>

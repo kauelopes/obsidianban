@@ -12,6 +12,7 @@ import type { KanbanClient } from '../api/client.js'
 import { subscribe } from '../api/events.js'
 import { errorText, type McpResult } from '../api/result.js'
 import { Markdown } from '../markdown/Markdown.js'
+import { humanTime } from '../util/time.js'
 import { authorOf } from './author.js'
 import { CardActions } from './CardActions.js'
 import { CardHistory } from './CardHistory.js'
@@ -254,7 +255,7 @@ export function CardDetail({
     <div className="detail">
       <div className="detail-inner">
         <div className="detail-head">
-          <Link className="back" to="/">
+          <Link className="back" to={`/board/${card.project}`}>
             ← board
           </Link>
           <h1>{card.title}</h1>
@@ -273,7 +274,7 @@ export function CardDetail({
               {author === 'human' ? 'humano' : author === 'agent' ? 'agente' : card.updated_by}
             </span>
             <span className="sep">│</span>
-            <span>{card.updated_at}</span>
+            <span title={card.updated_at}>{humanTime(card.updated_at)}</span>
           </div>
         </div>
 
@@ -338,7 +339,8 @@ export function CardDetail({
             onChange={setDraft}
             sprints={sprintsFor(card.project)}
             candidates={cardsFor(card.project)}
-            disabled={!editingMeta || saving}
+            editing={editingMeta}
+            disabled={saving}
           />
         </Zone>
 
@@ -442,7 +444,9 @@ export function CardDetail({
                     </span>
                     <span className="tape-head">
                       {e.ts ? (
-                        <time dateTime={e.ts}>{e.ts}</time>
+                        <time dateTime={e.ts} title={e.ts}>
+                          {humanTime(e.ts)}
+                        </time>
                       ) : (
                         <time>sem timestamp</time>
                       )}

@@ -88,6 +88,7 @@ export function CreateProject({
           <label>
             <span>Nome do projeto</span>
             <input
+              autoFocus
               className="mono"
               value={project}
               placeholder="meu-projeto"
@@ -119,13 +120,16 @@ export function CreateProject({
               vazio e configurar depois em “ajustes”.
             </span>
           </label>
-          <button
-            className="primary"
-            disabled={busy || !project.trim() || !actor.trim()}
-            onClick={submit}
-          >
-            Criar projeto
-          </button>
+          <div className="form-row">
+            <div className="spacer" />
+            <button
+              className="primary"
+              disabled={busy || !project.trim() || !actor.trim()}
+              onClick={submit}
+            >
+              Criar projeto
+            </button>
+          </div>
         </div>
       )}
     </Dialog>

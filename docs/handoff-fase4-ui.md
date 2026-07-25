@@ -18,9 +18,11 @@ As fases 0 a 4 do PRD estão feitas. O servidor MCP não mudou de arquitetura: c
 | 3 — Edição | feito (editor de card, formulário de frontmatter, criação de card/sprint) |
 | 4 — Supervisão + redesenho | feito quanto a F1, F3 e F4; **F2 fora de escopo por falta de produtor de dados** (ver abaixo) |
 | 4.1 — Sessão e lacunas de paridade | feito (sessão injetada, endurecimento cross-site, provisionamento na criação de projeto, rota `/ajuda`) |
+| 4.2 — Crítica de estética e usabilidade | feito (duas iterações sobre prints reais; ver abaixo) |
+| 4.3 — Home de supervisão e board por projeto | feito (home em `/`, board em `/board/:projeto`, `by_project` no `/metrics`, preparação p/ Codex) |
 | 5 — Desligamento do plugin | não iniciado — é o próximo escopo |
 
-Build e testes: `pnpm run build && pnpm run build:web && pnpm run typecheck && pnpm run test` — 499 testes verdes (365 server + 41 plugin + 93 web). Use `~/.local/share/pnpm/bin/pnpm` em shell não-interativo.
+Build e testes: `pnpm run build && pnpm run build:web && pnpm run typecheck && pnpm run test` — 515 testes verdes (371 server + 41 plugin + 103 web). Use `~/.local/share/pnpm/bin/pnpm` em shell não-interativo.
 
 ---
 
@@ -59,6 +61,43 @@ Registrado aqui para o próximo Claude não reabrir a decisão:
 
 ---
 
+## O que a fase 4.2 entregou
+
+Duas iterações de crítica de estética/usabilidade sobre a interface rodando (prints reais em `127.0.0.1:9399`), a segunda feita por um agente sem o contexto da implementação, de propósito. O que sobreviveu à verificação e virou código:
+
+**Iteração 1 — usabilidade do board.**
+- **Card inteiro navegável** (`board/Board.tsx`): o corpo era só alça de drag e apenas o título abria o detalhe. O threshold de 4px do `PointerSensor` separa clique de drag; um flag de "acabou de arrastar" engole o click sintético pós-drop.
+- **Colunas fluidas** (`components.css`): `flex: 1 1` com min/max no lugar dos 264px fixos — as cinco colunas cabem sem scroll horizontal em viewports comuns.
+- **Timestamps humanos** (`src/util/time.ts`): ISO cru virou `dd/mm/aaaa, hh:mm` local, com o ISO completo preservado em `title=`/`dateTime`.
+- Ação primária dos modais padronizada à direita; "vazio" das colunas rebaixado (itálico, opacidade); microcopy PT ("responsável", "prazo"); autofocus no primeiro campo dos dialogs.
+
+**Iteração 2 — achados do crítico externo.**
+- **Card arquivado recua de verdade** (`.card.archived`): opacidade 0.55, fundo transparente, borda tracejada. Antes, 30 arquivados em done eram idênticos aos ativos — o chip sozinho perdia a disputa visual.
+- **Propriedades em modo leitura viram texto** (`.props-read` + `FrontmatterForm`): inputs desabilitados com placeholder faziam a zona parecer editável sempre e o botão "editar" parecer inerte. Leitura é grid de definição com "—" para vazio; o formulário só existe editando.
+- **Barras da Atividade com escala honesta**: proporção do total, não do máximo (2 de 5 operações rendiam barra cheia); trilho visível nos dois temas (`--ink-3`).
+- **MathJax no tema escuro**: o container mjx trazia cor própria embutida e a fórmula saía tinta-sobre-tinta; `color` forçado no CSS resolve.
+- "encerrar sprint" no lugar de "fechar" (lia-se como fechar o modal); chip de claim neutro (identidade ≠ estado — o âmbar ficava idêntico ao de prioridade high); toggle "arquivados" persiste em `sessionStorage`; plurais; nota "em inglês de propósito" no briefing.
+
+Fora das iterações, registrado para a próxima: teclado para drag-and-drop (KeyboardSensor + announcements), focus-trap nos dialogs, inputs de data nativos em formato US, zona destrutiva do modal "ajustes" sem separação visual.
+
+---
+
+## O que a fase 4.3 entregou
+
+O board empilhado de todos os projetos em `/` ficou caótico com múltiplos projetos. A reestruturação:
+
+**Home em `/`** (`src/home/Home.tsx` + `overview.ts`). Hub de supervisão com três seções em ordem de urgência: **"precisa de você"** (escalações com motivo + cards em `review`, linkando ao card — só aparece quando há itens), **grid de projetos** (contagens por status, sprint ativa com progresso done/total, sprints em planejamento com goal, último update; o tile inteiro é o link e ganha borda de alerta com decisões pendentes) e **uso** (tokens/custo por provedor e operações por projeto). O view-model é `buildOverview` em `overview.ts`, função pura derivada do que o `useBoard` já carrega — **zero chamadas extras**; o progresso da sprint ativa vem da contagem client-side dos cards com o `sprint_id` dela, não de N `kanban_get_sprint`.
+
+**Board por projeto em `/board/:projeto`**. `useBoard` ganhou `opts.project` (o teto de 200 cards passa a valer por projeto no board); seletor de projeto na topbar (escondido para token dev, que não enxerga `kanban_list_projects`); busca e "arquivados" escopados; `/board` redireciona para `/`; "← board" no detalhe volta para o board do projeto do card. `Board.tsx` não mudou de assinatura — recebe `groups` com um item.
+
+**`by_project` no `/metrics`** (`src/services/metrics.ts`). A coluna `project` e o índice sempre existiram no `token_log`; a sétima agregação (`GROUP BY project`) passou a expô-los. Tipo `Metrics` estendido no shared; a página Atividade ganhou o gráfico "operações por projeto" e perdeu a nota "não separa por projeto". Widgets `Tile`/`BarChart`/`TokenTable` extraídos para `src/metrics/widgets.tsx`, compartilhados com a home.
+
+**Preparação para o Codex** (`packages/shared/src/index.ts`). `MODEL_PRICES_USD_PER_TOKEN` ganhou os modelos OpenAI (`gpt-5.x`, `*-codex`, `codex-mini`) com preço **marcado como aproximado** — conferir contra a tabela pública quando o Codex reportar de verdade. Nova `providerOf(model)` infere `anthropic | openai | other` do nome para a UI agrupar; os pseudo-modelos `human`/`plugin`/`unknown` caem em `other` e seguem sem preço. Nada de integração real: quando um agente reportar `model: "gpt-5.2-codex"`, custo e agrupamento já funcionam.
+
+Escalações no `useBoard` agora guardam os `EscalationItem` completos (a home precisa de `reason`/projeto/prioridade); o `Set` de ids que o board usa é derivado. `ListCardsParams` ganhou `project?` no shared — o servidor sempre aceitou, só o tipo estava atrás.
+
+---
+
 ## Verificação em browser
 
 As três checagens que as fases 0–4 não conseguiram fazer — **MathJax em tela real, ida e volta do SSE (disco → tela) e o 409 exibido como resolução** — foram feitas manualmente pelo usuário em **2026-07-25**, junto com o resto da interface, e passaram.
@@ -69,7 +108,7 @@ Duas ressalvas para quem ler isto depois: a verificação foi **manual**, não h
 
 ## Decisões conscientes, não pendências
 
-- **Teto de 200 cards sem paginação no `useBoard`.** Adequado à escala real do vault; vira problema em milhares.
+- **Teto de 200 cards sem paginação no `useBoard`.** No board o limite vale por projeto desde a fase 4.3; na home ainda é vault inteiro. Adequado à escala real; vira problema em milhares.
 - **`listEscalations` faz uma leitura de arquivo por card ativo.** Deliberado: sem índice derivado não há o que dessincronizar, e o `.md` é a fonte de verdade. Em milhares de cards valeria uma coluna preenchida na reconciliação.
 - **`health()` é o único método do cliente sem call site.** Mantido como sonda de diagnóstico.
 
