@@ -161,7 +161,7 @@ export class KanbanClient {
 
   listProjects(
     opts: { include_archived?: boolean } = {},
-  ): Promise<McpResult<{ projects: Array<{ project: string; columns: string[]; archived: boolean; sprints?: Sprint[] }> }>> {
+  ): Promise<McpResult<{ projects: Array<{ project: string; columns: string[]; archived: boolean; target_repo?: string | null }> }>> {
     return this.call('kanban_list_projects', opts)
   }
 

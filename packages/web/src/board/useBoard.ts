@@ -34,14 +34,21 @@ export function useBoard(client: KanbanClient) {
       setProjects([])
       return
     }
-    setProjects(
-      res.data.projects.map((p) => ({
-        project: p.project,
-        columns: p.columns,
-        archived: p.archived,
-        sprints: p.sprints ?? [],
-      })),
+    // kanban_list_projects returns only project shape (columns, archived,
+    // target_repo) — sprints live in _meta.json and come from their own tool,
+    // one call per project.
+    const withSprints = await Promise.all(
+      res.data.projects.map(async (p) => {
+        const s = await clientRef.current.listSprints({ project: p.project, status: 'all' })
+        return {
+          project: p.project,
+          columns: p.columns,
+          archived: p.archived,
+          sprints: s.ok ? s.data.sprints : [],
+        }
+      }),
     )
+    setProjects(withSprints)
   }, [])
 
   const loadCards = useCallback(async () => {
