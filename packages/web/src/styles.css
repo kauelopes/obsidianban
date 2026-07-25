@@ -374,3 +374,6 @@ button.primary:hover { background: var(--interactive-accent-hover); }
 .search { min-width: 220px; }
 .project-head select { font-size: 12px; padding: 3px 6px; }
 .project-head button { font-size: 12px; padding: 3px 10px; }
+.pill.archived { color: var(--text-faint); border-color: var(--text-faint); }
+.toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.toggle input { width: auto; margin: 0; }

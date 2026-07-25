@@ -155,7 +155,16 @@ export class KanbanClient {
     return this.call('kanban_close_sprint', params)
   }
 
-  createProject(params: { project: string; actor: string }): Promise<McpResult<{ project: string; token?: string }>> {
+  /** Mints an initial pm token, returned raw exactly once. */
+  createProject(params: { project: string; actor: string }): Promise<
+    McpResult<{
+      project: string
+      actor: string
+      created_at: string
+      token: string
+      token_id: string
+    }>
+  > {
     return this.call('kanban_create_project', params)
   }
 

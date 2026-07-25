@@ -51,8 +51,19 @@ export function useBoard(client: KanbanClient) {
     setProjects(withSprints)
   }, [])
 
+  // kanban_list_cards hides archived cards by default. Closing a sprint
+  // auto-archives everything in 'done', so a project whose sprints are all
+  // closed looks completely empty without this toggle — which is exactly what
+  // the plugin's showArchived existed for.
+  const [showArchived, setShowArchived] = useState(false)
+  const showArchivedRef = useRef(showArchived)
+  showArchivedRef.current = showArchived
+
   const loadCards = useCallback(async () => {
-    const res = await clientRef.current.listCards({ limit: 200 })
+    const res = await clientRef.current.listCards({
+      limit: 200,
+      include_archived: showArchivedRef.current,
+    })
     if (!res.ok) {
       setError(errorText(res.error))
       return
@@ -60,6 +71,10 @@ export function useBoard(client: KanbanClient) {
     setError(null)
     setCards(res.data.cards)
   }, [])
+
+  useEffect(() => {
+    void loadCards()
+  }, [showArchived, loadCards])
 
   const refreshCard = useCallback(async (id: string) => {
     const res = await clientRef.current.getCard(id)
@@ -131,6 +146,8 @@ export function useBoard(client: KanbanClient) {
     loading,
     sprintFilter,
     setSprintFilter,
+    showArchived,
+    setShowArchived,
     setCards,
     reload: loadCards,
     setError,

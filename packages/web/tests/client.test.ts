@@ -75,6 +75,26 @@ describe('KanbanClient — sprints come from their own tool', () => {
   })
 })
 
+describe('KanbanClient — archived cards', () => {
+  /**
+   * Regression: the board asked for cards without include_archived, and
+   * kanban_list_cards hides archived by default. Closing a sprint auto-archives
+   * everything in 'done', so a project whose sprints are all closed rendered as
+   * a completely empty board with no way to see anything.
+   */
+  it('passes include_archived through to the server', async () => {
+    respond = () => ({ status: 200, body: { cards: [] } })
+    await client().listCards({ limit: 200, include_archived: true })
+    expect(calls[0]!.body).toEqual({ limit: 200, include_archived: true })
+  })
+
+  it('sends include_archived:false explicitly rather than omitting it', async () => {
+    respond = () => ({ status: 200, body: { cards: [] } })
+    await client().listCards({ limit: 200, include_archived: false })
+    expect(calls[0]!.body).toHaveProperty('include_archived', false)
+  })
+})
+
 describe('KanbanClient — human attribution', () => {
   it('stamps writes as model:human with zero token cost', async () => {
     respond = () => ({ status: 200, body: {} })

@@ -118,6 +118,14 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
             placeholder="buscar título, tag, assignee…"
             onChange={(e) => setQuery(e.target.value)}
           />
+          <label className="toggle" title="Fechar uma sprint arquiva os cards em done">
+            <input
+              type="checkbox"
+              checked={board.showArchived}
+              onChange={(e) => board.setShowArchived(e.target.checked)}
+            />
+            arquivados
+          </label>
           <span className={`conn ${board.conn}`}>{board.conn}</span>
           <button onClick={onLogout}>sair</button>
         </>
