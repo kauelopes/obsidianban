@@ -1,0 +1,13 @@
+{
+    "sprint_id": "sprint-T10Ls7lu",
+    "target_sprint_id": "sprint-dwcX7M4Z",
+    "updated": [
+        "card-ZqL78oc6"
+    ],
+    "failed": [
+        {
+            "card_id": "card-NOPE0001",
+            "reason": "not_found"
+        }
+    ]
+}

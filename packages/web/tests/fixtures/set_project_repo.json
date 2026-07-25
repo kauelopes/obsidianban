@@ -1,0 +1,92 @@
+{
+    "project": "teste",
+    "columns": [
+        "backlog",
+        "todo",
+        "in_progress",
+        "review",
+        "done"
+    ],
+    "archived": false,
+    "target_repo": "/tmp/kanban-teste-repo",
+    "workflow_readiness": {
+        "target_repo": "/tmp/kanban-teste-repo",
+        "repo_exists": false,
+        "skills": [
+            {
+                "path": "kanban-dev-agent/SKILL.md",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-dev-agent/reference/protocol.md",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-pm-agent/SKILL.md",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-pm-agent/spawn-dev.sh",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-pm-agent/dev.mcp.json",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-pm-agent/dev-settings.json",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-pm-agent/reference/protocol.md",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-manager-agent/SKILL.md",
+                "was_present": false,
+                "installed": false
+            },
+            {
+                "path": "kanban-manager-agent/reference/protocol.md",
+                "was_present": false,
+                "installed": false
+            }
+        ],
+        "config_files": [
+            {
+                "path": ".claude/mcp.json",
+                "was_present": false,
+                "written": false
+            },
+            {
+                "path": ".claude/settings.local.json",
+                "was_present": false,
+                "written": false
+            }
+        ],
+        "tokens": {
+            "has_pm": false,
+            "has_dev": false,
+            "generated_pm": {
+                "token": "FDKxc91B_lzrGL5vKeSi-IRPuHDZoMDOHw0LYOIBnvk",
+                "token_id": "f89144becf00",
+                "actor": "workflow:pm",
+                "agent_type": "pm"
+            },
+            "generated_dev": {
+                "token": "xeNsPPZV8PW8kJy2Vgm2iVwQfKP_O7-CfLdOUGtNZtQ",
+                "token_id": "5682e718d8ef",
+                "actor": "workflow:dev",
+                "agent_type": "dev"
+            }
+        },
+        "all_ok": false
+    }
+}

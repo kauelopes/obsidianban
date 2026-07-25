@@ -1,0 +1,11 @@
+{
+    "project": "teste",
+    "columns": [
+        "backlog",
+        "todo",
+        "in_progress",
+        "review",
+        "done"
+    ],
+    "archived": true
+}

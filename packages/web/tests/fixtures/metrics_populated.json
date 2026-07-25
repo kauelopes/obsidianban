@@ -1,0 +1,92 @@
+{
+    "summary": {
+        "total_input_tokens": 0,
+        "total_output_tokens": 0,
+        "total_ops": 103
+    },
+    "by_type": [
+        {
+            "type": "chore",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "ops": 21
+        },
+        {
+            "type": "task",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "ops": 82
+        }
+    ],
+    "by_day": [
+        {
+            "date": "2026-06-07",
+            "input_tokens": 0,
+            "output_tokens": 0
+        },
+        {
+            "date": "2026-06-08",
+            "input_tokens": 0,
+            "output_tokens": 0
+        },
+        {
+            "date": "2026-06-15",
+            "input_tokens": 0,
+            "output_tokens": 0
+        }
+    ],
+    "by_model": [
+        {
+            "model": "claude-sonnet-4-6",
+            "input_tokens": 0,
+            "output_tokens": 0
+        },
+        {
+            "model": "plugin",
+            "input_tokens": 0,
+            "output_tokens": 0
+        },
+        {
+            "model": "unknown",
+            "input_tokens": 0,
+            "output_tokens": 0
+        }
+    ],
+    "by_agent": [
+        {
+            "actor": "dev-claude",
+            "input_tokens": 0,
+            "output_tokens": 0
+        },
+        {
+            "actor": "kaue",
+            "input_tokens": 0,
+            "output_tokens": 0
+        },
+        {
+            "actor": "pm-agent",
+            "input_tokens": 0,
+            "output_tokens": 0
+        }
+    ],
+    "by_operation": [
+        {
+            "op": "CREATE",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "count": 30
+        },
+        {
+            "op": "MOVE",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "count": 46
+        },
+        {
+            "op": "UPDATE",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "count": 27
+        }
+    ]
+}

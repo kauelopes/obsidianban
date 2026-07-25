@@ -135,7 +135,9 @@ describe('KanbanClient — failures never throw', () => {
     const res = await client().getCard('card-1')
     expect(res.ok).toBe(false)
     if (res.ok) return
-    expect(res.error.kind).toBe('server')
+    // Estreitar a união antes de ler `status`: OfflineError não tem esse campo.
+    // O erro só apareceu quando tests/ entrou no typecheck.
+    if (res.error.kind !== 'server') throw new Error(`esperava server, veio ${res.error.kind}`)
     expect(res.error.status).toBe(502)
   })
 
