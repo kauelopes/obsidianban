@@ -9,6 +9,7 @@ import type { TokenClaims } from '@obsidiankan/types'
 import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
 import type { McpHttpManager } from './mcp-http.js'
+import type { StaticSite } from './static.js'
 
 export interface ServerState {
   startedAt: number
@@ -26,6 +27,8 @@ export interface HttpServerDeps {
   sse: SSEEventBus
   metrics: MetricsService
   mcp: McpHttpManager
+  /** Built web SPA, served from the same origin. Absent when not built. */
+  site?: StaticSite | undefined
 }
 
 interface ToolHandler {
@@ -89,6 +92,11 @@ export class HttpServer {
 
     if (url.split('?')[0] === '/mcp') {
       return this.handleMcp(req, res)
+    }
+
+    // The SPA is served last so it can never shadow an API route.
+    if (req.method === 'GET' && this.deps.site) {
+      return this.deps.site.serve(url, res)
     }
 
     sendJson(res, 404, { error: 'not_found' })

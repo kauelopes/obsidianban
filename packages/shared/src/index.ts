@@ -328,3 +328,9 @@ export interface Metrics {
   by_agent: Array<{ actor: string; input_tokens: number; output_tokens: number }>
   by_operation: Array<{ op: string; input_tokens: number; output_tokens: number; count: number }>
 }
+
+// ─── Card body zones ─────────────────────────────────────────────────────────
+// Lives here rather than in the server so the web app parses card bodies with
+// the exact same code the server writes them with — a second implementation
+// would drift, and the zone split is a contract, not an implementation detail.
+export * from './sections.js'

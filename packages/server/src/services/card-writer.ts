@@ -23,7 +23,7 @@ import {
   requireString,
 } from './validation.js'
 import { readCardFile, readCardBody } from '../vault/card-file.js'
-import { replaceZone } from '../cards/sections.js'
+import { replaceZone } from '@obsidiankan/types'
 import {
   assertWritable,
   isAdvancingBeyondTodo,

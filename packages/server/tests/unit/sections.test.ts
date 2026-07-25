@@ -6,7 +6,7 @@ import {
   parseSections,
   serializeSections,
   replaceZone,
-} from '../../src/cards/sections.js'
+} from '@obsidiankan/types'
 import { parseCardFile } from '../../src/cards/serialize.js'
 
 describe('parseSections — legacy cards', () => {

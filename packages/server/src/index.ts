@@ -19,7 +19,9 @@ import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
 import { WorkflowRunner, loadWorkflowConfig } from './services/workflow-runner.js'
+import path from 'node:path'
 import { logger } from './util/logger.js'
+import { StaticSite } from './server/static.js'
 import { TOOL_SCHEMAS } from './server/tool-schemas.js'
 import { TOOL_CATALOG } from './server/tool-catalog.js'
 import type { ToolAccess } from './server/tool-access.js'
@@ -163,7 +165,16 @@ async function main(): Promise<void> {
       handler: (p, c) => t.handler(p as Record<string, unknown>, c),
     })),
   )
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcp })
+  // The SPA lives beside the compiled server: dist/ is packages/server/dist,
+  // so the web build is two levels up. WEB_DIST_PATH overrides for unusual
+  // layouts; when nothing is built, the server runs API-only as before.
+  const webRoot =
+    process.env['WEB_DIST_PATH'] ?? path.resolve(__dirname, '..', '..', 'web', 'dist')
+  const candidate = new StaticSite(webRoot)
+  const site = (await candidate.isAvailable()) ? candidate : undefined
+  if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
+
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcp, site })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }

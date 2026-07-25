@@ -10,8 +10,9 @@
 packages/
   server/    # obsidiankan-mcp — MCP Server principal
     scripts/ # sprint-workflow.ts — orquestrador autônomo de sprint
-  plugin/    # @obsidiankan/plugin — Plugin Obsidian
-  shared/    # @obsidiankan/types — Tipos TypeScript compartilhados
+  web/       # @obsidiankan/web — SPA React (board + card detail)
+  plugin/    # @obsidiankan/plugin — Plugin Obsidian (congelado, sai na fase 5)
+  shared/    # @obsidiankan/types — Tipos + parser de zonas do card
 ```
 
 **Gerenciador de pacotes:** pnpm (workspace). Em shells não-interativos, usar `~/.local/share/pnpm/bin/pnpm`.
@@ -46,10 +47,13 @@ Referência completa em `docs/reference/config.md`.
 # Build (shared → server, nessa ordem)
 ~/.local/share/pnpm/bin/pnpm run build
 
+# Build do SPA web (servido pelo servidor na mesma origem)
+~/.local/share/pnpm/bin/pnpm run build:web
+
 # Build do plugin Obsidian
 ~/.local/share/pnpm/bin/pnpm run build:plugin
 
-# Testes (308 testes: unit + service + integration)
+# Testes (383 no workspace: 317 server + 41 plugin + 25 web)
 ~/.local/share/pnpm/bin/pnpm run test
 ~/.local/share/pnpm/bin/pnpm run test:watch
 ~/.local/share/pnpm/bin/pnpm run test:coverage
