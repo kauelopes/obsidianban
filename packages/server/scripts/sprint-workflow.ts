@@ -435,12 +435,22 @@ async function hasReadyCard(): Promise<boolean> {
 
 // Write the run's measured cost into the card's Agent Log (only when N === 1,
 // where the run maps 1:1 to a card). Honest per-card cost, visible in Obsidian.
+//
+// Os tokens vão TAMBÉM como campos estruturados, não só na prosa. O dev agent é
+// instruído a omitir contagem de tokens ("Do not invent token counts") — e com
+// razão, ele não as conhece de forma confiável. Mas aqui o workflow tem a
+// medição real do harness, então é o único ponto do sistema que pode alimentar
+// o token_log com número verdadeiro. Sem isto, /metrics agrega zeros para
+// sempre e o painel de custo é decorativo.
 async function annotateCardCost(cardId: string, run: DevRun): Promise<void> {
   const card = asRecord((await callTool('kanban_get_card', { id: cardId }, PM_TOKEN)).body)
   await callTool('kanban_log_on_card', {
     id: cardId,
     version: Number(card['version']),
     log_entry: `💰 Workflow-measured cost — input=${run.usage.input} output=${run.usage.output} tokens, $${run.usage.usd.toFixed(4)} over ${run.numTurns} turns (model ${MODEL}).`,
+    input_tokens: run.usage.input,
+    output_tokens: run.usage.output,
+    model: MODEL,
     request_id: randomUUID(),
   }, PM_TOKEN)
 }

@@ -369,6 +369,44 @@ export interface DeleteProjectResult {
   cards_deleted: number
 }
 
+// ─── Estimativa de custo ──────────────────────────────────────────────────────
+
+/**
+ * Preço por token, em USD, por modelo.
+ *
+ * Isto é uma ESTIMATIVA e a UI tem de rotular como tal. O número autoritativo é
+ * o `total_cost_usd` que o harness devolve ao sprint workflow; aqui só há
+ * tokens agregados por modelo, então o custo é reconstruído por multiplicação.
+ *
+ * Tabela de preço envelhece. Quando um valor estiver errado, o lugar de
+ * corrigir é aqui e em PRICE, no packages/server/scripts/sprint-workflow.ts.
+ * Modelo desconhecido devolve null em vez de zero: "não sei" não é "de graça".
+ */
+export const MODEL_PRICES_USD_PER_TOKEN: Readonly<
+  Record<string, { input: number; output: number }>
+> = {
+  'claude-opus-4-8': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
+  'claude-opus-4-6': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
+  'claude-sonnet-4-6': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  'claude-sonnet-4-5': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  'claude-haiku-4-5': { input: 1 / 1_000_000, output: 5 / 1_000_000 },
+}
+
+/**
+ * Custo estimado de um par de contagens, ou null quando o modelo não está na
+ * tabela — inclusive os pseudo-modelos `human`, `plugin` e `unknown`, que o
+ * servidor grava e que não têm preço nenhum.
+ */
+export function estimateUsd(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): number | null {
+  const price = MODEL_PRICES_USD_PER_TOKEN[model]
+  if (!price) return null
+  return inputTokens * price.input + outputTokens * price.output
+}
+
 export interface CardHistoryResult {
   card_id: string
   /**
