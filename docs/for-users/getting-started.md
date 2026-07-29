@@ -10,7 +10,6 @@ Guia de instalação e configuração do zero até o servidor rodando.
 |---|---|---|
 | Node.js | 22+ | `node --version` |
 | pnpm | qualquer | `~/.local/share/pnpm/bin/pnpm --version` |
-| Obsidian | 1.12+ | (para o plugin) |
 | Vault Obsidian | — | pasta existente no filesystem |
 
 > **pnpm não encontrado?** Instale com: `curl -fsSL https://get.pnpm.io/install.sh | sh -`
@@ -107,21 +106,13 @@ claude
 
 ---
 
-## 7. Instalar o Plugin Obsidian (opcional)
-
-O plugin permite visualizar o board diretamente no Obsidian.
+## 7. Abrir o board web
 
 ```bash
-# Compilar o plugin
-~/.local/share/pnpm/bin/pnpm run build:plugin
+~/.local/share/pnpm/bin/pnpm run build:web
 ```
 
-O plugin é compilado para `packages/plugin/test-vault/.obsidian/plugins/obsidiankan-mcp/`.
-
-Para instalar no seu vault:
-1. Copie a pasta `obsidiankan-mcp/` para `<seu-vault>/.obsidian/plugins/`
-2. Abra Obsidian → Configurações → Plugins da comunidade → Ativar "ObsidianKan"
-3. Configure: URL base `http://127.0.0.1:9375` e seu token de agente
+O servidor serve o SPA da mesma origem. Abra `http://127.0.0.1:9375` no navegador — a sessão é injetada automaticamente pelo servidor; um token colado sobrescreve a sessão.
 
 ---
 

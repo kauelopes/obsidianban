@@ -20,7 +20,7 @@ As fases 0 a 4 do PRD estão feitas. O servidor MCP não mudou de arquitetura: c
 | 4.1 — Sessão e lacunas de paridade | feito (sessão injetada, endurecimento cross-site, provisionamento na criação de projeto, rota `/ajuda`) |
 | 4.2 — Crítica de estética e usabilidade | feito (duas iterações sobre prints reais; ver abaixo) |
 | 4.3 — Home de supervisão e board por projeto | feito (home em `/`, board em `/board/:projeto`, `by_project` no `/metrics`, preparação p/ Codex) |
-| 5 — Desligamento do plugin | não iniciado — é o próximo escopo |
+| 5 — Desligamento do plugin | feito (`packages/plugin` removido, docs e skills atualizados) |
 
 Build e testes: `pnpm run build && pnpm run build:web && pnpm run typecheck && pnpm run test` — 515 testes verdes (371 server + 41 plugin + 103 web). Use `~/.local/share/pnpm/bin/pnpm` em shell não-interativo.
 

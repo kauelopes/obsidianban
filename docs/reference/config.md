@@ -133,19 +133,8 @@ interface Paths {
 
 ---
 
-## Plugin Obsidian
+## Web app
 
-Configurações do plugin (Obsidian → Configurações → Plugins → ObsidianKan):
+Servido pelo servidor na mesma origem (`http://127.0.0.1:9375`), a partir do build de `packages/web/dist`. A sessão do navegador é injetada automaticamente no `index.html` — não há configuração de URL base ou token manual, exceto para trocar de identidade (colar um token sobrescreve a sessão).
 
-| Campo | Padrão | Descrição |
-|---|---|---|
-| URL base | `http://127.0.0.1:9375` | Endereço do MCP Server |
-| Token de autenticação | — | Bearer token do agente (pm ou dev) |
-
-### Variável de ambiente para desenvolvimento do plugin
-
-```bash
-# Define o vault alvo para o build do plugin
-OBSIDIANKAN_DEV_VAULT=/caminho/para/seu/vault
-~/.local/share/pnpm/bin/pnpm --filter @obsidiankan/plugin run dev
-```
+Em `vite dev` (porta 5273) não há injeção de sessão — o gate de token aparece, e isso é esperado.

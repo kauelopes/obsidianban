@@ -36,7 +36,7 @@ flowchart TB
     end
 
     subgraph user["👤 Cliente humano"]
-        OBS["Plugin do Obsidian (plugin/)<br/>board visual + SSE"]
+        WEB["Web app (packages/web)<br/>mesma origem — board visual + SSE"]
     end
 
     WF -->|"HTTPS<br/>(triagem — Anthropic SDK)"| ANTHROPIC
@@ -45,7 +45,7 @@ flowchart TB
     CLI -->|"HTTP POST /mcp/tool/<br/>Bearer dev token"| SRV
     CLI -->|"file/bash tools<br/>(contido em TARGET_REPO)"| REPO
     CLI -->|"HTTPS<br/>(execução dev)"| ANTHROPIC
-    OBS -->|"HTTP /mcp + SSE"| SRV
+    WEB -->|"fetch /mcp/tool + SSE /events"| SRV
     SRV --- DB
     SRV --> VAULT
 

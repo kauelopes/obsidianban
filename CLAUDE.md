@@ -1,6 +1,6 @@
 # ObsidianKan — CLAUDE.md
 
-**ObsidianKan** é um servidor MCP que expõe um sistema Kanban persistido em arquivos Markdown dentro de um vault Obsidian. Inclui um plugin Obsidian para visualização e um workflow autônomo de sprint com agentes de IA.
+**ObsidianKan** é um servidor MCP que expõe um sistema Kanban persistido em arquivos Markdown dentro de um vault Obsidian. Inclui um web app React para visualização e edição, e um workflow autônomo de sprint com agentes de IA.
 
 ---
 
@@ -10,8 +10,7 @@
 packages/
   server/    # obsidiankan-mcp — MCP Server principal
     scripts/ # sprint-workflow.ts — orquestrador autônomo de sprint
-  web/       # @obsidiankan/web — SPA React (board + card detail)
-  plugin/    # @obsidiankan/plugin — Plugin Obsidian (congelado, sai na fase 5)
+  web/       # @obsidiankan/web — SPA React (board + card detail), servido pelo servidor na mesma origem
   shared/    # @obsidiankan/types — Tipos + parser de zonas do card
 ```
 
@@ -25,7 +24,7 @@ packages/
 |---|---|
 | `packages/server/src/index.ts` | MCP Server — modo HTTP (padrão) ou stdio (`--stdio`) |
 | `packages/server/src/auth/cli.ts` | CLI para gerar tokens (`kanban-token generate-token`) |
-| `packages/plugin/src/main.ts` | Plugin Obsidian — views, comandos, SSE subscriber |
+| `packages/web/src/App.tsx` | Web app — board, card detail, wizard de planejamento |
 | `packages/server/scripts/sprint-workflow.ts` | Workflow autônomo — orquestra PM + Dev agents |
 
 ---
@@ -55,10 +54,7 @@ Referência completa em `docs/reference/config.md`.
 # Build do SPA web (servido pelo servidor na mesma origem)
 ~/.local/share/pnpm/bin/pnpm run build:web
 
-# Build do plugin Obsidian
-~/.local/share/pnpm/bin/pnpm run build:plugin
-
-# Testes (658 no workspace: 481 server + 41 plugin + 136 web)
+# Testes
 ~/.local/share/pnpm/bin/pnpm run test
 ~/.local/share/pnpm/bin/pnpm run test:watch
 ~/.local/share/pnpm/bin/pnpm run test:coverage

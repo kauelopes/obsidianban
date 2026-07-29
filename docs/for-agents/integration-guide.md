@@ -21,7 +21,7 @@ read-only event feed and a REST shortcut. Pick based on where your agent runs.
 | `stdio` | spawn `node dist/index.js --stdio` as child process, framed JSON-RPC on stdin/stdout | Local agents bundled with the MCP (no network hop). Token via `KANBAN_MCP_TOKEN` env. |
 | Streamable HTTP | `POST http://127.0.0.1:9375/mcp` (stateless MCP protocol) | MCP-protocol clients over the network: Claude Code (`--transport http`), MCP-aware IDEs. Token via `Authorization: Bearer`. |
 | REST shortcut | `POST http://127.0.0.1:9375/mcp/tool/<tool_name>` | Hand-built agents / polyglot stacks / debug tooling that want plain request→response JSON without speaking the MCP wire protocol. |
-| Event feed | `GET http://127.0.0.1:9375/events` (SSE) | Real-time mutation feed for live UIs (the plugin board). Not a tool-call transport. |
+| Event feed | `GET http://127.0.0.1:9375/events` (SSE) | Real-time mutation feed for live UIs (the web board). Not a tool-call transport. |
 
 The server binds to `127.0.0.1` only by default. `GET /metrics` is
 loopback-locked at the application layer too, so it never leaves the host.
@@ -169,7 +169,7 @@ the raw `token` is only returned this once (the server keeps a SHA-256
 hash). The project starts empty — under the "every card belongs to a
 sprint" rule there is no auto-seeded starter card (there is no sprint to
 attach it to yet). The onboarding briefing that used to live in that card
-now ships with the plugin as a Help modal reachable from the board, and
+now ships as the `/ajuda` route in the web app, reachable from the board, and
 is mirrored in the agent's documentation. Re-calling with the same
 project name is additive: the folder is reused, a new token is appended,
 and prior tokens stay valid until explicitly revoked. Agent tokens
@@ -270,7 +270,7 @@ card can be created without a sprint.
   Refuses with `409 another_sprint_active` if the project already has a
   different active sprint. Sets `started_at`.
 - `kanban_list_sprints { project, status?: 'planning' | 'active' | 'closed' | 'open' | 'all' }`
-  — **PM/manager only.** `open` is sugar for "planning + active" (what the plugin and most
+  — **PM/manager only.** `open` is sugar for "planning + active" (what the web app and most
   agent flows want). PM agents scoped to their own project; managers can list
   any project.
 - `kanban_get_sprint { sprint_id }` — **PM/manager only.** Returns

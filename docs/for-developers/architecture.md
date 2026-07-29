@@ -33,14 +33,13 @@ C4Context
         System(mcp, "MCP Server", "Servidor HTTP que gerencia o estado do kanban")
     }
 
-    System_Ext(obsidian, "Obsidian", "App de notas — exibe o board via plugin")
+    System_Ext(obsidian, "Obsidian", "App de notas — os .md continuam no vault, editáveis fora do board")
     System_Ext(claudeapi, "Claude API (Anthropic)", "LLM usado pelo workflow e pelo dev harness")
     System_Ext(vault, "Vault (filesystem)", "Arquivos .md que representam cards e colunas")
     System_Ext(repo, "Repositório de Código", "Repo trabalhado pelo dev agent")
 
-    Rel(user, obsidian, "Visualiza e gerencia board")
-    Rel(user, mcp, "Setup: cria projetos, sprints, tokens via CLI")
-    Rel(obsidian, mcp, "HTTP: lê estado do board, recebe SSE")
+    Rel(user, mcp, "Visualiza e gerencia o board pelo web app (mesma origem); setup via CLI")
+    Rel(obsidian, vault, "Edição manual — reconciliada pelo file-watcher")
     Rel(mcp, vault, "Lê e escreve arquivos .md")
     BiRel(mcp, claudeapi, "—")
 ```
@@ -71,12 +70,12 @@ flowchart TB
     end
 
     subgraph client["👤 Cliente"]
-        OBS["Obsidian Plugin\n(packages/plugin)\nBoard visual + SSE"]
+        WEB["Web app\n(packages/web, mesma origem)\nBoard visual + SSE"]
         USER["Usuário\n(CLI: manager / pm / dev)"]
     end
 
     USER -->|"HTTP POST /mcp/tool\nBearer manager-token"| SRV
-    OBS -->|"HTTP /mcp\nSSE /events"| SRV
+    WEB -->|"HTTP fetch /mcp/tool\nSSE /events"| SRV
     WF -->|"HTTP POST /mcp/tool\nBearer pm-token"| SRV
     WF -->|"HTTPS — SDK direto\n(triage LLM)"| CLAUDE_API
     WF -->|"spawn('claude', args)"| CLI
@@ -96,8 +95,8 @@ flowchart TB
 ```
 
 **Estrutura do monorepo:**
-- `packages/server/` — MCP Server (Node.js, TypeScript, better-sqlite3)
-- `packages/plugin/` — Plugin Obsidian (esbuild, DOM)
+- `packages/server/` — MCP Server (Node.js, TypeScript, better-sqlite3), serve o SPA da mesma origem
+- `packages/web/` — SPA React (board + card detail), servido como estático pelo servidor
 - `packages/shared/` — Tipos compartilhados (`@obsidiankan/types`)
 
 ---
@@ -443,7 +442,7 @@ Cards são arquivos `.md` em `vault/kanban-data/<project>/`. O SQLite é um índ
 Todas as escritas em disco usam arquivos `.tmp` renomeados atomicamente, prevenindo corrupção em caso de crash ou escritas simultâneas de agentes e humanos.
 
 ### Broadcast SSE
-O servidor mantém um bus SSE central. Mutações em cards, projetos e sprints disparam eventos para todos os clientes conectados (plugin Obsidian). 14 tipos de evento: `CARD_*`, `PROJECT_*`, `SPRINT_*`.
+O servidor mantém um bus SSE central. Mutações em cards, projetos e sprints disparam eventos para todos os clientes conectados (web app via `EventSource`). 14 tipos de evento: `CARD_*`, `PROJECT_*`, `SPRINT_*`.
 
 ### Audit trail
 Toda operação é gravada em `audit.ndjson` com timestamp, ator, tipo de operação e campos afetados. O log é append-only e imutável.

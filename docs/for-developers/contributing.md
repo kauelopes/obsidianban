@@ -52,7 +52,7 @@ Use os tipos de erro em `packages/server/src/services/errors.ts`:
 | Novo tipo de domínio | `packages/shared/src/index.ts` |
 | Nova util pura | `packages/server/src/util/` |
 | Nova operação de vault (arquivo) | `packages/server/src/vault/` |
-| Novo componente do plugin | `packages/plugin/src/ui/` ou `view/` |
+| Novo componente do web app | `packages/web/src/ui/` |
 
 ### Adicionando uma nova tool MCP
 
@@ -100,7 +100,7 @@ O arquivo `docs/for-agents/tool-catalog.md` é **auto-gerado**. Não edite manua
 
 ## Tipos compartilhados
 
-Alterações em `packages/shared/src/index.ts` afetam tanto o server quanto o plugin. Após qualquer alteração:
+Alterações em `packages/shared/src/index.ts` afetam tanto o server quanto o web app. Após qualquer alteração:
 
 ```bash
 # Recompilar shared primeiro
@@ -108,6 +108,7 @@ Alterações em `packages/shared/src/index.ts` afetam tanto o server quanto o pl
 
 # Depois recompilar dependentes
 ~/.local/share/pnpm/bin/pnpm run build
+~/.local/share/pnpm/bin/pnpm run build:web
 ```
 
 ---

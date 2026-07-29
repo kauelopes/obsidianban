@@ -1,6 +1,6 @@
 # PRD — Migração da visualização para Web
 
-**Status:** aprovado, não iniciado
+**Status:** concluído (fases 0–5)
 **Data:** 2026-07-24
 **Escopo:** substituir o plugin Obsidian por um web app React, com editor de card que separa explicitamente conteúdo humano de conteúdo gerado por agentes.
 
@@ -290,7 +290,7 @@ Mitigações:
 | **2 — Board MVP** | `packages/web/`, cliente `fetch`, `EventSource`, board com dnd-kit, card detail read-only com MathJax + mermaid | Board web usável em paralelo ao Obsidian |
 | **3 — Edição** | R5.2, criação de card/projeto/sprint, substituição dos 14 modais de `plugin/src/ui/` | Paridade funcional com o plugin |
 | **4 — Supervisão** | F1 (+ `log_kind`), F3, F4, e o redesenho da interface | Supera o plugin |
-| **5 — Desligamento** | Remover `packages/plugin`; atualizar docs e skills | Migração concluída |
+| **5 — Desligamento** ✅ | Remover `packages/plugin`; atualizar docs e skills | Migração concluída |
 
 As fases 0 e 1 valem mesmo que a migração não aconteça.
 

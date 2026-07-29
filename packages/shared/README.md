@@ -1,6 +1,6 @@
 # packages/shared — @obsidiankan/types
 
-Tipos TypeScript compartilhados entre o MCP Server (`packages/server`) e o Plugin Obsidian (`packages/plugin`).
+Tipos TypeScript compartilhados entre o MCP Server (`packages/server`) e o web app (`packages/web`).
 
 ## O que exporta
 
@@ -23,7 +23,7 @@ Todas as definições em `src/index.ts`:
 | `AuditEntry` | Entrada do audit log |
 | `ConflictError` | Erro de conflito de versão (409) |
 | `ValidationError` | Erro de validação de campo (400) |
-| `BoardData` | Dados do board para o plugin (cards agrupados por coluna) |
+| `BoardData` | Dados do board para o web app (cards agrupados por coluna) |
 | `Metrics` | Métricas de uso de tokens |
 
 ## Como usar
@@ -51,7 +51,7 @@ pnpm build
 # dist/index.d.ts.map — source maps de declarações
 ```
 
-**Importante:** sempre compile o shared antes do server ou plugin. O build raiz (`pnpm run build`) garante a ordem correta via TypeScript project references.
+**Importante:** sempre compile o shared antes do server ou web. O build raiz (`pnpm run build`) garante a ordem correta via TypeScript project references.
 
 ## Alterar tipos
 
@@ -63,5 +63,5 @@ pnpm build
 
 # Recompilar dependentes
 pnpm --filter obsidiankan-mcp build
-pnpm --filter @obsidiankan/plugin build
+pnpm --filter @obsidiankan/web build
 ```

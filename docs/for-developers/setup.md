@@ -30,15 +30,15 @@ curl -fsSL https://get.pnpm.io/install.sh | sh -
 ```
 obsidiankan/
 ├── packages/
-│   ├── server/          # MCP Server — Node.js, TypeScript, better-sqlite3
-│   │   ├── src/         # Código fonte (39 arquivos TypeScript)
+│   ├── server/          # MCP Server — Node.js, TypeScript, better-sqlite3 (serve o web app na mesma origem)
+│   │   ├── src/         # Código fonte
+│   │   ├── scripts/     # sprint-workflow.ts — orquestrador autônomo
 │   │   ├── tests/       # Testes vitest (unit/, service/, integration/)
 │   │   └── dist/        # Output compilado (gitignored)
-│   ├── plugin/          # Plugin Obsidian — TypeScript + esbuild
-│   │   └── src/         # Código fonte (25 arquivos TypeScript)
+│   ├── web/             # Web app — React + Vite + TypeScript
+│   │   └── src/         # Código fonte (board, card detail, wizard de planejamento)
 │   └── shared/          # Tipos compartilhados (@obsidiankan/types)
 │       └── src/index.ts # Fonte de verdade dos tipos do domínio
-├── scripts/             # sprint-workflow.ts e scripts auxiliares
 ├── docs/                # Documentação (esta pasta)
 └── pnpm-workspace.yaml  # Configuração do workspace
 ```
@@ -63,12 +63,12 @@ cd obsidiankan
 # Compilar server + shared (ordem correta via project references)
 ~/.local/share/pnpm/bin/pnpm run build
 
-# Compilar plugin Obsidian (esbuild)
-~/.local/share/pnpm/bin/pnpm run build:plugin
+# Compilar web app (Vite)
+~/.local/share/pnpm/bin/pnpm run build:web
 
 # Compilar pacote específico
 ~/.local/share/pnpm/bin/pnpm --filter obsidiankan-mcp build
-~/.local/share/pnpm/bin/pnpm --filter @obsidiankan/plugin build
+~/.local/share/pnpm/bin/pnpm --filter @obsidiankan/web build
 ~/.local/share/pnpm/bin/pnpm --filter @obsidiankan/types build
 ```
 
@@ -82,15 +82,11 @@ cd obsidiankan
 # Server com hot reload (tsx watch)
 ~/.local/share/pnpm/bin/pnpm --filter obsidiankan-mcp run dev
 
-# Plugin com watch mode (recompila ao salvar)
-~/.local/share/pnpm/bin/pnpm --filter @obsidiankan/plugin run dev
+# Web app com hot reload (Vite dev server, proxied para o servidor kanban)
+~/.local/share/pnpm/bin/pnpm --filter @obsidiankan/web run dev
 ```
 
-Para o plugin dev, configure o vault de desenvolvimento:
-```bash
-export OBSIDIANKAN_DEV_VAULT=/caminho/para/test-vault
-~/.local/share/pnpm/bin/pnpm --filter @obsidiankan/plugin run dev
-```
+Em `vite dev` não há sessão injetada — o gate de token aparece, e isso é esperado: só o `index.html` servido pelo **servidor** (build de produção) recebe a injeção.
 
 ---
 
@@ -141,7 +137,7 @@ Execute após qualquer alteração em `packages/server/src/server/tool-catalog.t
 | Comando | O que faz |
 |---|---|
 | `pnpm run build` | Compila server + shared |
-| `pnpm run build:plugin` | Compila plugin |
+| `pnpm run build:web` | Compila o web app |
 | `pnpm run test` | Roda testes uma vez |
 | `pnpm run test:watch` | Testes em watch mode |
 | `pnpm run test:coverage` | Testes + relatório de cobertura |

@@ -2,7 +2,7 @@
 
 **Um sistema Kanban para agentes de IA e humanos — com a confiabilidade de um banco de dados e a simplicidade de arquivos Markdown.**
 
-ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 27 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um plugin Obsidian para visualização em tempo real.
+ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 27 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um web app para visualização e edição em tempo real.
 
 ---
 
@@ -19,7 +19,7 @@ flowchart LR
     end
 
     subgraph Humans["👤 Humanos"]
-        OBS["Obsidian\n(editor + board visual)"]
+        WEB["Web app\n(board + editor de card)"]
     end
 
     subgraph Server["🗄️ MCP Server"]
@@ -35,7 +35,7 @@ flowchart LR
     DEV -->|"dev token"| MCP
     PM -->|"pm token"| MCP
     MGR -->|"manager token"| MCP
-    OBS -->|"HTTP + SSE"| MCP
+    WEB -->|"HTTP + SSE"| MCP
     MCP --- LOCK
     LOCK --> MD
     MD -.->|"file watcher\nreconcilia"| DB
@@ -47,10 +47,9 @@ flowchart LR
 
 ```
 packages/
-  server/    # MCP Server — Node.js, TypeScript, better-sqlite3
-  plugin/    # Plugin Obsidian — TypeScript + esbuild
+  server/    # MCP Server — Node.js, TypeScript, better-sqlite3 (serve o web app na mesma origem)
+  web/       # Web app — React + Vite + TypeScript
   shared/    # Tipos compartilhados (@obsidiankan/types)
-scripts/     # sprint-workflow.ts — orquestrador autônomo
 docs/        # Documentação organizada por público
 ```
 

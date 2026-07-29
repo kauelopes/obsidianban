@@ -58,15 +58,14 @@ The `--actor` string ends up in every audit row and SSE event the agent
 generates. Make it specific (`agent:claude-marketing`, not `agent:1`) so
 the audit log is meaningful months later.
 
-### Mint from inside Obsidian
+### Mint from the web app
 
-If the plugin is configured with a **manager** token, the command palette
-exposes **"Create kanban project"**. It prompts for a project name + actor,
-calls `kanban_create_project`, writes a copy of the token to
-`_kanban-secrets/<project>.md` inside the vault, and surfaces the raw token
-in a one-shot modal with a Copy button. Use this when you don't want to
-shell into the server to issue tokens. Agent tokens calling the same tool
-get `403 forbidden { reason: "manager_required" }`.
+With a **manager** session, the home screen exposes **"Novo projeto"**. It
+prompts for a project name + actor, calls `kanban_create_project`, and
+surfaces the raw PM/dev tokens once in a modal with a Copy button — nothing
+is persisted to the vault. Use this when you don't want to shell into the
+server to issue tokens. Agent tokens calling the same tool get
+`403 forbidden { reason: "manager_required" }`.
 
 ### List / revoke later
 
@@ -432,7 +431,7 @@ curl 'http://127.0.0.1:9375/metrics?from_date=2026-05-01&to_date=2026-05-31' | j
 | `400 invalid_fields` with `disallowed_fields: ["project"]` | Agent token sent `project` in update/move/etc. | Strip it — agents derive project from the token |
 | `404` on a card you know exists | Cross-project access with an agent token | Either use a manager token or scope the agent to that project |
 | `409 conflict` repeatedly | Stale version in the agent's working state | Re-fetch the card before retry; see integration-guide.md §5 |
-| Plugin shows "offline" but agent works | SSE connection died, HTTP still works | Plugin auto-reconnects (5s backoff cap); if persistent, restart the plugin |
+| Web app shows stale data but agent works | SSE connection died, HTTP still works | `EventSource` auto-reconnects with `Last-Event-ID`; if persistent, reload the page |
 
 ---
 

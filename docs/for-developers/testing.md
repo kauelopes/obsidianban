@@ -146,37 +146,34 @@ describe('Meu fluxo', () => {
 
 ---
 
-## Testes manuais do plugin Obsidian
+## Testes manuais do web app
 
-A UI do plugin não pode ser testada automaticamente (depende do runtime do Obsidian). Execute esta sequência antes de releases ou após mudanças no `packages/plugin/`.
+A UI não pode ser totalmente testada automaticamente — `jsdom` não renderiza MathJax nem abre `EventSource` de verdade. Execute esta sequência antes de releases ou após mudanças em `packages/web/`.
 
 ### Pré-requisitos
 
-- Server rodando: `pnpm --filter obsidiankan-mcp run dev`
-- Plugin instalado no vault de teste: `pnpm --filter @obsidiankan/plugin run build`
-- Token de manager configurado nas configurações do plugin (`Configurações → Plugins → ObsidianKan`)
+- Server rodando com o build do web: `pnpm run build:web && pnpm --filter obsidiankan-mcp run dev`
+- Navegador em `http://127.0.0.1:9375` — a sessão é injetada automaticamente pelo `index.html` servido pelo servidor; cole um token de manager só se quiser trocar de identidade
 
 ---
 
 ### 1. Setup e conectividade
 
-- [ ] Abrir o Obsidian com o vault de teste
-- [ ] Verificar que o plugin não exibe erro de conexão no canto inferior direito
-- [ ] Abrir a **Board View** (`Ctrl+P` → "ObsidianKan: Abrir Board")
-- [ ] Verificar que o board carrega sem tela em branco ou erro
+- [ ] Abrir `http://127.0.0.1:9375` — a home carrega sem gate de token (sessão injetada)
+- [ ] Verificar que a home lista os projetos existentes
+- [ ] Abrir o board de um projeto (`/board/:projeto`) e verificar que carrega sem tela em branco ou erro
 
 ### 2. Projeto
 
-- [ ] Clicar em **Novo projeto** no board
+- [ ] Clicar em **Novo projeto**
 - [ ] Preencher nome e actor, confirmar
-- [ ] Verificar que o projeto aparece na lista e o token PM é exibido
-- [ ] Copiar o token PM e configurá-lo nas configurações do plugin
+- [ ] Verificar que o projeto aparece na lista e o token PM é exibido (uma única vez)
+- [ ] Copiar o token PM
 
 ### 3. Sprint
 
-- [ ] Com o token PM ativo, clicar em **Nova sprint**
-- [ ] Preencher nome e goal, confirmar
-- [ ] Verificar que a sprint aparece no board com status `planning`
+- [ ] Com o token PM, criar uma **Nova sprint** (nome e goal)
+- [ ] Verificar que a sprint aparece com status `planning`
 - [ ] Clicar em **Iniciar sprint**
 - [ ] Verificar que o status muda para `active`
 
@@ -185,16 +182,14 @@ A UI do plugin não pode ser testada automaticamente (depende do runtime do Obsi
 - [ ] Clicar em **Novo card** no board
 - [ ] Preencher título, tipo e prioridade
 - [ ] Verificar que o card aparece na coluna `todo`
-- [ ] Arrastar (ou usar menu) para mover o card para `in_progress`
+- [ ] Arrastar o card para `in_progress` (dnd-kit)
 - [ ] Verificar que a coluna atualiza corretamente
-- [ ] Abrir o arquivo `.md` do card no vault
-- [ ] Verificar que o **card banner** aparece no topo do arquivo com as ações (mover, log, etc.)
-- [ ] Usar o banner para mover o card para `review`
-- [ ] Verificar que o board reflete a mudança
+- [ ] Abrir o card (`/card/:id`) e verificar as três zonas: `Spec` editável, `Notes` colapsável, `Agent Log` como timeline read-only
+- [ ] Editar a `Spec` e salvar; verificar que o `Agent Log` permanece intacto
 
 ### 5. SSE — atualização em tempo real
 
-- [ ] Deixar o board visível no Obsidian
+- [ ] Deixar o board aberto no navegador
 - [ ] Em outro terminal, mover um card via curl:
   ```bash
   curl -s -X POST http://localhost:9375/mcp/tool/kanban_move_card \
@@ -202,36 +197,31 @@ A UI do plugin não pode ser testada automaticamente (depende do runtime do Obsi
     -H "Content-Type: application/json" \
     -d '{"id":"<card_id>","status":"done","version":<version>}'
   ```
-- [ ] Verificar que o board atualiza **sem reload manual** em até 2 segundos
-- [ ] Verificar o indicador de status SSE (ícone de conexão no board)
+- [ ] Verificar que o board atualiza **sem reload manual** em até 2 segundos, sem perder scroll/estado de drag
+- [ ] Editar o `.md` do card direto no disco e verificar que `CARD_HUMAN_EDITED` chega e o board atualiza
 
-### 6. Conflict modal
+### 6. Conflito de versão
 
-- [ ] Abrir o mesmo card via API e via plugin simultaneamente
-- [ ] Submeter uma atualização via plugin com versão desatualizada (editar diretamente o `.md` do card antes de salvar pelo plugin)
-- [ ] Verificar que o **conflict modal** aparece com os campos em conflito
-- [ ] Escolher "usar versão do servidor" e verificar que o card atualiza
+- [ ] Abrir o mesmo card em duas abas
+- [ ] Submeter uma atualização pela UI com `version` desatualizada (mudar o card via curl antes de salvar pela UI)
+- [ ] Verificar que o **409** aparece como resolução na UI (não como erro cru)
 
-### 7. Métricas
+### 7. Rendering
 
-- [ ] Abrir a **Metrics View** (`Ctrl+P` → "ObsidianKan: Abrir Métricas")
-- [ ] Verificar que os dados de tokens por agente aparecem
-- [ ] Verificar que os filtros de data funcionam (se disponíveis)
+- [ ] Abrir um card com `$$...$$` (MathJax) e bloco ` ```mermaid ` no Agent Log — `card-2vorDD5G` do `test-vault` serve para isso
+- [ ] Verificar renderização correta nos dois temas (claro/escuro)
 
-### 8. Reconexão SSE
+### 8. Atividade e supervisão
 
-- [ ] Com o board aberto, derrubar o server (`Ctrl+C` no terminal)
-- [ ] Verificar que o indicador de status muda para `disconnected`
-- [ ] Reiniciar o server
-- [ ] Verificar que o plugin reconecta automaticamente (sem reiniciar o Obsidian)
-- [ ] Mover um card via curl e verificar que o board volta a atualizar em tempo real
+- [ ] Abrir `/atividade` e verificar tokens/custo por agente e por projeto
+- [ ] Provocar uma escalação (`log_kind: escalate`) e verificar que aparece em `/inbox` e na seção "precisa de você" da home
+- [ ] Abrir a aba **History** do card e verificar que reflete `audit.ndjson`
 
 ### 9. Token de dev
 
-- [ ] Em **Configurações → Plugins → ObsidianKan**, trocar para um token `dev`
-- [ ] Abrir o board e verificar que as ações de gestão (criar card, iniciar sprint) não aparecem ou estão desabilitadas
+- [ ] Entrar com um token `dev` e verificar que ações de gestão (criar card, iniciar sprint) não aparecem ou estão desabilitadas
 - [ ] Verificar que mover cards e adicionar logs ainda funciona
 
 ---
 
-**Critério de aprovação:** todos os itens marcados sem erros no console do Obsidian (`Ctrl+Shift+I → Console`). Erros esperados que podem ser ignorados: nenhum.
+**Critério de aprovação:** todos os itens marcados sem erros no console do navegador (`read_console_messages` ou DevTools). Erros esperados que podem ser ignorados: nenhum.

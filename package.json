@@ -5,7 +5,6 @@
   "scripts": {
     "build": "pnpm --filter obsidiankan-mcp build",
     "build:web": "pnpm --filter @obsidiankan/web build",
-    "build:plugin": "pnpm --filter @obsidiankan/plugin build",
     "test": "pnpm -r test",
     "test:server": "pnpm --filter obsidiankan-mcp test",
     "test:watch": "pnpm --filter obsidiankan-mcp test:watch",

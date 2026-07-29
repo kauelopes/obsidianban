@@ -73,7 +73,7 @@ curl -H "Authorization: Bearer SEU_TOKEN" http://127.0.0.1:9375/health
 
 ---
 
-## SSE / Plugin Obsidian
+## SSE / Board web
 
 ### Board não atualiza em tempo real
 
@@ -82,33 +82,13 @@ curl -H "Authorization: Bearer SEU_TOKEN" http://127.0.0.1:9375/health
 **Verificar:**
 ```bash
 # Checar se o endpoint SSE responde
-curl -N -H "Authorization: Bearer SEU_TOKEN" http://127.0.0.1:9375/sse
+curl -N -H "Authorization: Bearer SEU_TOKEN" http://127.0.0.1:9375/events
 # Deve manter conexão aberta e receber eventos
 ```
 
 **Soluções:**
-- O plugin tem reconexão automática com backoff exponencial
-- Verifique nas configurações do plugin se a URL base está correta
-- Reiniciar o plugin: Obsidian → Configurações → Plugins → Desativar/Ativar
-
----
-
-### Plugin não aparece no Obsidian
-
-**Causa:** Plugin não instalado corretamente.
-
-**Verificar:**
-```bash
-ls <seu-vault>/.obsidian/plugins/obsidiankan-mcp/
-# Deve conter: main.js, manifest.json, styles.css
-```
-
-**Solução:**
-```bash
-# Recompilar e copiar manualmente
-~/.local/share/pnpm/bin/pnpm run build:plugin
-cp -r packages/plugin/test-vault/.obsidian/plugins/obsidiankan-mcp/ <seu-vault>/.obsidian/plugins/
-```
+- O navegador reconecta automaticamente (`EventSource` nativo, com `Last-Event-ID`)
+- Recarregar a página força uma nova conexão
 
 ---
 
