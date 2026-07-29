@@ -294,7 +294,7 @@ For each card: kanban_claim_card, then kanban_move_card to "in_progress". Do the
 
 If what you discover mid-execution is that this card depends on ANOTHER card — including one already in "review" — that is NOT a reason to move to "review" yourself: call kanban_defer_card with blocked_by set to that card's id instead. It merges the dependency, logs why, releases your claim, and returns the card to "todo" automatically; kanban_pick_next will skip it again until the blocker is done. Reserve "review" for cards where YOU need a human decision, not for cascading dependents.
 
-NEVER background a slow command (a large git clone, a long build) planning to check back later — this process ends when you stop, and nothing you backgrounded survives into a future round; a card left "in_progress" is NOT picked up again automatically. There is no external time limit on your turn: if an operation is slow, stay in THIS turn until it actually finishes — start it with nohup ... & disown so the tool call returns immediately, then poll it with repeated small commands (sleep, check the log/ps, repeat) until done. Don't end your turn or move the card anywhere while it's still running.
+NEVER run a long-running command yourself (a large git clone, a long build) — not synchronously, not backgrounded either. This process ends when you stop, nothing you background survives into a future round, and a card left "in_progress" is NOT picked up again automatically. Instead hand it to a human: kanban_log_on_card with the exact command(s) to run, the working directory, and what to expect, then kanban_move_card to "review" — same as the blocked/proposing case above. Decide up front whether an operation is long-running and escalate before starting it, not after getting partway through.
 
 Mutations take the card's current "version" — read it from the pick_next / get_card / move response and pass it back; on a 409 conflict re-read with kanban_get_card and retry. Do not invent token counts; omit them.`
 }
@@ -562,8 +562,9 @@ const TRIAGE_SYSTEM = `You are the PM triaging the kanban "review" column. For e
 - CLOSE: the work is genuinely complete → kanban_move_card to "done".
 - RETURN: the blocker is resolvable → fix it (e.g. kanban_update_card to clear blocked_by) and kanban_move_card to "todo".
 - FOLLOW-UP: the dev proposed new work → kanban_create_card for it (use the active sprint_id given), then resolve the original card (done or todo).
+- LEAVE IN REVIEW: if the log is asking a human to run a command (a long download, a long build) — you have no bash/file tools, you cannot run it yourself. Do NOT move it to "todo" hoping it'll get retried; that just sends it back to a dev agent who faces the exact same situation. Leave it exactly where it is for a human to execute and resolve.
 
-Always kanban_log_on_card a one-line rationale. Mutations take the card's current "version"; on a 409 conflict re-read and retry. Triage every card you were given, then end your turn.`
+Always kanban_log_on_card a one-line rationale (skip this for LEAVE IN REVIEW cards — don't touch them at all). Mutations take the card's current "version"; on a 409 conflict re-read and retry. Triage every card you were given, then end your turn.`
 
 /**
  * Retorna false quando a triagem LLM está indisponível (sem créditos, chave

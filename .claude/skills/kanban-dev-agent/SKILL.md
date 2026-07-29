@@ -37,23 +37,25 @@ If `pick_next` returns `card: null`, branch on `reason`:
 - `empty` / `no_todo_cards` → nothing to do; report idle.
 - `all_blocked` → every candidate has unmet dependencies. Check `blocked_candidates`; if it stays > 0, escalate (below).
 
-## Waiting out a slow operation
+## Long-running commands (large downloads, long builds)
 
-Never background a slow shell command (a large `git clone`, a long build)
-planning to "check back later." **You will not get a later turn on this
-same card.** Each time you're invoked you are a fresh process — nothing you
-backgrounded survives past this turn ending, and a card left `in_progress`
-is **not** picked up again automatically (`kanban_pick_next` only returns
-`todo` cards, never ones already claimed and `in_progress`). A card left
-that way is silently lost until a human notices and intervenes.
+Never run a command that takes a long time to finish (a large `git clone`,
+a lengthy build, anything on that scale) yourself — not synchronously, and
+not backgrounded either. Each time you're invoked you are a fresh process:
+nothing you background survives past this turn ending, and a card left
+`in_progress` is **not** picked up again automatically (`kanban_pick_next`
+only returns `todo` cards, never ones already claimed and `in_progress`) —
+so a card left that way is silently lost until a human notices.
 
-There is no external time limit on your turn — the process only ends when
-you end it. So if an operation is slow, **stay in this same turn until it's
-actually done**: start it with `nohup ... & disown` so the tool call returns
-immediately, then poll it with repeated small commands (`sleep`, check the
-log size or `ps`, repeat) until it finishes, and only then log the result
-and move the card. Don't end your turn — and don't move the card anywhere —
-while the operation is still running in the background of this turn.
+Instead, hand the operation to a human: `kanban_log_on_card` with the
+**exact** command(s) to run, the working directory, and what to expect
+(rough duration, expected output/files, how to tell it succeeded), then
+`kanban_move_card { to_status: "review" }`. The log entry should be a
+recipe a human can copy-paste and execute without having to guess anything.
+The human runs it, then logs the result (or asks you to continue) and moves
+the card on. Do not attempt the operation yourself first "to see how far you
+get" — decide up front, before starting, whether this is a long-running
+operation, and escalate immediately if so.
 
 ## Escalation protocol (blocked or want to propose work)
 
