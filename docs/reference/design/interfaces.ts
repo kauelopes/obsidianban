@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // ObsidianKanban MCP — Normative TypeScript Interfaces
 //
-// Source of truth for the contract between MCP Server, Obsidian Plugin and
+// Source of truth for the contract between MCP Server, web client and
 // agents. Any divergence with PRD §5 (Data Model) or §6 (MCP API) is a
 // design bug — fix here first, then propagate to implementation.
 //
@@ -195,9 +195,7 @@ export interface ValidationError {
   allowed_fields: string[]
 }
 
-// ─── Plugin-specific ─────────────────────────────────────────────────────────
-
-export type Resolution = 'keep-mine' | 'keep-theirs' | 'manual'
+// ─── Client-specific ─────────────────────────────────────────────────────────
 
 export interface BoardData {
   projects: Array<{

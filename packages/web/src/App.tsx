@@ -24,6 +24,7 @@ import { PlanEntry, PlanWizard } from './plan/PlanWizard.js'
 import { usePlanningSummary } from './plan/usePlanningSummary.js'
 import { CreateCard } from './ui/CreateCard.js'
 import { CreateProject } from './ui/CreateProject.js'
+import { PageHeader } from './ui/PageHeader.js'
 import { ProjectPanel } from './ui/ProjectPanel.js'
 import { SprintPanel } from './ui/SprintPanel.js'
 import { ThemeToggle, useTheme } from './ui/theme.js'
@@ -31,12 +32,13 @@ import { TokenGate, useToken } from './TokenGate.js'
 
 export function Shell({
   children,
-  right,
+  status,
   onLogout,
   client,
 }: {
   children: React.ReactNode
-  right?: React.ReactNode
+  /** Estado global mínimo — ex. badge de conexão. Ações de página vão em PageHeader, não aqui. */
+  status?: React.ReactNode
   onLogout: () => void
   client: KanbanClient
 }) {
@@ -70,7 +72,7 @@ export function Shell({
             ◇ planejando: {planning.project_name ?? 'novo projeto'}
           </NavLink>
         )}
-        {right}
+        {status}
         <ThemeToggle pref={pref} cycle={cycle} />
         <button className="ghost" onClick={onLogout}>
           sair
@@ -92,16 +94,14 @@ function HomePage({ client, onLogout }: { client: KanbanClient; onLogout: () => 
     <Shell
       client={client}
       onLogout={onLogout}
-      right={
-        <>
-          <button className="primary" onClick={() => navigate('/planejar')}>
-            {planning ? 'continuar planejamento' : 'planejar projeto'}
-          </button>
-          <button onClick={() => setCreatingProject(true)}>+ projeto</button>
-          <span className={`conn ${board.conn}`}>{board.conn}</span>
-        </>
-      }
+      status={<span className={`conn ${board.conn}`}>{board.conn}</span>}
     >
+      <PageHeader>
+        <button className="primary" onClick={() => navigate('/planejar')}>
+          {planning ? 'continuar planejamento' : 'planejar projeto'}
+        </button>
+        <button onClick={() => setCreatingProject(true)}>+ projeto</button>
+      </PageHeader>
       {board.error && (
         <p className="banner">
           {board.error}
@@ -253,42 +253,40 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
     <Shell
       client={client}
       onLogout={onLogout}
-      right={
-        <>
-          {/* Token de dev não enxerga listProjects: sem lista, sem seletor. */}
-          {knownProjects.length > 1 && (
-            <select
-              aria-label="Trocar de projeto"
-              value={project}
-              onChange={(e) => navigate(`/board/${e.target.value}`)}
-            >
-              {!knownProjects.includes(project) && <option value={project}>{project}</option>}
-              {knownProjects.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          )}
-          <input
-            className="search"
-            value={query}
-            placeholder="buscar título, tag, responsável…"
-            aria-label="Buscar cards"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <label className="toggle" title="Fechar uma sprint arquiva os cards em done">
-            <input
-              type="checkbox"
-              checked={board.showArchived}
-              onChange={(e) => board.setShowArchived(e.target.checked)}
-            />
-            arquivados
-          </label>
-          <span className={`conn ${board.conn}`}>{board.conn}</span>
-        </>
-      }
+      status={<span className={`conn ${board.conn}`}>{board.conn}</span>}
     >
+      <PageHeader>
+        {/* Token de dev não enxerga listProjects: sem lista, sem seletor. */}
+        {knownProjects.length > 1 && (
+          <select
+            aria-label="Trocar de projeto"
+            value={project}
+            onChange={(e) => navigate(`/board/${e.target.value}`)}
+          >
+            {!knownProjects.includes(project) && <option value={project}>{project}</option>}
+            {knownProjects.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        )}
+        <input
+          className="search"
+          value={query}
+          placeholder="buscar título, tag, responsável…"
+          aria-label="Buscar cards"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <label className="toggle" title="Fechar uma sprint arquiva os cards em done">
+          <input
+            type="checkbox"
+            checked={board.showArchived}
+            onChange={(e) => board.setShowArchived(e.target.checked)}
+          />
+          arquivados
+        </label>
+      </PageHeader>
       {board.error && (
         <p className="banner">
           {board.error}

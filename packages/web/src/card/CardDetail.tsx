@@ -76,6 +76,7 @@ function Zone({
         <button
           className="ghost chev"
           aria-expanded={open}
+          aria-label={`${open ? 'Recolher' : 'Expandir'} ${title}`}
           onClick={() => setOpen((o) => !o)}
           style={{ padding: 0 }}
         >

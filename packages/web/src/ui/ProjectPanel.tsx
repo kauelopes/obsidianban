@@ -84,78 +84,81 @@ export function ProjectPanel({
       {error && <p className="banner">{error}</p>}
       {note && <p className="field-help">{note}</p>}
 
-      <div className="form">
-        <label>
-          <span>Repositório do workflow</span>
-          <input
-            className="mono"
-            value={repo}
-            placeholder="/caminho/absoluto/para/o/repo"
-            onChange={(e) => setRepo(e.target.value)}
-          />
-          <span className="field-help">
-            É o diretório de trabalho do sprint workflow. Ao definir, o servidor instala as
-            skills, escreve os configs e gera os tokens de pm e dev que faltarem — eles
-            aparecem abaixo uma única vez.
-          </span>
-        </label>
-        <div className="form-row">
-          <button
-            className="primary"
-            disabled={busy || !repo.trim()}
-            onClick={() => setRepoPath(repo.trim())}
-          >
-            Definir repositório
-          </button>
-          <button disabled={busy} onClick={() => setRepoPath(null)}>
-            Remover repositório
-          </button>
-        </div>
-      </div>
-
-      {readiness && <Readiness r={readiness} />}
-
-      <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: 'var(--s-6) 0' }} />
-
-      <GoalsSection client={client} project={project} onChanged={onChanged} setError={setError} />
-
-      <EpicsSection client={client} project={project} onChanged={onChanged} setError={setError} />
-
-      <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: 'var(--s-6) 0' }} />
-
-      <div className="form">
-        <label>
-          <span>Novo token de agente</span>
-          <div className="form-row">
+      <section className="panel-section">
+        <h3>Workflow</h3>
+        <div className="form">
+          <label>
+            <span>Repositório do workflow</span>
             <input
-              value={actor}
-              placeholder="actor (ex. dev-claude)"
-              onChange={(e) => setActor(e.target.value)}
+              className="mono"
+              value={repo}
+              placeholder="/caminho/absoluto/para/o/repo"
+              onChange={(e) => setRepo(e.target.value)}
             />
-            <select
-              aria-label="Tipo de agente"
-              value={agentType}
-              onChange={(e) => setAgentType(e.target.value === 'pm' ? 'pm' : 'dev')}
+            <span className="field-help">
+              É o diretório de trabalho do sprint workflow. Ao definir, o servidor instala as
+              skills, escreve os configs e gera os tokens de pm e dev que faltarem — eles
+              aparecem abaixo uma única vez.
+            </span>
+          </label>
+          <div className="form-row">
+            <button
+              className="primary"
+              disabled={busy || !repo.trim()}
+              onClick={() => setRepoPath(repo.trim())}
             >
-              <option value="dev">dev — só log</option>
-              <option value="pm">pm — acesso completo</option>
-            </select>
-            <button disabled={busy || !actor.trim()} onClick={mint}>
-              Gerar token
+              Definir repositório
+            </button>
+            <button disabled={busy} onClick={() => setRepoPath(null)}>
+              Remover repositório
             </button>
           </div>
-          <span className="field-help">
-            O CLI <code>kanban-token</code> grava sempre <code>agent_type: pm</code>; esta é a
-            única via para um token dev de verdade.
-          </span>
-        </label>
-      </div>
+        </div>
 
-      {minted && <TokenOnce t={minted} />}
+        {readiness && <Readiness r={readiness} />}
+      </section>
 
-      <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: 'var(--s-6) 0' }} />
+      <section className="panel-section">
+        <h3>Planejamento do projeto</h3>
+        <GoalsSection client={client} project={project} onChanged={onChanged} setError={setError} />
+        <EpicsSection client={client} project={project} onChanged={onChanged} setError={setError} />
+      </section>
 
-      <div className="form">
+      <section className="panel-section">
+        <h3>Agentes e tokens</h3>
+        <div className="form">
+          <label>
+            <span>Novo token de agente</span>
+            <div className="form-row">
+              <input
+                value={actor}
+                placeholder="actor (ex. dev-claude)"
+                onChange={(e) => setActor(e.target.value)}
+              />
+              <select
+                aria-label="Tipo de agente"
+                value={agentType}
+                onChange={(e) => setAgentType(e.target.value === 'pm' ? 'pm' : 'dev')}
+              >
+                <option value="dev">dev — só log</option>
+                <option value="pm">pm — acesso completo</option>
+              </select>
+              <button disabled={busy || !actor.trim()} onClick={mint}>
+                Gerar token
+              </button>
+            </div>
+            <span className="field-help">
+              O CLI <code>kanban-token</code> grava sempre <code>agent_type: pm</code>; esta é a
+              única via para um token dev de verdade.
+            </span>
+          </label>
+        </div>
+
+        {minted && <TokenOnce t={minted} />}
+      </section>
+
+      <section className="panel-section">
+        <h3>Arquivamento</h3>
         <div className="form-row">
           <button disabled={busy} onClick={() => void client.archiveProject({ project }).then(onChanged)}>
             Arquivar projeto
@@ -167,6 +170,10 @@ export function ProjectPanel({
             Desarquivar
           </button>
         </div>
+      </section>
+
+      <section className="panel-section panel-section--danger">
+        <h3>Zona destrutiva</h3>
         <label>
           <span>Deletar projeto — permanente</span>
           <div className="form-row">
@@ -184,7 +191,7 @@ export function ProjectPanel({
             Apaga a pasta do projeto e todos os seus cards. Não há desfazer.
           </span>
         </label>
-      </div>
+      </section>
     </Dialog>
   )
 }
@@ -354,32 +361,29 @@ function EpicsSection({
   }
 
   return (
-    <>
-      <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: 'var(--s-6) 0' }} />
-      <div className="form">
-        <p className="label">Épicos</p>
-        {epics.map((e) => (
-          <div key={e.id} className="form-row" style={{ alignItems: 'baseline' }}>
-            <span>
-              <strong>{e.name}</strong>
-              {e.objective && <span className="field-help"> — {e.objective}</span>}
-              <span className="field-help mono"> · {e.sprint_ids.length} sprint(s)</span>
-            </span>
-            <div className="spacer" />
-            <select
-              aria-label={`status do épico ${e.name}`}
-              value={e.status}
-              disabled={busy}
-              onChange={(ev) => void setStatus(e.id, ev.target.value as Epic['status'])}
-            >
-              <option value="open">aberto</option>
-              <option value="done">concluído</option>
-              <option value="dropped">abandonado</option>
-            </select>
-          </div>
-        ))}
-      </div>
-    </>
+    <div className="form" style={{ marginTop: 'var(--s-5)' }}>
+      <p className="label">Épicos</p>
+      {epics.map((e) => (
+        <div key={e.id} className="form-row" style={{ alignItems: 'baseline' }}>
+          <span>
+            <strong>{e.name}</strong>
+            {e.objective && <span className="field-help"> — {e.objective}</span>}
+            <span className="field-help mono"> · {e.sprint_ids.length} sprint(s)</span>
+          </span>
+          <div className="spacer" />
+          <select
+            aria-label={`status do épico ${e.name}`}
+            value={e.status}
+            disabled={busy}
+            onChange={(ev) => void setStatus(e.id, ev.target.value as Epic['status'])}
+          >
+            <option value="open">aberto</option>
+            <option value="done">concluído</option>
+            <option value="dropped">abandonado</option>
+          </select>
+        </div>
+      ))}
+    </div>
   )
 }
 

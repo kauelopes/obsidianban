@@ -3,17 +3,28 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   DndContext,
   DragOverlay,
+  KeyboardSensor,
   PointerSensor,
   useDroppable,
   useSensor,
   useSensors,
+  type Announcements,
+  type DragCancelEvent,
   type DragEndEvent,
   type DragStartEvent,
+  type Over,
 } from '@dnd-kit/core'
-import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import type { CardSummary, Sprint } from '@obsidiankan/types'
 import { authorClass } from '../card/author.js'
 import { isOverdue, todayString, type ProjectGroup } from './group.js'
+
+const DRAG_INSTRUCTIONS_ID = 'board-drag-instructions'
 
 interface Props {
   groups: ProjectGroup[]
@@ -60,7 +71,36 @@ export function Board({
     // A small threshold keeps a click on the card from starting a drag, so
     // the link to the detail view still works.
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    // Setas reordenam dentro da coluna e também movem entre colunas —
+    // sortableKeyboardCoordinates opera por geometria sobre todos os
+    // droppables do DndContext, não só os da lista atual. Verificado em
+    // browser real: jsdom não calcula layout, então esse comportamento não
+    // aparece em teste automatizado.
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
+
+  const announcements: Announcements = {
+    onDragStart({ active }) {
+      const card = (active.data.current as { card: CardSummary } | undefined)?.card
+      return card ? `Pegou o card ${card.title}.` : undefined
+    },
+    onDragOver({ active, over }) {
+      const card = (active.data.current as { card: CardSummary } | undefined)?.card
+      if (!card) return undefined
+      const desc = describeTarget(groups, card, over)
+      return desc ? `Sobre ${desc}.` : undefined
+    },
+    onDragEnd({ active, over }) {
+      const card = (active.data.current as { card: CardSummary } | undefined)?.card
+      if (!card) return undefined
+      const desc = describeTarget(groups, card, over)
+      return desc ? `${card.title} solto em ${desc}.` : `${card.title} solto sem mudança de posição.`
+    },
+    onDragCancel({ active }: DragCancelEvent) {
+      const card = (active.data.current as { card: CardSummary } | undefined)?.card
+      return card ? `Movimento de ${card.title} cancelado.` : 'Movimento cancelado.'
+    },
+  }
 
   function handleStart(e: DragStartEvent) {
     setDragging((e.active.data.current as { card: CardSummary } | undefined)?.card ?? null)
@@ -138,6 +178,7 @@ export function Board({
       onDragStart={handleStart}
       onDragEnd={handleEnd}
       onDragCancel={() => setDragging(null)}
+      accessibility={{ announcements }}
     >
       <div className="board">
         {/*
@@ -206,10 +247,14 @@ export function Board({
       <DragOverlay>
         {dragging ? (
           <div className={`card${authorClass(dragging.updated_by)}`} style={{ cursor: 'grabbing' }}>
-            <CardBody card={dragging} today={today} />
+            <CardBody card={dragging} today={today} escalated={escalated.has(dragging.id)} />
           </div>
         ) : null}
       </DragOverlay>
+      <span id={DRAG_INSTRUCTIONS_ID} className="sr-only">
+        Pressione espaço para pegar o card, use as setas para mover, espaço para soltar, esc para
+        cancelar.
+      </span>
     </DndContext>
   )
 }
@@ -221,6 +266,40 @@ function droppableId(project: string, status: string): string {
 function splitDroppableId(id: string): [string, string] {
   const i = id.indexOf(' ')
   return [id.slice(0, i), id.slice(i + 1)]
+}
+
+/**
+ * Descreve em texto o alvo de um drop, para os `announcements` do DndContext.
+ * Mesma leitura de `over` que `handleEnd` usa para decidir mover vs. reordenar,
+ * para o anúncio nunca divergir do que de fato acontece.
+ */
+function describeTarget(
+  groups: ProjectGroup[],
+  card: CardSummary,
+  over: Over | null,
+): string | undefined {
+  if (!over) return undefined
+  const overId = String(over.id)
+  const overCard = (over.data.current as { card?: CardSummary } | undefined)?.card
+
+  if (!overCard) {
+    const [project, status] = splitDroppableId(overId)
+    if (project !== card.project || status === card.status) return undefined
+    return `coluna ${status.replace(/_/g, ' ')}`
+  }
+
+  if (overCard.project !== card.project || overCard.id === card.id) return undefined
+
+  if (overCard.status !== card.status) {
+    return `coluna ${overCard.status.replace(/_/g, ' ')}`
+  }
+
+  const list = columnCards(groups, card.project, card.status)
+  const after = afterCardIdFor(list, card.id, overCard.id)
+  if (after === undefined) return undefined
+  return after === null
+    ? `topo da coluna ${card.status.replace(/_/g, ' ')}`
+    : `posição de ${overCard.title}`
 }
 
 function columnCards(
@@ -365,7 +444,9 @@ function DraggableCard({
       onClick={onClick}
       {...listeners}
       {...attributes}
+      aria-describedby={DRAG_INSTRUCTIONS_ID}
     >
+      <span className="card-drag-handle" aria-hidden="true" />
       <CardBody card={card} today={today} escalated={escalated} />
     </div>
   )
@@ -375,6 +456,8 @@ function DraggableCard({
  * Slots de ordem fixa na linha de meta — id, prioridade, prazo, responsável —
  * para o olho poder varrer a coluna verticalmente sem reler cada card.
  */
+const VISIBLE_TAGS = 3
+
 function CardBody({
   card,
   today,
@@ -385,6 +468,12 @@ function CardBody({
   escalated?: boolean
 }) {
   const overdue = isOverdue(card.due_date, today)
+  // Sinais que exigem decisão imediata dominam a leitura do card; id,
+  // responsável e tags são rastreio administrativo e cedem peso quando há um.
+  const hasAlert = escalated || card.blocked_by.length > 0 || (overdue && card.priority === 'critical')
+  const visibleTags = card.tags.slice(0, VISIBLE_TAGS)
+  const hiddenTags = card.tags.length - visibleTags.length
+
   return (
     <>
       <div className="card-title">
@@ -400,12 +489,14 @@ function CardBody({
             ▲ escalado
           </span>
         )}
-        <span className="id">{card.id.replace(/^card-/, '')}</span>
+        <span className={`card-meta-admin${hasAlert ? ' dim' : ''}`}>
+          <span className="id">{card.id.replace(/^card-/, '')}</span>
+          {card.assigned_to && <span className="flag claimed">{card.assigned_to}</span>}
+        </span>
         <span className={`prio ${card.priority}`}>{card.priority}</span>
         {card.due_date && (
           <span className={overdue ? 'flag overdue' : undefined}>{card.due_date}</span>
         )}
-        {card.assigned_to && <span className="flag claimed">{card.assigned_to}</span>}
         {card.blocked_by.length > 0 && (
           <span className="flag blocked" title={card.blocked_by.join(', ')}>
             {card.blocked_by.length} blocker{card.blocked_by.length > 1 ? 's' : ''}
@@ -414,12 +505,13 @@ function CardBody({
         {card.archived && <span className="flag archived">arquivado</span>}
       </div>
       {card.tags.length > 0 && (
-        <div className="card-tags">
-          {card.tags.map((t) => (
+        <div className={`card-tags${hasAlert ? ' dim' : ''}`}>
+          {visibleTags.map((t) => (
             <span className="tag" key={t}>
               {t}
             </span>
           ))}
+          {hiddenTags > 0 && <span className="tag tag-more">+{hiddenTags}</span>}
         </div>
       )}
     </>

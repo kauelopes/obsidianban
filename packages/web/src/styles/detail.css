@@ -574,6 +574,46 @@
   line-height: 1.45;
 }
 
+/*
+ * Blocos titulados de um painel de ajustes: cada zona (workflow, tokens,
+ * arquivamento...) fica visualmente separada, e a zona destrutiva ganha borda
+ * e fundo próprios em vez de disputar peso com as outras via um <hr> genérico.
+ */
+.panel-section {
+  padding: var(--s-6) 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel-section:first-child {
+  padding-top: 0;
+}
+
+.panel-section:last-child {
+  border-bottom: none;
+}
+
+.panel-section > h3 {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+  margin: 0 0 var(--s-5);
+}
+
+.panel-section--danger {
+  margin-top: var(--s-5);
+  padding: var(--s-6);
+  border: 1px solid color-mix(in srgb, var(--alert) 40%, var(--rule));
+  border-radius: var(--r-md);
+  background: var(--alert-weak);
+}
+
+.panel-section--danger > h3 {
+  color: var(--alert);
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

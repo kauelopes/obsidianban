@@ -1,4 +1,5 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useFocusTrap } from './useFocusTrap.js'
 
 /**
  * One dialog replaces the plugin's per-purpose modal classes. The plugin had
@@ -16,18 +17,31 @@ export function Dialog({
   children: ReactNode
   footer?: ReactNode
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  useFocusTrap(dialogRef, true)
+
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal>
+      <div
+        ref={dialogRef}
+        className="dialog"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         <header>
-          <h2>{title}</h2>
-          <button type="button" onClick={onClose} aria-label="fechar">×</button>
+          <h2 id={titleId}>{title}</h2>
+          <button type="button" onClick={onClose} aria-label="fechar" tabIndex={-1}>×</button>
         </header>
         <div className="dialog-body">{children}</div>
         {footer && <footer>{footer}</footer>}

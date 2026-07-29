@@ -30,8 +30,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
 export function pathsFor(vault: string): Paths {
   // kanban-data is visible (no dot) so Obsidian indexes the card .md files
-  // and the plugin can open them in the editor. .kanban/ stays hidden as
-  // it holds MCP internals the user shouldn't touch from the explorer.
+  // and can open them directly in its editor. .kanban/ stays hidden as it
+  // holds MCP internals the user shouldn't touch from the explorer.
   const kanbanData = path.join(vault, 'kanban-data')
   const kanbanInternal = path.join(vault, '.kanban')
   return {
