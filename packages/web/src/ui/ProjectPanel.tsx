@@ -409,6 +409,14 @@ export function Readiness({ r }: { r: WorkflowReadinessResult }) {
           <dt>skills</dt>
           <dd>
             {r.skills.filter((s) => s.was_present || s.installed).length}/{r.skills.length}
+            {r.skills.some((s) => s.updated) && (
+              <span className="field-help">
+                {' '}
+                ({r.skills.filter((s) => s.updated).length} atualizado
+                {r.skills.filter((s) => s.updated).length === 1 ? '' : 's'} para a versão mais
+                recente)
+              </span>
+            )}
           </dd>
           <dt>configs</dt>
           <dd>

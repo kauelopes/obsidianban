@@ -61,7 +61,7 @@ async function main(): Promise<void> {
 
   const sse = new SSEEventBus()
   const workflowCfg = loadWorkflowConfig(process.env, config.paths)
-  const workflow = new WorkflowManager(workflowCfg, sse)
+  const workflow = new WorkflowManager(workflowCfg, sse, config.paths)
   if (workflowCfg.autoLaunch) logger.info({ scriptPath: workflowCfg.scriptPath }, 'workflow: auto-launch enabled')
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const metrics = new MetricsService(db)

@@ -9,7 +9,6 @@ import {
   type WorkflowConfig,
 } from '../../src/services/workflow-runner.js'
 import { pathsFor } from '../../src/config.js'
-import { HttpError } from '../../src/services/errors.js'
 import type { SSEEvent } from '@obsidiankan/types'
 
 let dir: string
@@ -70,7 +69,7 @@ function manager(scriptPath: string): WorkflowManager {
     autoLaunch: false,
     kanbanUrl: 'http://127.0.0.1:9375',
   }
-  return new WorkflowManager(cfg, sse)
+  return new WorkflowManager(cfg, sse, pathsFor(dir))
 }
 
 function waitFor(pred: () => boolean, ms = 5000): Promise<void> {
@@ -193,12 +192,24 @@ describe('WorkflowManager', () => {
     expect(log.data).toContain('pm=pm-token dev=dev-token')
   })
 
-  it('falha com 400 quando os tokens não existem em lugar nenhum', async () => {
-    const script = await writeScript(`console.log('nope')`)
+  it('sem tokens em lugar nenhum, o readiness check os provisiona automaticamente antes do start', async () => {
+    // start() agora roda checkWorkflowReadiness antes de resolveTokens — o
+    // caso "tokens ausentes" se autocura em vez de falhar com 400.
+    const script = await writeScript(`
+      console.log('pm=' + process.env.KANBAN_PM_TOKEN, 'dev=' + process.env.KANBAN_DEV_TOKEN)
+    `)
     const m = manager(script)
-    await expect(m.start('sprint-01', 'proj', repo)).rejects.toMatchObject({ status: 400 })
-    const err = await m.start('sprint-01', 'proj', repo).catch((e: HttpError) => e)
-    expect((err as HttpError).body['error']).toBe('workflow_tokens_missing')
+    await m.start('sprint-01', 'proj', repo)
+    await waitFor(() => m.status('sprint-01')?.status === 'exited')
+    const log = await m.readLog('sprint-01', 0)
+    expect(log.data).toMatch(/pm=\S+ dev=\S+/)
+    expect(log.data).not.toContain('undefined')
+
+    const settings = JSON.parse(
+      await fs.readFile(path.join(repo, '.claude', 'settings.local.json'), 'utf8'),
+    ) as { env: { KANBAN_TOKEN: string; KANBAN_DEV_TOKEN: string } }
+    expect(settings.env.KANBAN_TOKEN).toBeTruthy()
+    expect(settings.env.KANBAN_DEV_TOKEN).toBeTruthy()
   })
 
   it('falha com 400 quando o target_repo não existe', async () => {

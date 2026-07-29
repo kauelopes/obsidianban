@@ -40,6 +40,19 @@ async function fileExists(filePath: string): Promise<boolean> {
   return fs.stat(filePath).then(() => true, () => false)
 }
 
+// Byte comparison, not mtime: skill files are copied (not edited) into target
+// repos, so content is the only signal that survives a checkout/rsync/backup
+// with fresh mtimes. Any read failure (src missing, dest unreadable) counts
+// as "different" so the caller attempts a copy and surfaces the real error.
+async function filesEqual(a: string, b: string): Promise<boolean> {
+  try {
+    const [bufA, bufB] = await Promise.all([fs.readFile(a), fs.readFile(b)])
+    return bufA.equals(bufB)
+  } catch {
+    return false
+  }
+}
+
 async function copySkillFile(src: string, dest: string): Promise<void> {
   await fs.mkdir(path.dirname(dest), { recursive: true })
   await fs.copyFile(src, dest)
@@ -84,21 +97,31 @@ export async function checkWorkflowReadiness(
   const repoExists = await fileExists(targetRepo)
 
   // ── Skills ──────────────────────────────────────────────────────────────────
+  // Always overwrite when content is stale, not just when the file is missing:
+  // these files are copied from this repo's .claude/skills/, never hand-edited
+  // in the target repo, so a content mismatch only ever means "older version" —
+  // there's no local edit to preserve or conflict with.
   const skills: SkillFileCheck[] = []
   for (const relPath of REQUIRED_SKILL_FILES) {
     const dest = path.join(targetRepo, '.claude', 'skills', relPath)
     const src = path.join(skillsSource, relPath)
     const was_present = await fileExists(dest)
     let installed = false
-    if (!was_present && repoExists) {
+    let updated = false
+    if (repoExists) {
       try {
-        await copySkillFile(src, dest)
-        installed = true
+        if (!was_present) {
+          await copySkillFile(src, dest)
+          installed = true
+        } else if (!(await filesEqual(src, dest))) {
+          await copySkillFile(src, dest)
+          updated = true
+        }
       } catch (err) {
-        logger.warn({ err, project, file: relPath }, 'workflow-readiness: failed to install skill file')
+        logger.warn({ err, project, file: relPath }, 'workflow-readiness: failed to install/update skill file')
       }
     }
-    skills.push({ path: relPath, was_present, installed })
+    skills.push({ path: relPath, was_present, installed, updated })
   }
 
   // ── Config files ─────────────────────────────────────────────────────────────
@@ -200,6 +223,11 @@ export async function checkWorkflowReadiness(
     config_files,
     tokens: { has_pm: hasPmInSettings, has_dev: hasDevInSettings, generated_pm, generated_dev },
     all_ok,
+  }
+
+  const updatedPaths = skills.filter((s) => s.updated).map((s) => s.path)
+  if (updatedPaths.length > 0) {
+    logger.info({ project, target_repo: targetRepo, updated: updatedPaths }, 'workflow-readiness: skill files updated to latest version')
   }
 
   if (all_ok) {

@@ -4,6 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { logger } from '../util/logger.js'
 import { badRequest, conflict, notFound } from './errors.js'
+import { checkWorkflowReadiness } from './workflow-readiness.js'
 import type { SSEEventBus } from '../server/sse.js'
 import type { Paths } from '../config.js'
 import type { WorkflowLogResult, WorkflowRunStatus, WorkflowRunView } from '@obsidiankan/types'
@@ -59,6 +60,7 @@ export class WorkflowManager {
   constructor(
     private readonly cfg: WorkflowConfig,
     private readonly sse: SSEEventBus,
+    private readonly paths: Paths,
   ) {}
 
   get autoLaunch(): boolean {
@@ -86,6 +88,14 @@ export class WorkflowManager {
 
     const repoOk = await fs.stat(targetRepo).then((s) => s.isDirectory(), () => false)
     if (!repoOk) throw badRequest('target_repo_missing', { target_repo: targetRepo })
+
+    // Best-effort refresh: syncs skills/config/tokens to the latest version
+    // before every launch, so a stale checkout never silently runs an old
+    // protocol. checkWorkflowReadiness already catches its own per-file
+    // errors and logs them — a failure here must not block the launch.
+    await checkWorkflowReadiness(project, targetRepo, this.paths).catch((err) => {
+      logger.warn({ err, project, target_repo: targetRepo }, 'workflow: readiness refresh failed, continuing with existing files')
+    })
 
     const tokens = await this.resolveTokens(targetRepo)
 

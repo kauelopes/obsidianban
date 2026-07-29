@@ -79,6 +79,7 @@ beforeAll(async () => {
   const workflow = new WorkflowManager(
     { scriptPath: '/nonexistent.mjs', logDir: wfLogDir, autoLaunch: false, kanbanUrl: 'http://127.0.0.1:0' },
     sse,
+    paths,
   )
   server = new HttpServer({ port: 0, state, validator, idempotency, sse, metrics, activity, mcp: mcpStub, workflow })
 

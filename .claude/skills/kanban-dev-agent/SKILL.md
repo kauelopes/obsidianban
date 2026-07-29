@@ -37,25 +37,23 @@ If `pick_next` returns `card: null`, branch on `reason`:
 - `empty` / `no_todo_cards` → nothing to do; report idle.
 - `all_blocked` → every candidate has unmet dependencies. Check `blocked_candidates`; if it stays > 0, escalate (below).
 
-## Never background a long-running operation
+## Waiting out a slow operation
 
-Never run a slow shell command (a large `git clone`, a long build, anything
-that outlives your reasonable attention) in the background planning to
-"check back later." **You will not get a later turn on this same card.**
-Each time you're invoked you are a fresh process — nothing you backgrounded
-survives past this turn ending, and a card you leave in `in_progress` is
-**not** picked up again automatically (`kanban_pick_next` only returns
+Never background a slow shell command (a large `git clone`, a long build)
+planning to "check back later." **You will not get a later turn on this
+same card.** Each time you're invoked you are a fresh process — nothing you
+backgrounded survives past this turn ending, and a card left `in_progress`
+is **not** picked up again automatically (`kanban_pick_next` only returns
 `todo` cards, never ones already claimed and `in_progress`). A card left
 that way is silently lost until a human notices and intervenes.
 
-Run slow commands **synchronously** — wait for them to actually finish,
-even if it takes a while, before deciding what to log and where to move the
-card. If the work genuinely cannot complete within this turn (the operation
-itself is too large, needs more time than you have), do not leave the card
-`in_progress`: follow the escalation protocol below and move it to `review`
-with a clear note of exactly how far it got and what's left, so a human (or
-the next triage pass) can pick up from a known state instead of finding an
-orphaned claim.
+There is no external time limit on your turn — the process only ends when
+you end it. So if an operation is slow, **stay in this same turn until it's
+actually done**: start it with `nohup ... & disown` so the tool call returns
+immediately, then poll it with repeated small commands (`sleep`, check the
+log size or `ps`, repeat) until it finishes, and only then log the result
+and move the card. Don't end your turn — and don't move the card anywhere —
+while the operation is still running in the background of this turn.
 
 ## Escalation protocol (blocked or want to propose work)
 

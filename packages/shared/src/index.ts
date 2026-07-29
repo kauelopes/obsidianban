@@ -329,7 +329,8 @@ export interface ValidationError {
 export interface SkillFileCheck {
   path: string         // relative to .claude/skills/ (e.g. 'kanban-pm-agent/SKILL.md')
   was_present: boolean
-  installed: boolean   // true = copied during this check
+  installed: boolean   // true = missing before this check, copied now
+  updated: boolean     // true = was present but stale (content differed from source), overwritten now
 }
 
 export interface GeneratedToken {
