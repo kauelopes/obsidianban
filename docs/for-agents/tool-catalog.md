@@ -55,6 +55,19 @@
 | `kanban_list_epics` | List the epics of a project with their sprint_ids. Progress is derived by the caller from the cards of the attached sprints — there is no stored counter. |  | ✓ |
 | `kanban_update_epic` | Update an epic: name, objective, status (open\|done\|dropped) and/or sprint_ids (full replacement; each sprint may belong to at most one epic). Prefer status=dropped over removal — epics have no delete tool by design, the history matters. |  | ✓ |
 
+## Planejamento (8 tools)
+
+| Tool | Description | Dev | PM |
+|------|-------------|:---:|:--:|
+| `kanban_planning_start` | Start a new project-planning wizard session (KAD). Only one active session per server — 409 planning_session_active otherwise. Returns the session with the first screen (identity form). |  |  |
+| `kanban_planning_get` | Get the full state of a planning session — current step, screen payload, accumulated KAD documents, usage and status. Poll this while status is "generating"; the SSE event PLANNING_STEP_READY fires when the screen is ready. |  |  |
+| `kanban_planning_answer` | Submit the human answer for the current step and advance the wizard. When the next step is LLM-prefilled the call returns immediately with status "generating" — the result arrives via SSE/polling, never synchronously. |  |  |
+| `kanban_planning_refine` | Ask the LLM to correct the current step (diagram/confirm screens) with free-text feedback. Stays on the same step; returns "generating" like kanban_planning_answer. |  |  |
+| `kanban_planning_retry` | Re-run the last failed turn of a planning session (rate limit, invalid JSON, timeout). Only valid when status is "error". |  |  |
+| `kanban_planning_finalize` | Materialize an approved plan: creates the real project (returning the one-time pm token and workflow_readiness like kanban_create_project), the epics, the sprints (in planning state), the cards (bulk, tagged epic:<slug>), the goals, writes the KAD documents to kanban-data/<project>/kad/ and copies them to <target_repo>/docs/kad/. Synchronous and checkpointed: if it fails midway, calling it again resumes without duplicating — but the pm token is only returned by the first pass (token_hint explains the fallback). |  |  |
+| `kanban_planning_cancel` | Cancel a planning session: kills any in-flight turn and marks the session cancelled. Not reversible. |  |  |
+| `kanban_planning_list` | List planning sessions that are not finished (anything but done/cancelled) — used by the Home to offer "continue planning". |  |  |
+
 ## Auth (1 tool)
 
 | Tool | Description | Dev | PM |

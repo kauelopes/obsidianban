@@ -5,7 +5,7 @@
 .kanban/
 .kanban-data/
 
-# Dev-only test vault (plugin output target)
+# Dev-only test vault (fixture data for local testing)
 test-vault/
 
 # Local env — carries real API keys and tokens. Use .env.example as the template.

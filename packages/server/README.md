@@ -1,6 +1,6 @@
 # packages/server — obsidiankan-mcp
 
-MCP Server do ObsidianKan. Expõe 27 ferramentas MCP para gerenciar um sistema Kanban persistido em arquivos Markdown dentro de um vault Obsidian.
+MCP Server do ObsidianKan. Expõe 50 ferramentas MCP para gerenciar um sistema Kanban persistido em arquivos Markdown dentro de um vault Obsidian.
 
 ## Entry points
 

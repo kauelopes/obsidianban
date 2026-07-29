@@ -2,7 +2,7 @@
 
 **Um sistema Kanban para agentes de IA e humanos — com a confiabilidade de um banco de dados e a simplicidade de arquivos Markdown.**
 
-ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 27 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um web app para visualização e edição em tempo real.
+ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 50 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um web app para visualização e edição em tempo real.
 
 ---
 
@@ -23,7 +23,7 @@ flowchart LR
     end
 
     subgraph Server["🗄️ MCP Server"]
-        MCP["27 tools MCP\n(HTTP / stdio)"]
+        MCP["50 tools MCP\n(HTTP / stdio)"]
         LOCK["Optimistic locking\nIdempotência\nAudit log"]
     end
 
@@ -64,7 +64,8 @@ docs/        # Documentação organizada por público
 ```bash
 git clone <repo-url> obsidiankan && cd obsidiankan
 ~/.local/share/pnpm/bin/pnpm install
-~/.local/share/pnpm/bin/pnpm run build
+~/.local/share/pnpm/bin/pnpm run build       # server (shared → server)
+~/.local/share/pnpm/bin/pnpm run build:web   # web app — o servidor serve o build da mesma origem
 ```
 
 ### 2. Configurar
@@ -87,6 +88,12 @@ curl http://127.0.0.1:9375/health
 # → {"status":"ok"}
 ```
 
+Abra `http://127.0.0.1:9375` no navegador para o board web — em loopback o servidor já injeta uma sessão de manager, sem precisar de token. Para usar via Claude CLI ou agentes MCP, gere um manager token de verdade:
+
+```bash
+VAULT_PATH=/caminho/para/vault node packages/server/dist/auth/cli.js create --role manager --actor "human:seu-nome"
+```
+
 > Veja o guia completo em [docs/for-users/getting-started.md](docs/for-users/getting-started.md)
 
 ---
@@ -97,9 +104,9 @@ O sistema tem três níveis de acesso, controlados por tipo de token. Cada agent
 
 | Papel | Acesso | Responsabilidade |
 |---|---|---|
-| **Manager** | Todos os 27 tools | Cria projetos e minta tokens |
-| **PM** | 24 tools (sem admin) | Cria cards, gerencia sprints, supervisiona review |
-| **Dev** | 13 tools | Executa cards: claim, move, log, pick_next |
+| **Manager** | Todos os 50 tools | Cria projetos, provisiona workflow, minta tokens |
+| **PM** | 35 tools (sem admin) | Cria cards, planeja épicos/metas, gerencia sprints, supervisiona review |
+| **Dev** | 9 tools | Executa cards: claim, move, log, pick_next |
 
 Veja a matriz completa em [docs/for-agents/tool-catalog.md](docs/for-agents/tool-catalog.md).
 
@@ -131,7 +138,7 @@ Veja a matriz completa em [docs/for-agents/tool-catalog.md](docs/for-agents/tool
 
 ### Para agentes IA
 - [Runbook do agente](docs/for-agents/agent-runbook.md) — mint tokens, configurar clientes
-- [Catálogo de tools](docs/for-agents/tool-catalog.md) — referência das 27 ferramentas MCP
+- [Catálogo de tools](docs/for-agents/tool-catalog.md) — referência das 50 ferramentas MCP
 - [Guia de integração](docs/for-agents/integration-guide.md) — wire protocol, auth, SSE
 - [Sprint workflow](docs/for-agents/sprint-workflow.md) — workflow autônomo de sprint
 

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { TOOL_CATALOG, type ToolCategory, type ToolMeta } from '../src/server/tool-catalog.ts'
 
-const CATEGORY_ORDER: ToolCategory[] = ['Cards', 'Workflow', 'Projetos', 'Auth', 'Sprints']
+const CATEGORY_ORDER: ToolCategory[] = ['Cards', 'Workflow', 'Projetos', 'Planejamento', 'Auth', 'Sprints']
 
 /** Escape characters that would break a markdown table cell. */
 function cell(text: string): string {
@@ -40,6 +40,17 @@ function renderCategory(category: ToolCategory): string {
 }
 
 function render(): string {
+  // CATEGORY_ORDER is a plain array, not type-checked for completeness against
+  // ToolCategory — a category added to tool-catalog.ts without a matching entry
+  // here silently vanishes from the doc instead of erroring.
+  const rendered = new Set(CATEGORY_ORDER)
+  const missing = TOOL_CATALOG.filter((t) => !rendered.has(t.category))
+  if (missing.length > 0) {
+    throw new Error(
+      `CATEGORY_ORDER is missing categories present in TOOL_CATALOG: ${[...new Set(missing.map((t) => t.category))].join(', ')}`,
+    )
+  }
+
   const sections = CATEGORY_ORDER.map(renderCategory).join('\n\n')
   return [
     '# Kanban MCP — Tool List',

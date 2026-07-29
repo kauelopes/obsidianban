@@ -57,9 +57,9 @@ curl -H "Authorization: Bearer SEU_TOKEN" http://127.0.0.1:9375/health
 ```
 
 **Soluções:**
-- Confirme que o token foi gerado via `kanban_create_agent_token`
-- Tokens são prefixados por tipo: `mgr-...`, `pm-...`, `dev-...`
-- O manager token inicial é impresso nos logs de startup do servidor
+- Tokens de pm/dev são gerados via `kanban_create_agent_token`; não têm prefixo por tipo — são strings opacas
+- O primeiro manager token não é impresso em lugar nenhum: gere um com `node packages/server/dist/auth/cli.js create --role manager --actor "human:seu-nome"` (veja [getting-started.md](getting-started.md#6-tokens-para-cli-e-agentes-opcional))
+- Em loopback (`127.0.0.1`), o web app não precisa de token — o servidor injeta uma sessão de manager automaticamente
 
 ---
 

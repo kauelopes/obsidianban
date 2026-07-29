@@ -67,7 +67,7 @@ packages/server/tests/
 - Toda a camada de serviços (`services/`)
 - Serialização/deserialização de Markdown
 - RBAC (matriz de acesso por tipo de token)
-- Schemas JSON de todas as 27 tools
+- Schemas JSON de todas as 50 tools
 - Operações de banco de dados
 - Idempotência e detecção de conflitos
 - Fluxos HTTP end-to-end
