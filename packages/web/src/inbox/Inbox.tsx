@@ -12,9 +12,11 @@ import { Markdown } from '../markdown/Markdown.js'
  * supervisionar agentes autônomos. Antes disto, achar uma escalação exigia
  * abrir card por card e ler o Agent Log.
  *
- * Cada item traz o texto da escalação, que é a pergunta de verdade, e as ações
- * respondem gravando um `pm_resolved` no log — o que tira o card da lista pela
- * mesma regra que o colocou nela.
+ * A lista é todo card em `status: review` — a mesma regra que a triagem
+ * automática do sprint workflow usa (ver docs/for-agents/sprint-workflow.md).
+ * Por isso as ações espelham as saídas dessa triagem (CLOSE/RETURN): gravam
+ * `pm_resolved` no log E tiram o card de `review`, porque só sair de `review`
+ * remove o card da lista — logar sozinho não basta.
  */
 export function Inbox({ client }: { client: KanbanClient }) {
   const [items, setItems] = useState<EscalationItem[] | null>(null)
@@ -41,10 +43,14 @@ export function Inbox({ client }: { client: KanbanClient }) {
   }, [load])
 
   /**
-   * Resolver = gravar a decisão no log com `pm_resolved`, e opcionalmente
-   * devolver o card para `todo` para o dev agent poder pegá-lo de novo.
+   * Mesmas duas saídas da triagem automática do sprint workflow (CLOSE/RETURN,
+   * ver TRIAGE_SYSTEM em scripts/sprint-workflow.ts): grava a decisão no log
+   * com `pm_resolved` e move o card para fora de `review` — porque é sair de
+   * `review` que tira o card desta lista, não o log em si. FOLLOW-UP (criar um
+   * card novo a partir da proposta do dev) não tem atalho aqui ainda; use
+   * "Abrir card" e crie o card manualmente antes de resolver.
    */
-  async function resolve(item: EscalationItem, text: string, backToTodo: boolean) {
+  async function resolve(item: EscalationItem, text: string, outcome: 'close' | 'return') {
     setBusyId(item.card_id)
     setError(null)
 
@@ -60,13 +66,14 @@ export function Inbox({ client }: { client: KanbanClient }) {
       return
     }
 
-    if (backToTodo && logged.data.status !== 'todo') {
+    const toStatus = outcome === 'close' ? 'done' : 'todo'
+    if (logged.data.status !== toStatus) {
       // A versão vem da resposta anterior: o log já subiu a versão do card, e
       // reusar a antiga daria 409.
       const moved = await client.moveCard({
         id: item.card_id,
         version: logged.data.version,
-        to_status: 'todo',
+        to_status: toStatus,
         input_tokens: 0,
         output_tokens: 0,
         model: 'human',
@@ -109,10 +116,10 @@ export function Inbox({ client }: { client: KanbanClient }) {
 
         {items.length === 0 ? (
           <p className="empty-lg">
-            Nada esperando você. Um agente escala quando registra uma entrada com{' '}
-            <code>log_kind: escalate</code> — normalmente porque está bloqueado ou quer propor
-            uma mudança de escopo. Escalações escritas à mão no Obsidian, com o marcador{' '}
-            <code>[ESCALATE]</code>, também aparecem aqui.
+            Nada esperando você. Todo card em <code>review</code> aparece aqui — normalmente
+            porque um dev agent está bloqueado ou quer propor uma mudança de escopo, e a
+            triagem automática do sprint workflow não conseguiu resolver sozinha. Cards movidos
+            manualmente para <code>review</code> no Obsidian também aparecem.
           </p>
         ) : (
           <ul className="inbox">
@@ -146,15 +153,17 @@ export function Inbox({ client }: { client: KanbanClient }) {
                       <button
                         className="primary"
                         disabled={busyId === it.card_id || !reply.trim()}
-                        onClick={() => void resolve(it, reply.trim(), false)}
+                        onClick={() => void resolve(it, reply.trim(), 'close')}
+                        title="CLOSE — o trabalho está genuinamente concluído"
                       >
-                        Registrar decisão
+                        Concluir
                       </button>
                       <button
                         disabled={busyId === it.card_id || !reply.trim()}
-                        onClick={() => void resolve(it, reply.trim(), true)}
+                        onClick={() => void resolve(it, reply.trim(), 'return')}
+                        title="RETURN — você resolveu o bloqueio, o dev agent pode continuar"
                       >
-                        Registrar e devolver ao todo
+                        Devolver ao todo
                       </button>
                       <button
                         disabled={busyId === it.card_id}

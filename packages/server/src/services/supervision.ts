@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { parseSections, lastExplicitLogKind, parseLogEntries, type LogKind } from '@obsidiankan/types'
+import { parseSections, parseLogEntries } from '@obsidiankan/types'
 import type { Paths } from '../config.js'
 import type { CardRepository } from '../cards/repository.js'
 import { readCardFile } from '../vault/card-file.js'
@@ -31,16 +31,26 @@ export interface EscalationsResult {
 /**
  * Inbox de escalações.
  *
- * O estado de escalação é derivado do arquivo, não indexado: o kind vive no
- * cabeçalho da entrada do `# Agent Log`, e o body não é espelhado no SQLite.
- * Reler os arquivos em vez de manter uma coluna derivada significa que não há
- * índice para dessincronizar — e como o `.md` é a fonte de verdade, uma
- * escalação escrita à mão no Obsidian também aparece aqui.
+ * O critério é `status === 'review'`, não um `log_kind: 'escalate'` marcado à
+ * mão. `review` já É o protocolo de escalação (ver agent-runbook.md §3): o
+ * dev agent só entra na coluna quando está bloqueado ou propondo algo, e o
+ * workflow de sprint (deterministic pre-pass + triagem LLM) já tenta resolver
+ * todo card de `review` a cada rodada antes de deixá-lo ali. Um card que
+ * sobrevive até essa leitura já passou por dois filtros automáticos — exigir
+ * também a tag era um segundo sinal que podia dessincronizar do status (ex:
+ * dev loga uma nota simples ao mover para review, sem `escalate`), fazendo a
+ * inbox humana ficar vazia enquanto o board mostrava um card esperando.
  *
- * O custo é uma leitura por card não arquivado. Com dezenas ou centenas de
- * cards isso é irrelevante em loopback; num vault com milhares valeria uma
- * coluna derivada preenchida na reconciliação. Limite conhecido e anotado, não
- * escondido.
+ * `reason`/`escalated_at` continuam lendo o arquivo (fonte de verdade, sem
+ * índice para dessincronizar) mas agora com fallback: usam a última entrada
+ * do Agent Log seja qual for seu kind, e caem para `updated_at` quando não há
+ * log nenhum — a inclusão na lista não depende mais de existir uma entrada
+ * marcada.
+ *
+ * O custo é uma leitura por card em `review` (não mais por card não
+ * arquivado). Com dezenas ou centenas de cards isso é irrelevante em
+ * loopback; num vault com milhares valeria uma coluna derivada preenchida na
+ * reconciliação. Limite conhecido e anotado, não escondido.
  */
 export class SupervisionService {
   constructor(
@@ -71,8 +81,9 @@ export class SupervisionService {
     })
 
     const escalations: EscalationItem[] = []
+    const reviewRows = rows.filter((row) => row.status === 'review')
 
-    for (const row of rows) {
+    for (const row of reviewRows) {
       const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
       let body: string
       try {
@@ -86,13 +97,10 @@ export class SupervisionService {
         continue
       }
 
-      const agentLog = parseSections(body).agentLog
-      const kind: LogKind | null = lastExplicitLogKind(agentLog)
-      if (kind !== 'escalate') continue
-
-      // A entrada que escalou é a última com kind explícito.
-      const entries = parseLogEntries(agentLog)
-      const last = [...entries].reverse().find((e) => e.explicit && e.kind === 'escalate')
+      // A inclusão na lista já foi decidida pelo status — aqui só extraímos
+      // o melhor texto/timestamp disponíveis para exibir, sem exigir kind.
+      const entries = parseLogEntries(parseSections(body).agentLog)
+      const last = entries.length > 0 ? entries[entries.length - 1] : null
 
       escalations.push({
         card_id: row.id,
@@ -103,8 +111,8 @@ export class SupervisionService {
         priority: row.priority,
         assigned_to: row.assigned_to,
         updated_at: row.updated_at,
-        escalated_at: last?.ts ?? null,
-        reason: last?.text ?? '',
+        escalated_at: last?.ts ?? row.updated_at,
+        reason: last?.text.trim() || 'Sem entrada de log — abra o card para decidir.',
       })
     }
 

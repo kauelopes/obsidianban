@@ -94,6 +94,7 @@ beforeAll(async () => {
   server.registerTool('kanban_log_on_card', (p, c) =>
     cardService.logOnCard(p as Record<string, unknown>, c),
   )
+  server.registerTool('kanban_move_card', (p, c) => cardService.move(p as Record<string, unknown>, c))
   server.registerTool('kanban_get_card_history', (p, c) =>
     historyService.getCardHistory(p as Record<string, unknown>, c),
   )
@@ -313,7 +314,7 @@ describe('POST /mcp/tool/kanban_get_card_history', () => {
 })
 
 describe('POST /mcp/tool/kanban_list_escalations', () => {
-  it('lists a card whose last explicit log entry is an escalation, and drops it once resolved', async () => {
+  it('lists a card moved to review, and drops it once moved off review', async () => {
     const created = await httpPost(
       port,
       '/mcp/tool/kanban_create_card',
@@ -322,7 +323,7 @@ describe('POST /mcp/tool/kanban_list_escalations', () => {
     )
     const card = created.body as Record<string, unknown>
 
-    const escalated = await httpPost(
+    const logged = await httpPost(
       port,
       '/mcp/tool/kanban_log_on_card',
       {
@@ -334,7 +335,20 @@ describe('POST /mcp/tool/kanban_list_escalations', () => {
       },
       pmTokenRaw,
     )
-    expect(escalated.status).toBe(200)
+    expect(logged.status).toBe(200)
+
+    const moved = await httpPost(
+      port,
+      '/mcp/tool/kanban_move_card',
+      {
+        id: card['id'],
+        version: (logged.body as Record<string, unknown>)['version'],
+        to_status: 'review',
+        ...TOKEN,
+      },
+      pmTokenRaw,
+    )
+    expect(moved.status).toBe(200)
 
     const res = await httpPost(port, '/mcp/tool/kanban_list_escalations', {}, pmTokenRaw)
     expect(res.status).toBe(200)
@@ -346,14 +360,33 @@ describe('POST /mcp/tool/kanban_list_escalations', () => {
     expect(mine!['reason']).toContain('drop or backfill')
     expect(mine!['title']).toBe('Escalated Card')
 
-    await httpPost(
+    // Logging pm_resolved alone does NOT remove it — only leaving 'review' does,
+    // since the criterion is status, not the log's last explicit kind.
+    const resolved = await httpPost(
       port,
       '/mcp/tool/kanban_log_on_card',
       {
         id: card['id'],
-        version: (escalated.body as Record<string, unknown>)['version'],
+        version: (moved.body as Record<string, unknown>)['version'],
         log_entry: 'decided: backfill',
         log_kind: 'pm_resolved',
+        ...TOKEN,
+      },
+      pmTokenRaw,
+    )
+    const stillThere = await httpPost(port, '/mcp/tool/kanban_list_escalations', {}, pmTokenRaw)
+    const stillItems = (stillThere.body as Record<string, unknown>)['escalations'] as Array<
+      Record<string, unknown>
+    >
+    expect(stillItems.find((e) => e['card_id'] === card['id'])).toBeDefined()
+
+    await httpPost(
+      port,
+      '/mcp/tool/kanban_move_card',
+      {
+        id: card['id'],
+        version: (resolved.body as Record<string, unknown>)['version'],
+        to_status: 'todo',
         ...TOKEN,
       },
       pmTokenRaw,
@@ -364,6 +397,44 @@ describe('POST /mcp/tool/kanban_list_escalations', () => {
       Record<string, unknown>
     >
     expect(remaining.find((e) => e['card_id'] === card['id'])).toBeUndefined()
+  })
+
+  it('lists a review card even without an explicit escalate-tagged log entry', async () => {
+    const created = await httpPost(
+      port,
+      '/mcp/tool/kanban_create_card',
+      { title: 'Plain Review Card', type: 'task', sprint_id: sprintId, ...TOKEN },
+      pmTokenRaw,
+    )
+    const card = created.body as Record<string, unknown>
+
+    const logged = await httpPost(
+      port,
+      '/mcp/tool/kanban_log_on_card',
+      { id: card['id'], version: card['version'], log_entry: 'wrapped up, needs a look', ...TOKEN },
+      pmTokenRaw,
+    )
+
+    const moved = await httpPost(
+      port,
+      '/mcp/tool/kanban_move_card',
+      {
+        id: card['id'],
+        version: (logged.body as Record<string, unknown>)['version'],
+        to_status: 'review',
+        ...TOKEN,
+      },
+      pmTokenRaw,
+    )
+    expect(moved.status).toBe(200)
+
+    const res = await httpPost(port, '/mcp/tool/kanban_list_escalations', {}, pmTokenRaw)
+    const items = (res.body as Record<string, unknown>)['escalations'] as Array<
+      Record<string, unknown>
+    >
+    const mine = items.find((e) => e['card_id'] === card['id'])
+    expect(mine).toBeDefined()
+    expect(mine!['reason']).toContain('wrapped up, needs a look')
   })
 
   it('dev agent returns 403', async () => {

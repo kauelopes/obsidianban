@@ -68,9 +68,32 @@ Every mutation must carry \`input_tokens\`, \`output_tokens\` and \`model\` so t
 
 ## Escalating
 
-When you are blocked or want to propose something, log it with \`log_kind: 'escalate'\` and move the card to \`review\`. That is what puts it in the human's escalation inbox. Do **not** write \`[ESCALATE]\` in the text — it used to be the convention, it is not read anymore.
+When you are blocked or want to propose something, log it (\`log_kind: 'escalate'\` is recommended for clarity, but not required) and move the card to \`review\`. Moving to \`review\` is what puts it in \`kanban_list_escalations\` and the human's inbox — **not** a specific log tag. Do **not** write \`[ESCALATE]\` in the text — it used to be the convention, it is not read anymore.
 
-A PM answering an escalation logs with \`log_kind: 'pm_resolved'\`, which removes the card from the inbox.
+A card in \`review\` is not handed straight to a human. It first goes through PM triage — automated when a sprint workflow is running, or a human PM otherwise — which resolves it one of three ways: **CLOSE** (genuinely done → \`done\`), **RETURN** (the blocker is fixable, so the PM fixes it and sends the card back to \`todo\` for the dev agent to continue), or **FOLLOW-UP** (the proposal becomes a new card, and the original resolves as \`done\` or \`todo\`). A card only stays visible in the human inbox if none of those apply yet.
+
+A PM answering an escalation logs with \`log_kind: 'pm_resolved'\` **and** moves the card off \`review\` (to \`done\` or \`todo\`) — logging alone does not remove it from the inbox, only leaving \`review\` does.
+
+\`\`\`mermaid
+flowchart TD
+    DEV["Dev agent: blocked or proposing something<br/>kanban_log_on_card + kanban_move_card → review"] --> REVIEW{{"Card in review"}}
+
+    REVIEW --> DET{"Deterministic check:<br/>all blocked_by cards done?"}
+    DET -->|yes| AUTORETURN["Release claim, move → todo<br/>(no LLM call needed)"]
+    AUTORETURN --> TODO(["todo — dev agent picks it up again"])
+
+    DET -->|no| TRIAGE["PM triage reads the # Agent Log<br/>(automated LLM during a sprint run,<br/>or a human PM in the Escalações inbox)"]
+
+    TRIAGE -->|"CLOSE: genuinely done"| DONE(["done"])
+    TRIAGE -->|"RETURN: PM can fix the blocker itself<br/>(more tools/access than the dev)"| RETURN["Fix it (e.g. clear blocked_by),<br/>log pm_resolved, move → todo"]
+    RETURN --> TODO
+    TRIAGE -->|"FOLLOW-UP: dev proposed new work"| FOLLOWUP["kanban_create_card for the proposal,<br/>then resolve the original (done or todo)"]
+    FOLLOWUP --> DONE
+    FOLLOWUP --> TODO
+
+    TRIAGE -->|"none of the above fit yet"| INBOX["Stays in review —<br/>visible in kanban_list_escalations<br/>and the web Escalações tab"]
+    INBOX -.->|"human resolves,<br/>same CLOSE/RETURN outcomes"| TRIAGE
+\`\`\`
 
 ## Sprints are mandatory
 

@@ -71,10 +71,12 @@ each connects to the same server with its own token.
 
 ## Triaging the review column (your half of the dev escalation loop)
 
-Dev agents move blocked or proposed work to `review` with their reasoning in the `# Agent Log`. Regularly `kanban_list_cards { status: "review" }`, read the log, and decide:
-- **Resolve & return**: clear the blocker, then `kanban_move_card { to_status: "todo" }` (or update `blocked_by`) so a dev can pick it up again.
-- **Accept proposal**: `kanban_create_card` for the follow-up work.
+Dev agents move blocked or proposed work to `review` with their reasoning in the `# Agent Log`. `review` status is itself what puts a card in the human's escalation inbox (`kanban_list_escalations`) — there's no separate tag to set. Regularly `kanban_list_cards { status: "review" }`, read the log, and decide:
+- **Resolve & return**: clear the blocker (or update `blocked_by`), then `kanban_move_card { to_status: "todo" }` so a dev can pick it up again.
+- **Accept proposal**: `kanban_create_card` for the follow-up work, then resolve the original card (`done` or `todo`).
 - **Close**: `kanban_move_card { to_status: "done" }` if it's actually complete.
+
+Before each move, `kanban_log_on_card` a one-line rationale with `log_kind: 'pm_resolved'` — it's the paper trail an escalation's `reason` falls back to for anyone who reads the card later. Logging alone does **not** clear the card from the inbox; only moving it off `review` does, so always log *and* move.
 
 ## Concurrency
 

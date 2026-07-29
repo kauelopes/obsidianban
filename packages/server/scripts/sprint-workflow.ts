@@ -294,6 +294,8 @@ For each card: kanban_claim_card, then kanban_move_card to "in_progress". Do the
 
 If what you discover mid-execution is that this card depends on ANOTHER card — including one already in "review" — that is NOT a reason to move to "review" yourself: call kanban_defer_card with blocked_by set to that card's id instead. It merges the dependency, logs why, releases your claim, and returns the card to "todo" automatically; kanban_pick_next will skip it again until the blocker is done. Reserve "review" for cards where YOU need a human decision, not for cascading dependents.
 
+NEVER run a slow command (a large git clone, a long build, anything that outlives one turn) in the background planning to check back later — this process ends when you stop, and nothing you backgrounded survives into a future round; a card left "in_progress" is NOT picked up again automatically. Run slow commands synchronously and wait for them to actually finish. If the work genuinely cannot complete in this turn, do not leave the card "in_progress": log exactly how far you got and move it to "review" instead, per the STOP condition above.
+
 Mutations take the card's current "version" — read it from the pick_next / get_card / move response and pass it back; on a 409 conflict re-read with kanban_get_card and retry. Do not invent token counts; omit them.`
 }
 
