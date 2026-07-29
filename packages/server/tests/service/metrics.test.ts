@@ -78,6 +78,48 @@ describe('MetricsService by_project_day', () => {
 })
 
 /**
+ * card_id fecha a lacuna documentada em cards.total_* (que só soma
+ * input/output): com este filtro dá pra somar TUDO — cache e custo inclusos —
+ * que já foi cobrado a um card específico, direto do token_log.
+ */
+describe('MetricsService filtro por card_id', () => {
+  it('soma apenas as linhas do card pedido, ignorando outros cards e datas fora da janela', () => {
+    const db = createTestDb()
+    const ins = db.prepare(
+      `INSERT INTO token_log (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project,
+                              cache_read_tokens, cache_creation_tokens, cost_usd)
+       VALUES (@ts, @op, @card_id, @card_type, @actor, @model, @input_tokens, @output_tokens, @project,
+               @cache_read_tokens, @cache_creation_tokens, @cost_usd)`,
+    )
+    ins.run({ ts: '2026-07-01T10:00:00Z', op: 'CREATE', card_id: 'card-a', card_type: 'task', actor: 'agent:dev-1', model: 'claude-sonnet-5', project: 'alfa', input_tokens: 10, output_tokens: 5, cache_read_tokens: 1000, cache_creation_tokens: 100, cost_usd: 0.05 })
+    ins.run({ ts: '2026-07-02T10:00:00Z', op: 'UPDATE', card_id: 'card-a', card_type: 'task', actor: 'agent:dev-1', model: 'claude-sonnet-5', project: 'alfa', input_tokens: 200, output_tokens: 50, cache_read_tokens: 2000, cache_creation_tokens: 0, cost_usd: 0.1 })
+    ins.run({ ts: '2026-07-02T11:00:00Z', op: 'UPDATE', card_id: 'card-b', card_type: 'task', actor: 'agent:dev-1', model: 'claude-sonnet-5', project: 'alfa', input_tokens: 999, output_tokens: 999, cache_read_tokens: 999, cache_creation_tokens: 999, cost_usd: 9 })
+
+    const m = new MetricsService(db).collect({ card_id: 'card-a' })
+    expect(m.summary.total_input_tokens).toBe(210)
+    expect(m.summary.total_output_tokens).toBe(55)
+    expect(m.summary.total_cache_read_tokens).toBe(3000)
+    expect(m.summary.total_cache_creation_tokens).toBe(100)
+    expect(m.summary.total_cost_usd).toBeCloseTo(0.15, 6)
+    expect(m.summary.total_ops).toBe(2)
+  })
+
+  it('combina com from_date/to_date', () => {
+    const db = createTestDb()
+    const ins = db.prepare(
+      `INSERT INTO token_log (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project)
+       VALUES (@ts, @op, @card_id, @card_type, @actor, @model, @input_tokens, @output_tokens, @project)`,
+    )
+    ins.run({ ts: '2026-07-01T10:00:00Z', op: 'CREATE', card_id: 'card-a', card_type: 'task', actor: 'agent:dev-1', model: 'test', project: 'alfa', input_tokens: 10, output_tokens: 0 })
+    ins.run({ ts: '2026-07-05T10:00:00Z', op: 'UPDATE', card_id: 'card-a', card_type: 'task', actor: 'agent:dev-1', model: 'test', project: 'alfa', input_tokens: 20, output_tokens: 0 })
+
+    const m = new MetricsService(db).collect({ card_id: 'card-a', from_date: '2026-07-01', to_date: '2026-07-01' })
+    expect(m.summary.total_input_tokens).toBe(10)
+    expect(m.summary.total_ops).toBe(1)
+  })
+})
+
+/**
  * Camada "nenhum token se perde": linhas WORKFLOW_* (registro por round, sem
  * card) carregam cache e custo medido, e o summary os agrega. cost_usd é o
  * número autoritativo — as linhas antigas ficam em 0, nunca somem.

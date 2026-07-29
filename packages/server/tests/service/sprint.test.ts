@@ -222,6 +222,31 @@ describe('SprintService.getSprint', () => {
     expect(detail.aggregates.cards_done).toBe(1)
     expect(detail.aggregates.cards_todo).toBe(1)
   })
+
+  it('sums cache/cost across cards alongside input/output', async () => {
+    const activeSprint = await setupActiveSprint()
+    const a = await cardService.create(
+      { ...BASE_CARD, title: 'A', project: 'test-project', sprint_id: activeSprint.id, status: 'todo',
+        cache_read_tokens: 1000, cache_creation_tokens: 100, cost_usd: 0.1 },
+      MGR,
+    )
+    await cardService.create(
+      { ...BASE_CARD, title: 'B', project: 'test-project', sprint_id: activeSprint.id, status: 'todo',
+        cache_read_tokens: 500, cache_creation_tokens: 50, cost_usd: 0.05 },
+      MGR,
+    )
+    // a second mutation on A must accumulate, not overwrite — aggregates should reflect the total.
+    await cardService.move(
+      { id: a.id, version: a.version, to_status: 'in_progress', input_tokens: 0, output_tokens: 0,
+        cache_read_tokens: 200, cost_usd: 0.02 },
+      MGR,
+    )
+
+    const detail = await sprintService.getSprint({ sprint_id: activeSprint.id }, MGR)
+    expect(detail.aggregates.total_cache_read_tokens).toBe(1700)
+    expect(detail.aggregates.total_cache_creation_tokens).toBe(150)
+    expect(detail.aggregates.total_cost_usd).toBeCloseTo(0.17, 6)
+  })
 })
 
 describe('SprintService.moveBetweenSprints', () => {

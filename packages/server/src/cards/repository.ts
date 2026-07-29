@@ -17,6 +17,9 @@ export interface CardRow {
   agent_notes: string | null
   total_input_tokens: number
   total_output_tokens: number
+  total_cache_read_tokens: number
+  total_cache_creation_tokens: number
+  total_cost_usd: number
   created_at: string
   updated_at: string
   created_by: string
@@ -31,6 +34,7 @@ export interface CardRow {
 const COLUMNS =
   'id, project, title, status, type, version, position, priority, tags, ' +
   'due_date, assigned_to, owner, agent_notes, total_input_tokens, total_output_tokens, ' +
+  'total_cache_read_tokens, total_cache_creation_tokens, total_cost_usd, ' +
   'created_at, updated_at, created_by, updated_by, file_hash, file_basename, archived, ' +
   'sprint_id, blocked_by'
 
@@ -88,7 +92,10 @@ export class CardRepository {
            version=@version, position=@position, priority=@priority, tags=@tags,
            due_date=@due_date, assigned_to=@assigned_to, owner=@owner,
            agent_notes=@agent_notes, total_input_tokens=@total_input_tokens,
-           total_output_tokens=@total_output_tokens, updated_at=@updated_at,
+           total_output_tokens=@total_output_tokens,
+           total_cache_read_tokens=@total_cache_read_tokens,
+           total_cache_creation_tokens=@total_cache_creation_tokens,
+           total_cost_usd=@total_cost_usd, updated_at=@updated_at,
            updated_by=@updated_by, file_hash=@file_hash, file_basename=@file_basename,
            archived=@archived, sprint_id=@sprint_id, blocked_by=@blocked_by
          WHERE id=@id`,
@@ -261,6 +268,9 @@ export class CardRepository {
       agent_notes: row.agent_notes,
       total_input_tokens: row.total_input_tokens,
       total_output_tokens: row.total_output_tokens,
+      total_cache_read_tokens: row.total_cache_read_tokens,
+      total_cache_creation_tokens: row.total_cache_creation_tokens,
+      total_cost_usd: row.total_cost_usd,
       created_at: row.created_at,
       updated_at: row.updated_at,
       created_by: row.created_by,

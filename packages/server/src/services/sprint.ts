@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Paths } from '../config.js'
 import { logger } from '../util/logger.js'
-import type { Sprint, TokenClaims, Card } from '@obsidiankan/types'
+import type { Sprint, SprintAggregates, TokenClaims, Card } from '@obsidiankan/types'
 import type { CardRepository } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { SSEEventBus } from '../server/sse.js'
@@ -17,16 +17,6 @@ import { parseCardFile } from '../cards/serialize.js'
 import { generateSprintId, requireString, optString, optInt, optUsageExtras } from './validation.js'
 import { badRequest, HttpError, notFound } from './errors.js'
 import { requirePmOrManager } from './guards.js'
-
-interface SprintAggregates {
-  cards_total: number
-  cards_done: number
-  cards_in_progress: number
-  cards_todo: number
-  cards_other: number
-  total_input_tokens: number
-  total_output_tokens: number
-}
 
 const MAX_NAME = 80
 const MAX_GOAL = 1000
@@ -203,10 +193,16 @@ export class SprintService {
       cards_other: 0,
       total_input_tokens: 0,
       total_output_tokens: 0,
+      total_cache_read_tokens: 0,
+      total_cache_creation_tokens: 0,
+      total_cost_usd: 0,
     }
     for (const c of cards) {
       aggregates.total_input_tokens += c.total_input_tokens
       aggregates.total_output_tokens += c.total_output_tokens
+      aggregates.total_cache_read_tokens += c.total_cache_read_tokens
+      aggregates.total_cache_creation_tokens += c.total_cache_creation_tokens
+      aggregates.total_cost_usd += c.total_cost_usd
       if (c.status === 'done') aggregates.cards_done += 1
       else if (c.status === 'in_progress') aggregates.cards_in_progress += 1
       else if (c.status === 'todo') aggregates.cards_todo += 1

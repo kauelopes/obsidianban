@@ -188,30 +188,40 @@ export function Metrics({ client }: { client: KanbanClient }) {
             <TokenTable
               title="Por ator"
               head="ator"
+              showCost
               rows={data.by_agent.map((r) => ({
                 label: r.actor,
                 input: r.input_tokens,
                 output: r.output_tokens,
+                cost: r.cost_usd,
               }))}
             />
 
+            {/* Único eixo com cache_read/creation_tokens — os outros nunca carregam esse dado. */}
             <TokenTable
               title="Por modelo"
               head="modelo"
+              showCache
+              showCost
               rows={data.by_model.map((r) => ({
                 label: r.model,
                 input: r.input_tokens,
                 output: r.output_tokens,
+                cacheRead: r.cache_read_tokens,
+                cacheCreation: r.cache_creation_tokens,
+                cost: r.cost_usd,
               }))}
             />
 
             <TokenTable
               title="Por dia"
               head="data"
+              showCost
               rows={data.by_day.map((r) => ({
                 label: r.date,
                 input: r.input_tokens,
                 output: r.output_tokens,
+                cost: r.cost_usd,
               }))}
             />
 

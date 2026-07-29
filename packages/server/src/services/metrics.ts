@@ -94,6 +94,10 @@ export class MetricsService {
       where.push('substr(ts, 1, 10) <= @to_date')
       params['to_date'] = filter.to_date
     }
+    if (filter.card_id != null) {
+      where.push('card_id = @card_id')
+      params['card_id'] = filter.card_id
+    }
     const whereClause = where.length > 0 ? ' WHERE ' + where.join(' AND ') : ''
 
     const summary = this.db

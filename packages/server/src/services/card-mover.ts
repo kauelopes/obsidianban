@@ -50,6 +50,7 @@ export class CardMover {
     const toStatus = requireString(params, 'to_status')
     const inputTokens = optInt(params, 'input_tokens', 0)
     const outputTokens = optInt(params, 'output_tokens', 0)
+    const usage = optUsageExtras(params)
     const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
@@ -109,10 +110,12 @@ export class CardMover {
       updated_by: claims.actor,
       total_input_tokens: current.total_input_tokens + inputTokens,
       total_output_tokens: current.total_output_tokens + outputTokens,
+      total_cache_read_tokens: current.total_cache_read_tokens + usage.cache_read_tokens,
+      total_cache_creation_tokens: current.total_cache_creation_tokens + usage.cache_creation_tokens,
+      total_cost_usd: current.total_cost_usd + usage.cost_usd,
     }
 
     await this.writer.write(merged, body, row.file_basename)
-    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now, op: 'MOVE', card_id: id, card_type: current.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
@@ -137,6 +140,7 @@ export class CardMover {
     const claimedVersion = requireInt(params, 'version', 1)
     const inputTokens = optInt(params, 'input_tokens', 0)
     const outputTokens = optInt(params, 'output_tokens', 0)
+    const usage = optUsageExtras(params)
     const model = optString(params, 'model') ?? 'unknown'
 
     // after_card_id is required but may be null (insert at top)
@@ -217,6 +221,9 @@ export class CardMover {
       if (isTarget) {
         updated.total_input_tokens = card.total_input_tokens + inputTokens
         updated.total_output_tokens = card.total_output_tokens + outputTokens
+        updated.total_cache_read_tokens = card.total_cache_read_tokens + usage.cache_read_tokens
+        updated.total_cache_creation_tokens = card.total_cache_creation_tokens + usage.cache_creation_tokens
+        updated.total_cost_usd = card.total_cost_usd + usage.cost_usd
         targetCard = updated
       }
       // Read each neighbour's body from disk (needed for atomic rewrite).
@@ -231,7 +238,6 @@ export class CardMover {
       affectedCards.push({ id: r.id, new_version: updated.version, new_position: newPos })
     }
 
-    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now, op: 'REORDER', card_id: id, card_type: current.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,

@@ -26,8 +26,11 @@ export interface Card {
   assigned_to: string | null
   owner: string | null         // manager-only write
   agent_notes: string | null   // max 2000 chars
-  total_input_tokens: number   // accumulated — never decremented
-  total_output_tokens: number  // accumulated — never decremented
+  total_input_tokens: number          // accumulated — never decremented
+  total_output_tokens: number         // accumulated — never decremented
+  total_cache_read_tokens: number     // accumulated — never decremented; excluded from total_input_tokens
+  total_cache_creation_tokens: number // accumulated — never decremented; excluded from total_input_tokens
+  total_cost_usd: number              // accumulated measured cost — never decremented; 0 where no call reported it
   created_at: string           // ISO 8601 — immutable
   updated_at: string           // ISO 8601 — MCP-managed
   created_by: string           // agent:|human:|external:
@@ -409,6 +412,9 @@ export interface SprintAggregates {
   cards_other: number
   total_input_tokens: number
   total_output_tokens: number
+  total_cache_read_tokens: number
+  total_cache_creation_tokens: number
+  total_cost_usd: number
 }
 
 export interface GetSprintResult {
@@ -651,6 +657,8 @@ export interface OptimisticOp {
 export interface MetricsFilter {
   from_date?: string
   to_date?: string
+  /** Scope to one card's token_log rows — the full-fidelity per-card total (cache/cost included). */
+  card_id?: string
 }
 
 /**

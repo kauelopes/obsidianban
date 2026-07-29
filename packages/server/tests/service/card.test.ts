@@ -377,6 +377,18 @@ describe('CardService.archive / unarchive', () => {
     // idempotent: version does not bump on no-op
     expect(second.version).toBe(first.version)
   })
+
+  it('accumulates cache/cost on archive', async () => {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id, { cache_read_tokens: 10 })
+
+    const archived = await cardService.archive(
+      { ...TOKEN, id: card.id, version: card.version, cache_read_tokens: 90, cost_usd: 0.3 },
+      MGR,
+    )
+    expect(archived.total_cache_read_tokens).toBe(100)
+    expect(archived.total_cost_usd).toBeCloseTo(0.3, 6)
+  })
 })
 
 describe('CardService.move', () => {
@@ -399,6 +411,93 @@ describe('CardService.move', () => {
     await expect(
       cardService.move({ ...TOKEN, id: card.id, version: card.version, to_status: 'nonexistent' }, MGR),
     ).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('CardService — cache/cost token accumulation on total_*', () => {
+  it('accumulates cache_read/cache_creation/cost_usd across create + move, same as input/output', async () => {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id, {
+      cache_read_tokens: 1000,
+      cache_creation_tokens: 200,
+      cost_usd: 0.05,
+    })
+    expect(card.total_cache_read_tokens).toBe(1000)
+    expect(card.total_cache_creation_tokens).toBe(200)
+    expect(card.total_cost_usd).toBeCloseTo(0.05, 6)
+
+    const moved = await cardService.move(
+      {
+        ...TOKEN,
+        id: card.id,
+        version: card.version,
+        to_status: 'in_progress',
+        cache_read_tokens: 500,
+        cache_creation_tokens: 0,
+        cost_usd: 0.02,
+      },
+      MGR,
+    )
+    expect(moved.total_cache_read_tokens).toBe(1500)
+    expect(moved.total_cache_creation_tokens).toBe(200)
+    expect(moved.total_cost_usd).toBeCloseTo(0.07, 6)
+    // input/output keep working exactly like before — the fix adds columns, doesn't change these.
+    expect(moved.total_input_tokens).toBe(0)
+  })
+
+  it('accumulates on kanban_log_on_card (update) — the path the sprint workflow uses per card', async () => {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id)
+
+    const logged = await cardService.update(
+      {
+        id: card.id,
+        version: card.version,
+        log_entry: 'context snapshot',
+        input_tokens: 135_085,
+        output_tokens: 617,
+        cache_read_tokens: 120_000,
+        cache_creation_tokens: 15_085,
+        cost_usd: 0,
+        model: 'claude-sonnet-5',
+      },
+      PM,
+    )
+    expect(logged.total_input_tokens).toBe(135_085)
+    expect(logged.total_cache_read_tokens).toBe(120_000)
+    expect(logged.total_cache_creation_tokens).toBe(15_085)
+  })
+
+  it('accumulates on claim and stays after release', async () => {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id)
+
+    const claimed = await cardService.claim(
+      { ...TOKEN, id: card.id, version: card.version, cache_read_tokens: 300, cost_usd: 0.01 },
+      PM,
+    )
+    expect(claimed.total_cache_read_tokens).toBe(300)
+
+    const released = await cardService.release(
+      { ...TOKEN, id: claimed.id, version: claimed.version, cache_read_tokens: 100, cost_usd: 0.005 },
+      PM,
+    )
+    expect(released.total_cache_read_tokens).toBe(400)
+    expect(released.total_cost_usd).toBeCloseTo(0.015, 6)
+  })
+
+  it('persists to the database and reads back without loss', async () => {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id, {
+      cache_read_tokens: 4242,
+      cache_creation_tokens: 99,
+      cost_usd: 1.2345,
+    })
+
+    const reread = repo.toCard(repo.findById(card.id)!)
+    expect(reread.total_cache_read_tokens).toBe(4242)
+    expect(reread.total_cache_creation_tokens).toBe(99)
+    expect(reread.total_cost_usd).toBeCloseTo(1.2345, 6)
   })
 })
 

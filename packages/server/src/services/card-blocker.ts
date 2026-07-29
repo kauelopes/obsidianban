@@ -172,6 +172,9 @@ export class CardBlocker {
       version: current.version + 1,
       total_input_tokens: current.total_input_tokens + inputTokens,
       total_output_tokens: current.total_output_tokens + outputTokens,
+      total_cache_read_tokens: current.total_cache_read_tokens + usage.cache_read_tokens,
+      total_cache_creation_tokens: current.total_cache_creation_tokens + usage.cache_creation_tokens,
+      total_cost_usd: current.total_cost_usd + usage.cost_usd,
       updated_at: now,
       updated_by: claims.actor,
     }

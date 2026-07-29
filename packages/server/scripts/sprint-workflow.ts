@@ -249,10 +249,33 @@ interface DevRun {
   sessionId?: string
   /** Modelo dominante do round (de modelUsage) — vai para o token_log. */
   model: string
+  /** Janela de contexto do modelo dominante (modelUsage[model].contextWindow); 0 se desconhecida. */
+  contextWindow: number
   usage: Usage
   numTurns: number
+  /** Um snapshot por card que fechou (done/review) ou foi deferido neste round — ver parseDevStream. */
+  cardSnapshots: CardTokenSnapshot[]
   /** Cauda do stderr do harness — é onde falha de MCP/config aparece. */
   stderrTail: string
+}
+
+// Snapshot de tokens no instante em que um card fecha dentro do round. Dois
+// números com significado distinto (ver parseDevStream para como são medidos):
+//   - contextInput/CacheRead/CacheCreationTokens: a chamada à API é stateless
+//     e reenvia o histórico inteiro a cada turno, então a soma dos três É o
+//     tamanho da janela de contexto no momento em que o card fechou — exato,
+//     não uma estimativa.
+//   - cardOutputTokens: soma de output_tokens gerados desde o card anterior
+//     fechar (ou desde o início do round, no primeiro card) — o trabalho
+//     atribuível a ESTE card, não ao round inteiro.
+interface CardTokenSnapshot {
+  cardId: string
+  outcome: 'done' | 'review' | 'deferred'
+  model: string
+  contextInputTokens: number
+  contextCacheReadTokens: number
+  contextCacheCreationTokens: number
+  cardOutputTokens: number
 }
 
 // Thin marching order — the kanban-dev-agent skill (auto-loaded by the harness)
@@ -282,7 +305,11 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
       '--mcp-config', DEV_MCP_CONFIG,
       '--settings', DEV_SETTINGS,
       '--permission-mode', 'acceptEdits',
-      '--output-format', 'json',
+      // stream-json (em vez do resumo único de --output-format json) é o que
+      // permite atribuir contexto/tokens por card — ver parseDevStream.
+      // --verbose é exigido pelo CLI sempre que --print + stream-json.
+      '--output-format', 'stream-json',
+      '--verbose',
       '--name', 'kanban-dev',
     ]
     // Diagnóstico: expõe no stderr os logs internos do harness (conexão MCP etc.).
@@ -306,29 +333,7 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
     )
     child.on('close', () => {
       try {
-        const j = asRecord(JSON.parse(stdout))
-        const u = asRecord(j['usage'])
-        // O modelo real vem de modelUsage (chaveado por modelo); pega o de
-        // maior gasto — sem inventar rótulo quando o harness escolheu sozinho.
-        const modelUsage = asRecord(j['modelUsage'])
-        const model = Object.keys(modelUsage).sort((a, b) =>
-          Number(asRecord(modelUsage[b])['outputTokens'] ?? 0) - Number(asRecord(modelUsage[a])['outputTokens'] ?? 0),
-        )[0] ?? 'claude-code-harness'
-        resolve({
-          isError: Boolean(j['is_error']),
-          result: String(j['result'] ?? ''),
-          sessionId: typeof j['session_id'] === 'string' ? j['session_id'] : undefined,
-          model,
-          usage: {
-            input: Number(u['input_tokens'] ?? 0),
-            output: Number(u['output_tokens'] ?? 0),
-            cacheRead: Number(u['cache_read_input_tokens'] ?? 0),
-            cacheCreation: Number(u['cache_creation_input_tokens'] ?? 0),
-            usd: Number(j['total_cost_usd'] ?? 0),
-          },
-          numTurns: Number(j['num_turns'] ?? 0),
-          stderrTail: stderr.slice(-2000),
-        })
+        resolve({ ...parseDevStream(stdout), stderrTail: stderr.slice(-2000) })
       } catch {
         resolve(failedRun(`unparseable harness output: ${(stderr || stdout).slice(-500)}`))
       }
@@ -336,14 +341,144 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
   })
 }
 
-function failedRun(msg: string): DevRun {
-  return { isError: true, result: msg, model: 'claude-code-harness', usage: { ...ZERO_USAGE }, numTurns: 0, stderrTail: '' }
+// stream-json emite um evento NDJSON por linha. Os que importam aqui:
+//   'assistant' — um turno do modelo; message.usage é o usage DAQUELE turno
+//     (não cumulativo do processo), e message.content pode conter tool_use.
+//     Como a API é stateless e reenvia o histórico inteiro a cada turno, o
+//     usage de um turno já É o tamanho do contexto naquele ponto.
+//   'user'      — inclui o tool_result de volta pro tool_use correspondente
+//     (correlacionado por tool_use_id), com is_error.
+//   'result'    — o mesmo payload que --output-format json devolvia (usage
+//     total, modelUsage, custo, texto final) — sempre a última linha.
+//
+// Fechamento de card = tool_use kanban_move_card com to_status done/review,
+// ou kanban_defer_card (também encerra o trabalho ativo naquele card) — MAS só
+// vira CardTokenSnapshot quando o tool_result correspondente confirma sucesso.
+// Sem essa confirmação, um 409 de versão (o dev agent reage a isso reagindo com
+// kanban_get_card + retry, ver buildDevPrompt) seria contado como fechamento —
+// os tokens continuam acumulando até a tentativa que de fato fecha o card.
+function parseDevStream(stdout: string): Omit<DevRun, 'stderrTail'> {
+  let lastUsage: Record<string, unknown> = {}
+  let lastModel = 'claude-code-harness'
+  let cardOutputTokens = 0
+  const cardSnapshots: CardTokenSnapshot[] = []
+  const pendingByToolUseId = new Map<string, Omit<CardTokenSnapshot, 'cardOutputTokens'>>()
+  let resultEvent: Record<string, unknown> | null = null
+
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue
+    let evt: Record<string, unknown>
+    try {
+      evt = asRecord(JSON.parse(line))
+    } catch {
+      continue // linha parcial/ruído — o 'result' é a fonte de verdade do round
+    }
+
+    if (evt['type'] === 'result') {
+      resultEvent = evt
+      continue
+    }
+
+    if (evt['type'] === 'user') {
+      const message = asRecord(evt['message'])
+      for (const block of Array.isArray(message['content']) ? message['content'] : []) {
+        const b = asRecord(block)
+        if (b['type'] !== 'tool_result') continue
+        const toolUseId = typeof b['tool_use_id'] === 'string' ? b['tool_use_id'] : null
+        const draft = toolUseId ? pendingByToolUseId.get(toolUseId) : undefined
+        if (!draft || !toolUseId) continue
+        pendingByToolUseId.delete(toolUseId)
+        if (b['is_error']) continue // falhou (ex.: 409) — não fecha o card, tokens seguem acumulando
+        cardSnapshots.push({ ...draft, cardOutputTokens })
+        cardOutputTokens = 0 // o próximo card começa uma contagem nova
+      }
+      continue
+    }
+
+    if (evt['type'] !== 'assistant') continue
+
+    const message = asRecord(evt['message'])
+    const usage = asRecord(message['usage'])
+    if (Object.keys(usage).length === 0) continue
+    lastUsage = usage
+    if (typeof message['model'] === 'string') lastModel = message['model']
+    cardOutputTokens += Number(usage['output_tokens'] ?? 0)
+
+    for (const block of Array.isArray(message['content']) ? message['content'] : []) {
+      const b = asRecord(block)
+      if (b['type'] !== 'tool_use') continue
+      const toolUseId = typeof b['id'] === 'string' ? b['id'] : null
+      const input = asRecord(b['input'])
+      const cardId = typeof input['id'] === 'string' ? input['id'] : null
+      if (!toolUseId || !cardId) continue
+      // MCP tools chegam prefixados pelo harness como `mcp__<server>__<tool>`
+      // (aqui, servidor "kanban" — ver dev.mcp.json). endsWith em vez de ===
+      // é o que torna isto resiliente a esse prefixo.
+      const toolName = String(b['name'] ?? '')
+      const outcome: CardTokenSnapshot['outcome'] | null =
+        toolName.endsWith('kanban_move_card') && (input['to_status'] === 'done' || input['to_status'] === 'review')
+          ? (input['to_status'] as 'done' | 'review')
+          : toolName.endsWith('kanban_defer_card') ? 'deferred' : null
+      if (!outcome) continue
+      pendingByToolUseId.set(toolUseId, {
+        cardId,
+        outcome,
+        model: lastModel,
+        contextInputTokens: Number(lastUsage['input_tokens'] ?? 0),
+        contextCacheReadTokens: Number(lastUsage['cache_read_input_tokens'] ?? 0),
+        contextCacheCreationTokens: Number(lastUsage['cache_creation_input_tokens'] ?? 0),
+      })
+    }
+  }
+
+  if (!resultEvent) throw new Error('no result event in stream')
+  const j = resultEvent
+  const u = asRecord(j['usage'])
+  // O modelo real vem de modelUsage (chaveado por modelo); pega o de maior
+  // gasto — sem inventar rótulo quando o harness escolheu sozinho.
+  const modelUsage = asRecord(j['modelUsage'])
+  const model = Object.keys(modelUsage).sort((a, b) =>
+    Number(asRecord(modelUsage[b])['outputTokens'] ?? 0) - Number(asRecord(modelUsage[a])['outputTokens'] ?? 0),
+  )[0] ?? lastModel
+  const contextWindow = Number(asRecord(modelUsage[model])['contextWindow'] ?? 0)
+
+  return {
+    isError: Boolean(j['is_error']),
+    result: String(j['result'] ?? ''),
+    sessionId: typeof j['session_id'] === 'string' ? j['session_id'] : undefined,
+    model,
+    contextWindow,
+    usage: {
+      input: Number(u['input_tokens'] ?? 0),
+      output: Number(u['output_tokens'] ?? 0),
+      cacheRead: Number(u['cache_read_input_tokens'] ?? 0),
+      cacheCreation: Number(u['cache_creation_input_tokens'] ?? 0),
+      usd: Number(j['total_cost_usd'] ?? 0),
+    },
+    numTurns: Number(j['num_turns'] ?? 0),
+    cardSnapshots,
+  }
 }
 
-// Dispatch one dev round. Returns the cards that transitioned to done/review
-// during the run (used for per-card cost attribution when DEV_DRAIN_LIMIT === 1).
+function failedRun(msg: string): DevRun {
+  return {
+    isError: true,
+    result: msg,
+    model: 'claude-code-harness',
+    contextWindow: 0,
+    usage: { ...ZERO_USAGE },
+    numTurns: 0,
+    cardSnapshots: [],
+    stderrTail: '',
+  }
+}
+
+// Dispatch one dev round. Per-card context/cost attribution comes from
+// run.cardSnapshots (parsed from the stream — see parseDevStream), not from
+// diffing the board before/after: that only worked when a round mapped 1:1
+// to a card (DEV_DRAIN_LIMIT === 1) and told you nothing about context size.
 // Retries automatically when the harness exits with a known credit-limit message.
-async function runDev(sprintId: string): Promise<{ run: DevRun; moved: string[] }> {
+async function runDev(sprintId: string): Promise<DevRun> {
   for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
     if (attempt > 0) {
       const waitMin = Math.ceil(RATE_LIMIT_WAIT_MS / 60_000)
@@ -351,9 +486,6 @@ async function runDev(sprintId: string): Promise<{ run: DevRun; moved: string[] 
       await sleep(RATE_LIMIT_WAIT_MS)
     }
 
-    // Take the settled snapshot fresh on every attempt — the board may have
-    // changed if a previous attempt partially completed before hitting the limit.
-    const before = DEV_DRAIN_LIMIT === 1 ? await settledSet(sprintId) : null
     log(`▶ DEV: working up to ${DEV_DRAIN_LIMIT} card(s)`)
     const run = await runClaudeDev(buildDevPrompt(DEV_DRAIN_LIMIT))
 
@@ -371,9 +503,7 @@ async function runDev(sprintId: string): Promise<{ run: DevRun; moved: string[] 
     log(`  dev result: ${run.result.slice(0, 400).replace(/\n/g, ' ')}`)
     if (run.stderrTail.trim()) log(`  dev stderr: ${run.stderrTail.slice(-1500).replace(/\n/g, ' | ')}`)
 
-    const after = before ? await settledSet(sprintId) : new Set<string>()
-    const moved = before ? [...after].filter((id) => !before.has(id)) : []
-    return { run, moved }
+    return run
   }
 
   throw new Error(`DEV: credit limit persisted after ${RATE_LIMIT_MAX_RETRIES} retries — give up.`)
@@ -506,15 +636,6 @@ async function statusMap(sprintId: string): Promise<Map<string, string>> {
   return new Map(cards.map((c) => [String(c['id']), String(c['status'])]))
 }
 
-// Cards in a "settled" column (done or review) — the snapshot used to detect
-// which card a dev acted on (for per-card cost when DEV_DRAIN_LIMIT === 1).
-async function settledSet(sprintId: string): Promise<Set<string>> {
-  const map = await statusMap(sprintId)
-  const s = new Set<string>()
-  for (const [id, st] of map) if (st === 'done' || st === 'review') s.add(id)
-  return s
-}
-
 async function reviewCards(): Promise<Array<Record<string, unknown>>> {
   const { body } = await callTool('kanban_list_cards', { status: 'review' }, PM_TOKEN)
   const cards = asRecord(body)['cards']
@@ -526,29 +647,39 @@ async function hasReadyCard(): Promise<boolean> {
   return asRecord(body)['card'] != null
 }
 
-// Write the run's measured cost into the card's Agent Log (only when N === 1,
-// where the run maps 1:1 to a card). Honest per-card cost, visible in Obsidian.
+// Write one card's context/token snapshot into its Agent Log. Honest
+// per-card numbers, visible in Obsidian, sourced from parseDevStream — each
+// snapshot is taken at the exact moment that card's move_card/defer_card
+// tool call happened, so it's correct regardless of DEV_DRAIN_LIMIT.
 //
-// Os tokens vão TAMBÉM como campos estruturados, não só na prosa. O dev agent é
-// instruído a omitir contagem de tokens ("Do not invent token counts") — e com
-// razão, ele não as conhece de forma confiável. Mas aqui o workflow tem a
-// medição real do harness, então é o único ponto do sistema que pode alimentar
-// o token_log com número verdadeiro. Sem isto, /metrics agrega zeros para
-// sempre e o painel de custo é decorativo.
-async function annotateCardCost(cardId: string, run: DevRun): Promise<void> {
-  const card = asRecord((await callTool('kanban_get_card', { id: cardId }, PM_TOKEN)).body)
-  await callTool('kanban_log_on_card', {
-    id: cardId,
-    version: Number(card['version']),
-    log_entry: `💰 Workflow-measured cost — input=${run.usage.input} output=${run.usage.output} cache=${run.usage.cacheRead}r/${run.usage.cacheCreation}w tokens, $${run.usage.usd.toFixed(4)} over ${run.numTurns} turns (model ${run.model}).`,
-    input_tokens: run.usage.input,
-    output_tokens: run.usage.output,
-    cache_read_tokens: run.usage.cacheRead,
-    cache_creation_tokens: run.usage.cacheCreation,
-    cost_usd: run.usage.usd,
-    model: run.model,
+// Os tokens vão TAMBÉM como campos estruturados, não só na prosa. O dev agent
+// é instruído a omitir contagem de tokens ("Do not invent token counts") — e
+// com razão, ele não as conhece de forma confiável durante a execução. Mas
+// aqui o workflow tem a medição real do harness, então é o único ponto do
+// sistema que pode alimentar o token_log com número verdadeiro. Sem isto,
+// /metrics agrega zeros para sempre e o painel de custo é decorativo.
+async function logCardTokenSnapshot(snapshot: CardTokenSnapshot, contextWindow: number): Promise<void> {
+  const card = asRecord((await callTool('kanban_get_card', { id: snapshot.cardId }, PM_TOKEN)).body)
+  if (typeof card['version'] !== 'number') {
+    log(`  ⚠ context snapshot ignorado — card ${snapshot.cardId} não encontrado (${JSON.stringify(card).slice(0, 120)})`)
+    return
+  }
+  const contextTokens = snapshot.contextInputTokens + snapshot.contextCacheReadTokens + snapshot.contextCacheCreationTokens
+  const pct = contextWindow > 0 ? ` (${((contextTokens / contextWindow) * 100).toFixed(1)}% de ${contextWindow.toLocaleString('en-US')})` : ''
+  const { status, body } = await callTool('kanban_log_on_card', {
+    id: snapshot.cardId,
+    version: card['version'],
+    log_entry: `📐 Context snapshot ao fechar (${snapshot.outcome}) — janela de contexto ${contextTokens.toLocaleString('en-US')} tokens${pct}; ${snapshot.cardOutputTokens.toLocaleString('en-US')} tokens gerados para este card (model ${snapshot.model}).`,
+    input_tokens: snapshot.contextInputTokens,
+    output_tokens: snapshot.cardOutputTokens,
+    cache_read_tokens: snapshot.contextCacheReadTokens,
+    cache_creation_tokens: snapshot.contextCacheCreationTokens,
+    model: snapshot.model,
     request_id: randomUUID(),
   }, PM_TOKEN)
+  if (status !== 200) {
+    log(`  ⚠ context snapshot não registrado para ${snapshot.cardId} (${status}): ${JSON.stringify(body).slice(0, 120)}`)
+  }
 }
 
 async function printSprintSummary(sprintId: string): Promise<void> {
@@ -604,7 +735,7 @@ async function main(): Promise<void> {
 
     // 2. Dispatch a dev if there is a ready card.
     if (await hasReadyCard()) {
-      const { run, moved } = await runDev(sprintId)
+      const run = await runDev(sprintId)
       if (run.isError) {
         if (++consecutiveDevFailures >= 3) {
           throw new Error(`DEV failed ${consecutiveDevFailures} rounds in a row — aborting. Last error: ${run.result.slice(0, 300)}`)
@@ -612,14 +743,12 @@ async function main(): Promise<void> {
       } else {
         consecutiveDevFailures = 0
       }
-      // Per-card cost only when the run maps 1:1 to a card (N === 1).
-      if (DEV_DRAIN_LIMIT === 1) {
-        if (moved.length === 1) {
-          await annotateCardCost(moved[0]!, run)
-          log(`  💰 card ${moved[0]} cost recorded (in=${run.usage.input} out=${run.usage.output})`)
-        } else {
-          log(`  (per-card cost skipped: ${moved.length} card transitions this run)`)
-        }
+      for (const snapshot of run.cardSnapshots) {
+        await logCardTokenSnapshot(snapshot, run.contextWindow)
+        log(`  📐 card ${snapshot.cardId} (${snapshot.outcome}): context=${snapshot.contextInputTokens + snapshot.contextCacheReadTokens + snapshot.contextCacheCreationTokens} out=${snapshot.cardOutputTokens}`)
+      }
+      if (run.cardSnapshots.length === 0 && !run.isError) {
+        log('  (nenhum card fechou neste round — sem snapshot pra registrar)')
       }
       continue
     }

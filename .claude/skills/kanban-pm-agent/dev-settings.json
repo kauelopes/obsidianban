@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "mcp__kanban",
-      "Bash"
+      "Bash",
+      "WebSearch",
+      "WebFetch"
     ],
     "deny": [
       "Skill(kanban-pm-agent)",

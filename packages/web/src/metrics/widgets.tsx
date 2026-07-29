@@ -126,10 +126,22 @@ export function TokenTable({
   title,
   head,
   rows,
+  showCache,
+  showCost,
 }: {
   title: string
   head: string
-  rows: Array<{ label: string; input: number; output: number }>
+  rows: Array<{
+    label: string
+    input: number
+    output: number
+    cacheRead?: number
+    cacheCreation?: number
+    cost?: number
+  }>
+  /** Só faz sentido para linhas que carregam cache_read/creation_tokens — hoje, só `by_model`. */
+  showCache?: boolean
+  showCost?: boolean
 }) {
   return (
     <section className="chart">
@@ -143,6 +155,9 @@ export function TokenTable({
               <th>{head}</th>
               <th className="num">entrada</th>
               <th className="num">saída</th>
+              {showCache && <th className="num">cache leitura</th>}
+              {showCache && <th className="num">cache escrita</th>}
+              {showCost && <th className="num">custo (US$)</th>}
             </tr>
           </thead>
           <tbody>
@@ -151,6 +166,21 @@ export function TokenTable({
                 <td className="mono">{r.label}</td>
                 <td className="num">{r.input > 0 ? r.input.toLocaleString('pt-BR') : '—'}</td>
                 <td className="num">{r.output > 0 ? r.output.toLocaleString('pt-BR') : '—'}</td>
+                {showCache && (
+                  <td className="num">
+                    {r.cacheRead && r.cacheRead > 0 ? r.cacheRead.toLocaleString('pt-BR') : '—'}
+                  </td>
+                )}
+                {showCache && (
+                  <td className="num">
+                    {r.cacheCreation && r.cacheCreation > 0
+                      ? r.cacheCreation.toLocaleString('pt-BR')
+                      : '—'}
+                  </td>
+                )}
+                {showCost && (
+                  <td className="num">{r.cost && r.cost > 0 ? r.cost.toFixed(4) : '—'}</td>
+                )}
               </tr>
             ))}
           </tbody>

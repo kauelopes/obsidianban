@@ -122,11 +122,9 @@ flowchart TD
 
     REVIEW -->|não| READY{"pick_next<br/>tem card pronto?"}
     READY -->|sim| RUNDEV["runDev(): spawn harness<br/>(até DEV_DRAIN_LIMIT cards)"]
-    RUNDEV --> COST{"DEV_DRAIN_LIMIT == 1?"}
-    COST -->|sim| ANNOTATE["annotateCardCost:<br/>grava custo no Agent Log do card"]
-    COST -->|não| LOG["loga custo da rodada<br/>(agrega ao sprint total)"]
-    ANNOTATE --> ROUND
-    LOG --> ROUND
+    RUNDEV --> LOG["loga custo da rodada<br/>(agrega ao sprint total)"]
+    LOG --> SNAP["para cada card fechado no stream:<br/>logCardTokenSnapshot grava contexto<br/>+ tokens gerados no Agent Log do card"]
+    SNAP --> ROUND
 
     READY -->|não| DRAINED["sprint drenada:<br/>review vazia e todo sem card pronto"]
 
@@ -171,9 +169,10 @@ sequenceDiagram
     A->>S: kanban_log_on_card (resumo)
     A->>S: kanban_move_card → done
     A-->>H: loop encerrado
-    H-->>O: JSON { result, usage, total_cost_usd, num_turns }
+    H-->>O: stream-json (1 linha/turno) + linha final<br/>{ result, usage, modelUsage, total_cost_usd, num_turns }
 
-    O->>O: (N=1) settledSet diff → annotateCardCost no card
+    O->>O: parseDevStream: cada tool_use kanban_move_card<br/>(done/review) ou kanban_defer_card vira 1 CardTokenSnapshot
+    O->>S: logCardTokenSnapshot por snapshot<br/>(kanban_log_on_card, pm token)
     O->>O: próxima rodada
 ```
 
@@ -189,8 +188,8 @@ de arquivo/bash maduras — reimplementar tudo isso seria inferior.
 flowchart TB
     subgraph WF["runDev() — spawn por rodada"]
         PROMPT["buildDevPrompt(N)<br/>prompt varia com DEV_DRAIN_LIMIT"]
-        SPAWN["spawn('claude',<br/>  '-p', prompt,<br/>  '--mcp-config', DEV_MCP_CONFIG,<br/>  '--settings', DEV_SETTINGS,<br/>  '--permission-mode', 'acceptEdits',<br/>  '--output-format', 'json',<br/>  '--name', 'kanban-dev',<br/>  cwd=TARGET_REPO,<br/>  env={KANBAN_DEV_TOKEN: ...})"]
-        PARSE["parse JSON stdout:<br/>{ result, usage, total_cost_usd, num_turns }"]
+        SPAWN["spawn('claude',<br/>  '-p', prompt,<br/>  '--mcp-config', DEV_MCP_CONFIG,<br/>  '--settings', DEV_SETTINGS,<br/>  '--permission-mode', 'acceptEdits',<br/>  '--output-format', 'stream-json',<br/>  '--verbose',<br/>  '--name', 'kanban-dev',<br/>  cwd=TARGET_REPO,<br/>  env={KANBAN_DEV_TOKEN: ...})"]
+        PARSE["parseDevStream: NDJSON linha a linha<br/>→ { result, usage, modelUsage, num_turns, cardSnapshots }"]
     end
 
     subgraph HARNESS["harness (claude CLI)"]
@@ -228,33 +227,53 @@ e a definição de parada.
 
 ---
 
-## Medição de custo — varia com `DEV_DRAIN_LIMIT`
+## Medição de custo e contexto por card — `parseDevStream`
 
-O harness retorna `total_cost_usd`, `usage.input_tokens` e `usage.output_tokens` no JSON
-de saída. Isso é o custo **exato** do spawn. A granularidade do que fazemos com ele depende
-de `N`:
+O harness roda com `--output-format stream-json --verbose`: em vez de um único JSON no
+final, cada turno do agente vira uma linha NDJSON no stdout, e a última linha (`type:
+"result"`) é o mesmo payload que `--output-format json` sempre devolveu (`usage`,
+`modelUsage`, `total_cost_usd`, `num_turns`). Isso vale **independente de `DEV_DRAIN_LIMIT`**
+— não há mais um caminho "exato" só para N=1 e um caminho "agregado" para N>1.
 
 ```mermaid
 flowchart TD
-    N{"DEV_DRAIN_LIMIT == 1?"}
+    STREAM["stdout: 1 linha JSON por turno"] --> LOOP{"para cada linha<br/>'assistant'"}
 
-    N -->|"sim (1 spawn = 1 card)"| PERCARD["settledSet antes e depois do spawn<br/>diff identifica o card que transicionou<br/>→ annotateCardCost grava no # Agent Log do card<br/>💰 Custo por card, visível no Obsidian"]
-    N -->|"não (1 spawn = até N cards)"| PERROUND["custo da rodada logado no console<br/>acumula em sprintTotals para o resumo final<br/>📊 Custo por rodada e por sprint"]
+    LOOP --> USAGE["lastUsage = message.usage<br/>(usage DAQUELE turno — não cumulativo)"]
+    USAGE --> ACC["cardOutputTokens += usage.output_tokens"]
+    ACC --> TOOL{"content tem<br/>tool_use com<br/>kanban_move_card<br/>(to done/review) ou<br/>kanban_defer_card?"}
 
-    PERCARD --> AGG["acumula no sprintTotals (sempre)"]
-    PERROUND --> AGG
-    AGG --> SUMMARY["resumo final: in/out tokens, USD total,<br/>nº de dev runs, nº de triage runs"]
+    TOOL -->|não| LOOP
+    TOOL -->|sim| SNAP["push CardTokenSnapshot:<br/>contexto = lastUsage (input+cache)<br/>cardOutputTokens acumulado<br/>zera cardOutputTokens"]
+    SNAP --> LOOP
+
+    LOOP -->|fim do stream| RESULT["linha 'result': usage total,<br/>modelUsage, contextWindow do modelo"]
 ```
 
-| `DEV_DRAIN_LIMIT` | Custo por card | Custo por rodada | Custo por sprint |
-|---|---|---|---|
-| `1` | ✅ exato, gravado no card | ✅ (= por card) | ✅ |
-| `> 1` | ❌ (1 spawn > 1 card) | ✅ logado no console | ✅ |
+**Dois números com significado diferente, por design:**
 
-> **Por que N=1 é exato?** Quando um spawn processa um único card, `total_cost_usd` do
-> harness é o custo daquele card. O `settledSet` (snapshot antes/depois do spawn de cards
-> em `done`/`review`) confirma qual card transicionou; `annotateCardCost` grava a medição
-> no `# Agent Log` do card via `kanban_log_on_card` (pm token).
+- **Tamanho do contexto** (`contextInputTokens + contextCacheReadTokens + contextCacheCreationTokens`
+  do último turno antes do fechamento): a API é *stateless* e reenvia o histórico inteiro a
+  cada turno — então o `usage` de um turno **é**, por definição, o tamanho da janela de
+  contexto naquele ponto. Não é estimativa. Reportado também como `%` de
+  `modelUsage[model].contextWindow` quando o harness o expõe.
+- **Tokens gerados para o card** (`cardOutputTokens`): soma de `output_tokens` de todos os
+  turnos desde o fechamento do card anterior (ou desde o início da rodada, no primeiro
+  card). Representa o trabalho atribuível a *este* card especificamente, mesmo quando vários
+  cards são resolvidos na mesma sessão (`DEV_DRAIN_LIMIT > 1`).
+
+Cada `CardTokenSnapshot` é gravado no `# Agent Log` do card via `logCardTokenSnapshot`
+(`kanban_log_on_card`, pm token) assim que a rodada termina — um snapshot por card que
+fechou (`done`/`review`) ou foi deferido, não importa quantos cards a rodada tenha tocado.
+O custo agregado da rodada inteira (`total_cost_usd`, `usage` da linha `result`) continua
+indo para `sprintTotals` e para o `token_log` via `reportRoundUsage`, como antes — os dois
+mecanismos coexistem: um mede a rodada, o outro atribui por card dentro dela.
+
+> **Por que não também um `cost_usd` exato por card?** A API cobra por chamada, e o custo de
+> uma chamada mistura tokens novos com tokens de cache reaproveitados do histórico — dividir
+> isso "corretamente" entre cards da mesma sessão é uma estimativa, não uma medição. Os dois
+> números que gravamos (contexto e tokens gerados) são exatos; `cost_usd` por card ficou de
+> fora de propósito para não misturar um número exato com um estimado no mesmo campo.
 
 ---
 
@@ -311,7 +330,7 @@ flowchart TD
     subgraph SPAWN["Caminho: spawn do harness (dev)"]
         SR["runClaudeDev() retorna\nis_error=true"]
         SD{"result contém\n'hit your … limit'\nou 'rate limit'?"}
-        SW["sleep(RATE_LIMIT_WAIT_SECONDS)\nretenta o spawn do zero\n(settledSet refrescado)"]
+        SW["sleep(RATE_LIMIT_WAIT_SECONDS)\nretenta o spawn do zero"]
         SE["erro real — propaga"]
         SR --> SD
         SD -->|sim| SW
@@ -342,8 +361,9 @@ flowchart TD
 > **Por que o spawn é retomado do zero?** O harness pode ter progresso parcial quando
 > aborta (card em `in_progress`, logs já escritos). Na retentativa, o harness pega o
 > estado atual do board via `kanban_pick_next` e continua de onde o card ficou — o
-> protocolo do `kanban-dev-agent` skill já prevê isso. O `settledSet` é refrescado a
-> cada tentativa para que a atribuição de custo por card (N=1) reflita o estado real.
+> protocolo do `kanban-dev-agent` skill já prevê isso. Como a atribuição por card agora
+> vem do stream da própria tentativa que efetivamente fechou o card (não de um diff de
+> board), não há estado externo para refrescar entre tentativas.
 
 Saída no console durante a espera:
 
@@ -373,7 +393,7 @@ Variáveis de ambiente (`.env`):
 | `KANBAN_PM_TOKEN` | sim | — | Token pm (`agent_type=pm`), mintado pelo manager. Usado pelo orquestrador e triagem. |
 | `KANBAN_URL` | não | `http://127.0.0.1:9375` | Base do servidor kanban. |
 | `TARGET_REPO` | não | `process.cwd()` | Diretório onde o harness do dev opera (`cwd` do spawn). |
-| `DEV_DRAIN_LIMIT` | não | `3` | Cards por spawn. `1` = um card/rodada com custo exato por card; `> 1` ≈ drena até N, agrega custo por rodada. |
+| `DEV_DRAIN_LIMIT` | não | `3` | Cards por spawn. `1` = um card/rodada (fecha antes com sessão nova a cada card, sem cache entre cards). `> 1` ≈ drena até N na mesma sessão (cache reaproveitado entre cards). Atribuição de contexto/tokens por card é exata em ambos os casos — ver [Medição de custo e contexto por card](#medição-de-custo-e-contexto-por-card--parsedevstream). |
 | `DEV_MCP_CONFIG` | não | `.claude/skills/kanban-pm-agent/dev.mcp.json` | Path absoluto ao MCP config do harness dev. Resolvido a partir do repo do workflow, não de `TARGET_REPO`. |
 | `DEV_SETTINGS` | não | `.claude/skills/kanban-pm-agent/dev-settings.json` | Path absoluto ao settings do harness dev. |
 | `SPRINT_MAX_ROUNDS` | não | `50` | Trava de segurança do loop. |

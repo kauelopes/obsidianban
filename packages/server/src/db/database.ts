@@ -32,6 +32,7 @@ function applySchema(db: Database.Database): void {
     migrateAddSprintAndDeps(db)
     migrateStatusHyphensToUnderscores(db)
     migrateTokenLogUsageColumns(db)
+    migrateAddCardsUsageColumns(db)
   })
   tx()
 }
@@ -56,6 +57,27 @@ function migrateTokenLogUsageColumns(db: Database.Database): void {
   }
   if (!names.has('sprint_id')) {
     db.exec(`ALTER TABLE token_log ADD COLUMN sprint_id TEXT`)
+  }
+}
+
+/**
+ * Add the same cache/cost columns to `cards` (idempotent) — `total_input_tokens`
+ * and `total_output_tokens` predate cache-token tracking; when cache_read/
+ * cache_creation/cost_usd were added, only token_log got the migration above.
+ * cards.total_* stayed an incomplete running total ever since. This closes
+ * that gap so the card-level accumulator has the same fidelity as token_log.
+ */
+function migrateAddCardsUsageColumns(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(cards)`).all() as Array<{ name: string }>
+  const names = new Set(cols.map((c) => c.name))
+  if (!names.has('total_cache_read_tokens')) {
+    db.exec(`ALTER TABLE cards ADD COLUMN total_cache_read_tokens INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!names.has('total_cache_creation_tokens')) {
+    db.exec(`ALTER TABLE cards ADD COLUMN total_cache_creation_tokens INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!names.has('total_cost_usd')) {
+    db.exec(`ALTER TABLE cards ADD COLUMN total_cost_usd REAL NOT NULL DEFAULT 0`)
   }
 }
 

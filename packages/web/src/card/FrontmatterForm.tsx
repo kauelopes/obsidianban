@@ -344,7 +344,7 @@ function ManagedFields({ card }: { card: Card }) {
     ['status', card.status],
     ['version', String(card.version)],
     ['position', String(card.position)],
-    ['tokens', `${card.total_input_tokens} in / ${card.total_output_tokens} out`],
+    ['tokens', `${card.total_input_tokens} in / ${card.total_output_tokens} out / cache ${card.total_cache_read_tokens}r+${card.total_cache_creation_tokens}w${card.total_cost_usd > 0 ? ` / $${card.total_cost_usd.toFixed(4)}` : ''}`],
     ['created', `${card.created_at} · ${card.created_by}`],
     ['updated', `${card.updated_at} · ${card.updated_by}`],
   ]

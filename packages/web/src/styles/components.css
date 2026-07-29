@@ -845,3 +845,11 @@ button.ghost:hover:not(:disabled) {
 .pill.wf-stopped {
   color: var(--fg-2);
 }
+
+/* Neutro, não vermelho: gaps de minutos entre cards são normais (ver
+   WorkflowPanel/IDLE_WARN_MS) — isto é "fica de olho", não "algo quebrou". */
+.pill.wf-idle {
+  color: var(--fg-2);
+  border-style: dashed;
+  cursor: help;
+}

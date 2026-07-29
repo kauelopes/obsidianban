@@ -359,7 +359,7 @@ function AddCards({
 
 function SprintDetail({ d }: { d: GetSprintResult }) {
   const a = d.aggregates
-  const tokens = a.total_input_tokens + a.total_output_tokens
+  const tokens = a.total_input_tokens + a.total_output_tokens + a.total_cache_read_tokens + a.total_cache_creation_tokens
   return (
     <dl className="managed" style={{ marginTop: 'var(--s-4)' }}>
       <div style={{ display: 'contents' }}>
@@ -376,7 +376,9 @@ function SprintDetail({ d }: { d: GetSprintResult }) {
         */}
         <dd>
           {tokens > 0
-            ? `${a.total_input_tokens.toLocaleString('pt-BR')} in · ${a.total_output_tokens.toLocaleString('pt-BR')} out`
+            ? `${a.total_input_tokens.toLocaleString('pt-BR')} in · ${a.total_output_tokens.toLocaleString('pt-BR')} out · ` +
+              `cache ${a.total_cache_read_tokens.toLocaleString('pt-BR')}r+${a.total_cache_creation_tokens.toLocaleString('pt-BR')}w` +
+              (a.total_cost_usd > 0 ? ` · $${a.total_cost_usd.toFixed(4)}` : '')
             : 'não reportado'}
         </dd>
       </div>

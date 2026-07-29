@@ -114,6 +114,7 @@ export class CardWriter {
     const type = requireString(params, 'type', undefined, "card type — e.g. 'feature', 'bug', 'task', 'chore'")
     const inputTokens = optInt(params, 'input_tokens', 0)
     const outputTokens = optInt(params, 'output_tokens', 0)
+    const usage = optUsageExtras(params)
     const model = optString(params, 'model') ?? 'unknown'
     const priority = optPriority(params) ?? 'medium'
     const tags = optTags(params) ?? []
@@ -218,6 +219,9 @@ export class CardWriter {
       agent_notes: agentNotes,
       total_input_tokens: inputTokens,
       total_output_tokens: outputTokens,
+      total_cache_read_tokens: usage.cache_read_tokens,
+      total_cache_creation_tokens: usage.cache_creation_tokens,
+      total_cost_usd: usage.cost_usd,
       archived: false,
       sprint_id: sprintId,
       blocked_by: blockedBy,
@@ -228,7 +232,6 @@ export class CardWriter {
     }
 
     await this.writer.write(card, body, fileBasename)
-    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now,
       op: 'CREATE',
@@ -287,6 +290,7 @@ export class CardWriter {
     const claimedVersion = requireInt(params, 'version', 1)
     const inputTokens = optInt(params, 'input_tokens', 0)
     const outputTokens = optInt(params, 'output_tokens', 0)
+    const usage = optUsageExtras(params)
     const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
@@ -451,6 +455,9 @@ export class CardWriter {
     merged.updated_by = claims.actor
     merged.total_input_tokens = current.total_input_tokens + inputTokens
     merged.total_output_tokens = current.total_output_tokens + outputTokens
+    merged.total_cache_read_tokens = current.total_cache_read_tokens + usage.cache_read_tokens
+    merged.total_cache_creation_tokens = current.total_cache_creation_tokens + usage.cache_creation_tokens
+    merged.total_cost_usd = current.total_cost_usd + usage.cost_usd
 
     // Recompute filename when the title changed; keep existing on no-op or
     // when the slug collides with what we already have.
@@ -461,7 +468,6 @@ export class CardWriter {
     await this.writer.write(merged, newBody, newBasename, {
       previousBasename: row.file_basename,
     })
-    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now,
       op: 'UPDATE',
@@ -652,6 +658,7 @@ export class CardWriter {
     const claimedVersion = requireInt(params, 'version', 1)
     const inputTokens = optInt(params, 'input_tokens', 0)
     const outputTokens = optInt(params, 'output_tokens', 0)
+    const usage = optUsageExtras(params)
     const model = optString(params, 'model') ?? 'unknown'
 
     const row = this.repo.findById(id)
@@ -685,13 +692,15 @@ export class CardWriter {
       version: current.version + 1,
       total_input_tokens: current.total_input_tokens + inputTokens,
       total_output_tokens: current.total_output_tokens + outputTokens,
+      total_cache_read_tokens: current.total_cache_read_tokens + usage.cache_read_tokens,
+      total_cache_creation_tokens: current.total_cache_creation_tokens + usage.cache_creation_tokens,
+      total_cost_usd: current.total_cost_usd + usage.cost_usd,
       updated_at: now,
       updated_by: claims.actor,
     }
 
     await this.writer.write(next, body, row.file_basename)
     const op: 'ARCHIVE' | 'UNARCHIVE' = target ? 'ARCHIVE' : 'UNARCHIVE'
-    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now, op: 'UPDATE', card_id: id, card_type: row.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,

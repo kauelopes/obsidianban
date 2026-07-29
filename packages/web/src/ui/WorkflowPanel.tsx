@@ -4,6 +4,12 @@ import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
 
 const POLL_MS = 2500
+// Gaps entre cards de um round de 3 chegam a ~2m30s nesta sprint só pelo
+// tempo de "pensar" do modelo (contexto crescendo a cada card, turnos de API)
+// — ver docs/for-agents/sprint-workflow.md. Um limiar abaixo disso dispara em
+// toda rodada normal e o alerta vira ruído. 5min dá folga sobre o pior caso
+// observado sem deixar um travamento real passar despercebido por muito tempo.
+const IDLE_WARN_MS = 5 * 60 * 1000
 
 /**
  * Execução do sprint workflow para uma sprint ativa: disparar/parar os
@@ -28,6 +34,12 @@ export function WorkflowPanel({
   // Offset em ref: o intervalo de polling não deve reiniciar a cada chunk lido.
   const offsetRef = useRef(0)
   const preRef = useRef<HTMLPreElement | null>(null)
+  // Última vez que o log CRESCEU (não a última vez que pollamos) — é o sinal
+  // de atividade real do harness. now/lastGrowthAt em estado (não ref) porque
+  // o texto "há Xm" precisa re-renderizar a cada tick de poll, mesmo sem
+  // nenhuma linha nova chegar.
+  const [lastGrowthAt, setLastGrowthAt] = useState<number | null>(null)
+  const [now, setNow] = useState<number | null>(null)
 
   const poll = useCallback(async () => {
     const [status, chunk] = await Promise.all([
@@ -47,9 +59,12 @@ export function WorkflowPanel({
       )
     }
     if (chunk.ok) {
+      const grew = chunk.data.data.length > 0
       offsetRef.current = chunk.data.size
       if (chunk.data.data) setLog((prev) => prev + chunk.data.data)
       if (!status.ok && chunk.data.run) setRun(chunk.data.run)
+      setNow(Date.now())
+      if (grew) setLastGrowthAt(Date.now())
     }
   }, [client, sprintId])
 
@@ -57,6 +72,8 @@ export function WorkflowPanel({
     offsetRef.current = 0
     setLog('')
     setRun(null)
+    setLastGrowthAt(null)
+    setNow(null)
     void poll()
     const timer = setInterval(() => void poll(), POLL_MS)
     return () => clearInterval(timer)
@@ -76,6 +93,8 @@ export function WorkflowPanel({
   }, [])
 
   const running = run?.status === 'running'
+  const idleMs = running && now !== null && lastGrowthAt !== null ? now - lastGrowthAt : 0
+  const idle = idleMs > IDLE_WARN_MS
 
   async function exec(fn: () => Promise<Awaited<ReturnType<typeof client.workflowStart>>>) {
     setBusy(true)
@@ -93,6 +112,14 @@ export function WorkflowPanel({
           Agentes da sprint
         </span>
         {run && <span className={`pill wf-${run.status}`}>{statusLabel(run.status)}</span>}
+        {idle && (
+          <span
+            className="pill wf-idle"
+            title="Nenhuma linha nova no log — pode ser só o modelo pensando entre cards (gaps de 1-2min são normais), ou o harness pode ter travado. Se persistir por bem mais que isso, considere Parar e checar os créditos da API."
+          >
+            ⏸ sem atividade há {formatIdle(idleMs)}
+          </span>
+        )}
         <div className="spacer" />
         {!running && (
           <button
@@ -137,6 +164,13 @@ export function WorkflowPanel({
       )}
     </div>
   )
+}
+
+function formatIdle(ms: number): string {
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return `${Math.floor(ms / 1000)}s`
+  const sec = Math.floor((ms % 60_000) / 1000)
+  return `${min}min${sec > 0 ? ` ${sec}s` : ''}`
 }
 
 function statusLabel(status: WorkflowRunView['status']): string {

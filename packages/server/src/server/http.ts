@@ -164,6 +164,7 @@ export class HttpServer {
       const metrics = this.deps.metrics.collect({
         from_date: params.get('from_date') ?? undefined,
         to_date: params.get('to_date') ?? undefined,
+        card_id: params.get('card_id') ?? undefined,
       })
       sendJson(res, 200, metrics)
     } catch (err) {
