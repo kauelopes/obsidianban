@@ -153,6 +153,20 @@ button.ghost:hover:not(:disabled) {
   border-bottom: 1px solid var(--rule);
 }
 
+/* Sessão de planejamento em curso — visível em qualquer rota. */
+.topbar-plan {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 28ch;
+}
+
+.topbar-plan:hover {
+  text-decoration: none;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .brand {
   display: flex;
   align-items: baseline;
@@ -292,7 +306,9 @@ button.ghost:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: var(--s-5);
-  padding: 0 var(--s-6) var(--s-4);
+  /* Gutter centrado: alinha o board às páginas wide em telas grandes em vez do
+   * full-bleed — o salto de largura ao trocar de rota cai para ~120px/lado. */
+  padding: 0 max(var(--s-6), calc((100% - var(--w-board)) / 2)) var(--s-4);
   position: sticky;
   left: 0;
 }
@@ -317,7 +333,7 @@ button.ghost:hover:not(:disabled) {
   gap: var(--s-5);
   align-items: flex-start;
   overflow-x: auto;
-  padding: 0 var(--s-6) var(--s-3);
+  padding: 0 max(var(--s-6), calc((100% - var(--w-board)) / 2)) var(--s-3);
   scrollbar-width: thin;
 }
 
@@ -662,7 +678,7 @@ button.ghost:hover:not(:disabled) {
   align-items: center;
   gap: var(--s-5);
   flex-wrap: wrap;
-  margin: 0 var(--s-6) var(--s-6);
+  margin: 0 max(var(--s-6), calc((100% - var(--w-board)) / 2)) var(--s-6);
   padding: var(--s-4) var(--s-5);
   border: 1px dashed var(--rule-strong);
   border-radius: var(--r-md);
@@ -687,11 +703,21 @@ button.ghost:hover:not(:disabled) {
   margin: 0 0 var(--s-5);
 }
 
+/* Linha de meta no painel do projeto. */
+.goal-row .goal-title {
+  flex: 1 1 auto;
+  font-size: var(--t-sm);
+}
+
+.goal-row .goal-title.muted {
+  color: var(--fg-2);
+}
+
 .banner {
   display: flex;
   align-items: center;
   gap: var(--s-4);
-  padding: var(--s-4) var(--s-6);
+  padding: var(--s-4) max(var(--s-6), calc((100% - var(--w-board)) / 2));
   background: var(--alert-weak);
   color: var(--alert);
   font-size: var(--t-sm);
@@ -700,4 +726,46 @@ button.ghost:hover:not(:disabled) {
 
 .banner button {
   margin-left: auto;
+}
+
+/* ── Execução do sprint workflow (WorkflowPanel) ──────────────────────────── */
+
+.workflow-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  margin-top: var(--s-6);
+  padding: var(--s-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+}
+
+/* Tail do log: lê-se como terminal, rola sozinho para o fim. */
+.workflow-log {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  line-height: 1.5;
+  max-height: 20rem;
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--fg-1) 6%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pill.wf-running {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 50%, var(--rule));
+}
+
+.pill.wf-failed {
+  color: var(--alert);
+  border-color: color-mix(in srgb, var(--alert) 50%, var(--rule));
+}
+
+.pill.wf-exited,
+.pill.wf-stopped {
+  color: var(--fg-2);
 }

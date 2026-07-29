@@ -30,26 +30,38 @@ function MermaidBlock({ code }: { code: string }) {
   const theme = useContext(ThemeContext)
   const id = useId().replace(/[^a-zA-Z0-9]/g, '')
   const [svg, setSvg] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
+  const [parseError, setParseError] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
-    setFailed(false)
+    setParseError(null)
     // Reconfigurar a cada render: outro bloco pode ter reconfigurado o
     // singleton com outro tema entre um render e o próximo.
     configure(theme)
     mermaid
       .render(`m${id}`, code)
       .then((r) => alive && setSvg(r.svg))
-      .catch(() => alive && setFailed(true))
+      .catch((err: unknown) => alive && setParseError(err instanceof Error ? err.message : String(err)))
     return () => {
       alive = false
     }
   }, [code, id, theme])
 
   // A diagram that fails to parse falls back to its source rather than
-  // vanishing — the text is the card's content either way.
-  if (failed || svg === null) {
+  // vanishing — the text is the card's content either way. The parse error is
+  // shown so the reader knows it's broken syntax, not intentional raw text.
+  if (parseError !== null) {
+    return (
+      <div className="mermaid-invalid">
+        <p className="mermaid-invalid-notice">diagrama mermaid inválido — exibindo o código-fonte</p>
+        <p className="mermaid-invalid-detail">{parseError}</p>
+        <pre>
+          <code>{code}</code>
+        </pre>
+      </div>
+    )
+  }
+  if (svg === null) {
     return (
       <pre>
         <code>{code}</code>

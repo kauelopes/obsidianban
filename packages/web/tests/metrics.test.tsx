@@ -18,7 +18,8 @@ describe('painel de atividade', () => {
     mount(metricsPopulated)
 
     await waitFor(() => expect(screen.getByText('103')).toBeTruthy())
-    expect(screen.getAllByText('não reportado').length).toBe(2)
+    // 4 tiles sem medição: tokens de entrada, de saída, cache e custo medido.
+    expect(screen.getAllByText('não reportado').length).toBe(4)
     // E explica o porquê, em vez de deixar o usuário adivinhar.
     expect(screen.getByText(/não inventar contagem de tokens/)).toBeTruthy()
   })

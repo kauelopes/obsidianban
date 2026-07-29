@@ -50,6 +50,13 @@
   /* Medida da prosa humana. MathJax quebra feio em linha curta. */
   --measure: 68ch;
 
+  /* ── Larguras de página ──────────────────────────────────────────────── */
+  /* Breakpoint de layout: 1280px (literal nas @media — var() não vale lá).
+     Abaixo dele tudo empilha; acima, a Home ganha coluna lateral. */
+  --w-read: 860px;   /* prosa: card detail, ajuda */
+  --w-wide: 1360px;  /* hub: home, atividade, escalações, wizard */
+  --w-board: 1600px; /* teto do gutter centrado do board */
+
   /* ── Espaçamento (base 4) ────────────────────────────────────────────── */
   --s-1: 2px;
   --s-2: 4px;

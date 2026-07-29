@@ -8,9 +8,12 @@ import type { SSEEventBus } from './sse.js'
 import type { TokenClaims } from '@obsidiankan/types'
 import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
+import type { ActivityService } from '../services/activity.js'
+import { ACTIVITY_DAYS_DEFAULT, ACTIVITY_DAYS_MAX } from '../util/constants.js'
 import type { McpHttpManager } from './mcp-http.js'
 import type { StaticSite } from './static.js'
 import type { SessionToken } from '../auth/session.js'
+import type { WorkflowManager } from '../services/workflow-runner.js'
 
 export interface ServerState {
   startedAt: number
@@ -27,11 +30,14 @@ export interface HttpServerDeps {
   idempotency: IdempotencyStore
   sse: SSEEventBus
   metrics: MetricsService
+  activity: ActivityService
   mcp: McpHttpManager
   /** Built web SPA, served from the same origin. Absent when not built. */
   site?: StaticSite | undefined
   /** Ephemeral browser session token, injected into the served index.html. */
   session?: SessionToken | undefined
+  /** Execuções do sprint workflow — serve GET /workflow/log. */
+  workflow?: WorkflowManager | undefined
 }
 
 interface ToolHandler {
@@ -86,6 +92,12 @@ export class HttpServer {
     }
     if (req.method === 'GET' && url.split('?')[0] === '/metrics') {
       return this.handleMetrics(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/activity') {
+      return this.handleActivity(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/workflow/log') {
+      return this.handleWorkflowLog(req, res, url)
     }
 
     const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(url.split('?')[0] ?? '')
@@ -161,6 +173,53 @@ export class HttpServer {
       }
       throw err
     }
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, loopback-only, sem token. */
+  private async handleActivity(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: string,
+  ): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isLoopback(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const days = intParam(params.get('days'), ACTIVITY_DAYS_DEFAULT, 1, ACTIVITY_DAYS_MAX)
+    // ±14h cobre todos os fusos reais (UTC-12 a UTC+14).
+    const tzOffset = intParam(params.get('tz_offset'), 0, -840, 840)
+    if (days === null || tzOffset === null) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'days 1..60, tz_offset -840..840' })
+      return
+    }
+    sendJson(res, 200, await this.deps.activity.collect({ days, tzOffsetMinutes: tzOffset }))
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, loopback-only, sem token. */
+  private async handleWorkflowLog(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: string,
+  ): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isLoopback(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.workflow) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const sprintId = params.get('sprint_id')
+    const offset = intParam(params.get('offset'), 0, 0, Number.MAX_SAFE_INTEGER)
+    if (!sprintId || offset === null) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'sprint_id obrigatório, offset >= 0' })
+      return
+    }
+    sendJson(res, 200, await this.deps.workflow.readLog(sprintId, offset))
   }
 
   /**
@@ -294,6 +353,14 @@ export class HttpServer {
     }
     return result.claims
   }
+}
+
+/** Inteiro do querystring dentro de [min, max]; ausente vira fallback, inválido vira null. */
+function intParam(raw: string | null, fallback: number, min: number, max: number): number | null {
+  if (raw === null || raw === '') return fallback
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < min || n > max) return null
+  return n
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

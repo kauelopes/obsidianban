@@ -51,6 +51,35 @@ export interface Sprint {
 
 export type CardSummary = Omit<Card, 'body'>
 
+/**
+ * Meta de médio prazo de um projeto. Vive no _meta.json do vault — editável no
+ * Obsidian, visível aos agentes via kanban_list_projects. Progresso é humano:
+ * status manual + prazo; nenhum % automático.
+ */
+export interface Goal {
+  id: string                   // goal-{nanoid(8)}
+  title: string                // max 120 chars
+  target_date: string | null   // YYYY-MM-DD
+  status: 'open' | 'done' | 'dropped'
+  created_at: string           // ISO 8601
+  notes?: string               // max 1000 chars
+}
+
+/**
+ * Épico: agrupamento de sprints com um objetivo comum. Vive no _meta.json ao
+ * lado de sprints e goals. O vínculo é épico → sprints (sprint_ids); um sprint
+ * pertence a no máximo um épico. Progresso é derivado dos cards das sprints —
+ * nenhum contador persistido.
+ */
+export interface Epic {
+  id: string                   // epic-{nanoid(8)}
+  name: string                 // max 120 chars
+  objective: string | null     // max 1000 chars
+  status: 'open' | 'done' | 'dropped'
+  sprint_ids: string[]
+  created_at: string           // ISO 8601
+}
+
 // ─── Tokens ──────────────────────────────────────────────────────────────────
 
 export interface AgentToken {
@@ -168,10 +197,17 @@ export type SSEEventType =
   | 'PROJECT_ARCHIVED'
   | 'PROJECT_UNARCHIVED'
   | 'PROJECT_DELETED'
+  | 'PROJECT_GOALS_UPDATED'
+  | 'PROJECT_EPICS_UPDATED'
   | 'SPRINT_CREATED'
   | 'SPRINT_STARTED'
   | 'SPRINT_UPDATED'
   | 'SPRINT_CLOSED'
+  | 'PLANNING_STEP_READY'
+  | 'PLANNING_ERROR'
+  | 'PLANNING_FINALIZED'
+  | 'WORKFLOW_STARTED'
+  | 'WORKFLOW_EXITED'
 
 export interface CardCreatedPayload     { card_id: string; project: string; status: string; position: number }
 export interface CardUpdatedPayload     { card_id: string; project: string; changed_fields: string[] }
@@ -184,10 +220,16 @@ export interface CardUnarchivedPayload  { card_id: string; project: string }
 export interface ProjectArchivedPayload   { project: string }
 export interface ProjectUnarchivedPayload { project: string }
 export interface ProjectDeletedPayload    { project: string }
+export interface ProjectEpicsUpdatedPayload { project: string }
 export interface SprintCreatedPayload     { sprint_id: string; project: string }
 export interface SprintStartedPayload     { sprint_id: string; project: string }
 export interface SprintUpdatedPayload     { sprint_id: string; project: string }
 export interface SprintClosedPayload      { sprint_id: string; project: string }
+export interface PlanningStepReadyPayload { session_id: string; step_id: string; status: string }
+export interface PlanningErrorPayload     { session_id: string; step_id: string; reason: string }
+export interface PlanningFinalizedPayload { session_id: string; project: string }
+export interface WorkflowStartedPayload  { sprint_id: string; project: string }
+export interface WorkflowExitedPayload   { sprint_id: string; project: string; status: string; exit_code: number | null }
 
 export type SSEEventPayload =
   | CardCreatedPayload
@@ -201,10 +243,16 @@ export type SSEEventPayload =
   | ProjectArchivedPayload
   | ProjectUnarchivedPayload
   | ProjectDeletedPayload
+  | ProjectEpicsUpdatedPayload
   | SprintCreatedPayload
   | SprintStartedPayload
   | SprintUpdatedPayload
   | SprintClosedPayload
+  | PlanningStepReadyPayload
+  | PlanningErrorPayload
+  | PlanningFinalizedPayload
+  | WorkflowStartedPayload
+  | WorkflowExitedPayload
 
 export interface SSEEvent {
   type: SSEEventType
@@ -220,7 +268,10 @@ export type AuditOp =
   | 'ARCHIVE' | 'UNARCHIVE'
   | 'CLAIM' | 'RELEASE'
   | 'PROJECT_ARCHIVED' | 'PROJECT_UNARCHIVED' | 'PROJECT_DELETED' | 'PROJECT_REPO_SET'
+  | 'GOAL_SET' | 'GOAL_DELETED'
+  | 'EPIC_SET'
   | 'SPRINT_CREATED' | 'SPRINT_STARTED' | 'SPRINT_CLOSED'
+  | 'WORKFLOW_DEV' | 'WORKFLOW_TRIAGE'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
 
@@ -235,6 +286,13 @@ export interface AuditEntry {
   input_tokens?: number
   output_tokens?: number
   model?: string
+  // usage medido do harness — input/output EXCLUEM cache; cost_usd é o
+  // total_cost_usd autoritativo (estimativas por token subestimam sem isto):
+  cache_read_tokens?: number
+  cache_creation_tokens?: number
+  cost_usd?: number
+  sprint_id?: string          // WORKFLOW_* (registro por round)
+  turns?: number              // WORKFLOW_* — turnos do harness no round
   // op-specific:
   changed_fields?: string[]    // UPDATE
   from_status?: string         // MOVE
@@ -297,6 +355,34 @@ export interface WorkflowReadinessResult {
     generated_dev?: GeneratedToken
   }
   all_ok: boolean  // true = nothing needed to be installed or generated
+}
+
+// ─── Execução do sprint workflow ─────────────────────────────────────────────
+
+export type WorkflowRunStatus = 'running' | 'exited' | 'failed' | 'stopped'
+
+/**
+ * Estado de uma execução do sprint workflow (o orquestrador que roda os
+ * agentes). Vive em memória no servidor: após um restart, `status` some mas o
+ * log em disco continua legível via GET /workflow/log.
+ */
+export interface WorkflowRunView {
+  sprint_id: string
+  project: string
+  pid: number | null
+  status: WorkflowRunStatus
+  started_at: string
+  ended_at: string | null
+  exit_code: number | null
+}
+
+export interface WorkflowLogResult {
+  sprint_id: string
+  run: WorkflowRunView | null
+  /** Tamanho total do log em bytes — passe de volta como offset na próxima leitura. */
+  size: number
+  /** Conteúdo a partir do offset pedido (limitado a um chunk por chamada). */
+  data: string
 }
 
 // ─── Tool response envelopes ──────────────────────────────────────────────────
@@ -472,6 +558,80 @@ export interface CreateAgentTokenResult {
   created_at: string
 }
 
+// ─── Planejamento (wizard KAD) ───────────────────────────────────────────────
+
+export type PlanningStatus =
+  | 'awaiting_user'
+  | 'generating'
+  | 'materializing'
+  | 'done'
+  | 'error'
+  | 'cancelled'
+
+export type PlanningScreenType = 'form' | 'choice' | 'list' | 'diagram' | 'confirm'
+
+export interface PlanningFormField {
+  id: string
+  label: string
+  help?: string
+  value?: string
+}
+export interface PlanningFormPayload { fields: PlanningFormField[] }
+export interface PlanningChoiceOption { id: string; label: string; description?: string }
+export interface PlanningChoicePayload {
+  question: string
+  options: PlanningChoiceOption[]
+  suggested?: string
+}
+export interface PlanningListItem { id: string; title: string; detail?: string }
+export interface PlanningListPayload { intro?: string; items: PlanningListItem[] }
+export interface PlanningDiagramPayload { mermaid: string; caption?: string }
+export interface PlanningConfirmPayload { markdown: string }
+
+/** outputs[step] — o que o servidor guardou para renderizar a tela da etapa. */
+export interface PlanningStepOutput {
+  screen_payload: unknown
+  /** Presente só na etapa sprints_tasks: a estrutura épicos→sprints→tarefas. */
+  structure?: unknown
+}
+
+/**
+ * Visão da sessão de planejamento devolvida pelas tools kanban_planning_*.
+ * O servidor guarda campos internos a mais (claude_session_id, last_prompt,
+ * checkpoint de materialização) — o contrato daqui é o que a web usa.
+ */
+export interface PlanningSessionView {
+  session_id: string
+  status: PlanningStatus
+  current_step: string
+  answers: Record<string, unknown>
+  outputs: Record<string, PlanningStepOutput>
+  kad: Record<string, string>
+  project_name: string | null
+  target_repo: string | null
+  usage: { input_tokens: number; output_tokens: number; usd: number; turns: number }
+  last_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PlanningFinalizeResult {
+  session_id: string
+  project: string
+  /** Presente só na primeira passada da materialização — não é recuperável. */
+  token: string | null
+  token_id: string | null
+  workflow_readiness?: WorkflowReadinessResult
+  token_hint?: string
+  epics: number
+  sprints: number
+  cards_created: number
+  cards_failed: Array<{ sprint: string; index: number; error: string }>
+  goals: number
+  kad_files: string[]
+  repo_copy_ok: boolean | null
+}
+
 // ─── Plugin-specific ─────────────────────────────────────────────────────────
 
 export type Resolution = 'keep-mine' | 'keep-theirs' | 'manual'
@@ -495,14 +655,60 @@ export interface MetricsFilter {
   to_date?: string
 }
 
+/**
+ * `cost_usd` é a soma do custo MEDIDO (relatado pelas tools) — 0 em linhas
+ * antigas/sem medição; `cache_*_tokens` ficam fora de input/output. Quando
+ * cost_usd > 0, ele é autoritativo sobre estimativas derivadas de tokens.
+ */
 export interface Metrics {
-  summary: { total_input_tokens: number; total_output_tokens: number; total_ops: number }
-  by_type: Array<{ type: string; input_tokens: number; output_tokens: number; ops: number }>
-  by_day: Array<{ date: string; input_tokens: number; output_tokens: number }>
-  by_model: Array<{ model: string; input_tokens: number; output_tokens: number }>
-  by_agent: Array<{ actor: string; input_tokens: number; output_tokens: number }>
-  by_operation: Array<{ op: string; input_tokens: number; output_tokens: number; count: number }>
-  by_project: Array<{ project: string; input_tokens: number; output_tokens: number; ops: number }>
+  summary: {
+    total_input_tokens: number
+    total_output_tokens: number
+    total_cache_read_tokens: number
+    total_cache_creation_tokens: number
+    total_cost_usd: number
+    total_ops: number
+  }
+  by_type: Array<{ type: string; input_tokens: number; output_tokens: number; cost_usd: number; ops: number }>
+  by_day: Array<{ date: string; input_tokens: number; output_tokens: number; cost_usd: number }>
+  by_model: Array<{ model: string; input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_creation_tokens: number; cost_usd: number }>
+  by_agent: Array<{ actor: string; input_tokens: number; output_tokens: number; cost_usd: number }>
+  by_operation: Array<{ op: string; input_tokens: number; output_tokens: number; cost_usd: number; count: number }>
+  by_project: Array<{ project: string; input_tokens: number; output_tokens: number; cost_usd: number; ops: number }>
+  /** Cruzamento projeto×dia (datas UTC) — a série que alimenta visões de ritmo. */
+  by_project_day: Array<{
+    project: string
+    date: string
+    input_tokens: number
+    output_tokens: number
+    cost_usd: number
+    ops: number
+  }>
+}
+
+// ─── Activity (GET /activity) ────────────────────────────────────────────────
+
+/** Um dia no fuso do usuário — datas locais, ao contrário do Metrics (UTC). */
+export interface ProjectDayActivity {
+  date: string      // YYYY-MM-DD no fuso pedido via tz_offset
+  card_ops: number  // operações no kanban (token_log), humanas e de agente
+  commits: number   // commits no target_repo; 0 quando repo_unavailable
+}
+
+export interface ProjectActivity {
+  project: string
+  /** Janela completa, mais antigo primeiro, dias sem atividade incluídos zerados. */
+  days: ProjectDayActivity[]
+  /** Sessões (gap 30min) dos últimos 7 dias, ops + commits. Heurística — exibir com ≈. */
+  estimated_hours_week: number
+  /** target_repo ausente, não-git ou inacessível — sinal, não erro. */
+  repo_unavailable?: boolean
+}
+
+export interface ActivityResponse {
+  window_days: number
+  tz_offset_minutes: number
+  projects: ProjectActivity[]
 }
 
 // ─── Card body zones ─────────────────────────────────────────────────────────

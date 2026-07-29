@@ -187,7 +187,7 @@ export class CardRepository {
 
   logTokens(entry: {
     ts: string
-    op: 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER' | 'DELETE'
+    op: 'CREATE' | 'UPDATE' | 'MOVE' | 'REORDER' | 'DELETE' | 'PLANNING' | 'WORKFLOW_DEV' | 'WORKFLOW_TRIAGE'
     card_id: string
     card_type: string
     actor: string
@@ -195,14 +195,29 @@ export class CardRepository {
     input_tokens: number
     output_tokens: number
     project: string
+    /** Tokens de cache do harness — fora de input/output; sem eles o custo real some. */
+    cache_read_tokens?: number
+    cache_creation_tokens?: number
+    /** Custo medido (total_cost_usd do harness) — autoritativo sobre estimativas. */
+    cost_usd?: number
+    /** Presente nos registros por round do workflow (op WORKFLOW_*). */
+    sprint_id?: string | null
   }): void {
     this.db
       .prepare(
         `INSERT INTO token_log
-           (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project)
-         VALUES (@ts, @op, @card_id, @card_type, @actor, @model, @input_tokens, @output_tokens, @project)`,
+           (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project,
+            cache_read_tokens, cache_creation_tokens, cost_usd, sprint_id)
+         VALUES (@ts, @op, @card_id, @card_type, @actor, @model, @input_tokens, @output_tokens, @project,
+            @cache_read_tokens, @cache_creation_tokens, @cost_usd, @sprint_id)`,
       )
-      .run(entry)
+      .run({
+        cache_read_tokens: 0,
+        cache_creation_tokens: 0,
+        cost_usd: 0,
+        sprint_id: null,
+        ...entry,
+      })
   }
 
   /** Cards in a column ordered by position, optionally scoped to a sprint. */

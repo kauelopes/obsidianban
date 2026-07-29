@@ -1,4 +1,4 @@
-import type { CardSummary, EscalationItem, Sprint } from '@obsidiankan/types'
+import type { CardSummary, EscalationItem, Goal, Sprint } from '@obsidiankan/types'
 import type { ProjectInfo } from '../board/useBoard.js'
 
 /**
@@ -18,6 +18,7 @@ export interface ProjectOverview {
   escalations: EscalationItem[]
   active: { sprint: Sprint; done: number; total: number } | null
   planned: Sprint[]
+  goals: Goal[]
   /** Máximo de updated_at entre os cards — null num projeto sem cards. */
   lastUpdate: string | null
 }
@@ -78,6 +79,7 @@ export function buildOverview(
           }
         : null,
       planned: sprints.filter((s) => s.status === 'planning'),
+      goals: info?.goals ?? [],
       lastUpdate,
     }
   })

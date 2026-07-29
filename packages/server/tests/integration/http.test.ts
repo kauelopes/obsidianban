@@ -7,6 +7,8 @@ import { SSEEventBus } from '../../src/server/sse.js'
 import { IdempotencyStore } from '../../src/server/idempotency.js'
 import { TokenValidator } from '../../src/auth/validator.js'
 import { MetricsService } from '../../src/services/metrics.js'
+import { ActivityService } from '../../src/services/activity.js'
+import { GitActivityService } from '../../src/services/git-activity.js'
 import { CardService } from '../../src/services/card.js'
 import { SprintService } from '../../src/services/sprint.js'
 import { HistoryService } from '../../src/services/history.js'
@@ -19,6 +21,7 @@ import { createTestDb, createTestRepo } from '../helpers/db.js'
 import { makeManagerClaims } from '../helpers/factories.js'
 import { httpPost, httpGet } from '../helpers/http.js'
 import type { McpHttpManager } from '../../src/server/mcp-http.js'
+import { WorkflowManager } from '../../src/services/workflow-runner.js'
 
 let paths: Paths
 let server: HttpServer
@@ -68,7 +71,16 @@ beforeAll(async () => {
     db,
   }
 
-  server = new HttpServer({ port: 0, state, validator, idempotency, sse, metrics, mcp: mcpStub })
+  const activity = new ActivityService(db, paths, new GitActivityService())
+  // WorkflowManager real, mas sem spawn: a rota /workflow/log só lê o disco.
+  const wfLogDir = path.join(paths.vault, '.kanban', 'workflow-logs')
+  await fs.mkdir(wfLogDir, { recursive: true })
+  await fs.writeFile(path.join(wfLogDir, 'sprint-wf1.log'), 'linha um\nlinha dois\n', 'utf8')
+  const workflow = new WorkflowManager(
+    { scriptPath: '/nonexistent.mjs', logDir: wfLogDir, autoLaunch: false, kanbanUrl: 'http://127.0.0.1:0' },
+    sse,
+  )
+  server = new HttpServer({ port: 0, state, validator, idempotency, sse, metrics, activity, mcp: mcpStub, workflow })
 
   server.registerTool('kanban_create_card', (p, c) =>
     cardService.create(p as Record<string, unknown>, c),
@@ -442,5 +454,27 @@ describe('manager token', () => {
     )
     expect(res.status).toBe(200)
     expect((res.body as Record<string, unknown>)['title']).toBe('Manager Card')
+  })
+})
+
+describe('GET /workflow/log', () => {
+  it('serve o log do disco com leitura incremental', async () => {
+    const res = await httpGet(port, '/workflow/log?sprint_id=wf1')
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ sprint_id: 'wf1', run: null, data: 'linha um\nlinha dois\n' })
+
+    const size = (res.body as { size: number }).size
+    const tail = await httpGet(port, `/workflow/log?sprint_id=wf1&offset=${size}`)
+    expect(tail.status).toBe(200)
+    expect((tail.body as { data: string }).data).toBe('')
+  })
+
+  it('400 sem sprint_id ou com offset inválido', async () => {
+    expect((await httpGet(port, '/workflow/log')).status).toBe(400)
+    expect((await httpGet(port, '/workflow/log?sprint_id=wf1&offset=-1')).status).toBe(400)
+  })
+
+  it('404 para sprint sem execução nem log', async () => {
+    expect((await httpGet(port, '/workflow/log?sprint_id=nunca-rodou')).status).toBe(404)
   })
 })

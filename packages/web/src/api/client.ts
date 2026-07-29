@@ -8,7 +8,9 @@ import type {
   LogKind,
   DeleteProjectResult,
   GetSprintResult,
+  Goal,
   ListCardsParams,
+  ActivityResponse,
   Metrics,
   MoveBetweenSprintsResult,
   MoveCardParams,
@@ -17,7 +19,14 @@ import type {
   ReorderResult,
   SetProjectRepoResult,
   Sprint,
+  WorkflowLogResult,
   WorkflowReadinessResult,
+  WorkflowRunView,
+} from '@obsidiankan/types'
+import type {
+  Epic,
+  PlanningFinalizeResult,
+  PlanningSessionView,
 } from '@obsidiankan/types'
 import { type McpResult, toMcpResult } from './result.js'
 
@@ -39,9 +48,14 @@ export class KanbanClient {
     this.timeoutMs = cfg.timeoutMs ?? 10_000
   }
 
-  private async call<T>(tool: string, params: Record<string, unknown>): Promise<McpResult<T>> {
+  private async call<T>(
+    tool: string,
+    params: Record<string, unknown>,
+    opts?: { timeoutMs?: number },
+  ): Promise<McpResult<T>> {
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs)
+    const timeoutMs = opts?.timeoutMs ?? this.timeoutMs
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
     try {
       const res = await fetch(`${this.baseUrl}/mcp/tool/${tool}`, {
         method: 'POST',
@@ -73,7 +87,7 @@ export class KanbanClient {
         error: {
           kind: 'offline',
           message: 'não foi possível falar com o servidor kanban',
-          cause: ctrl.signal.aborted ? `timeout após ${this.timeoutMs}ms` : cause,
+          cause: ctrl.signal.aborted ? `timeout após ${timeoutMs}ms` : cause,
         },
       }
     } finally {
@@ -208,8 +222,24 @@ export class KanbanClient {
 
   listProjects(
     opts: { include_archived?: boolean } = {},
-  ): Promise<McpResult<{ projects: Array<{ project: string; columns: string[]; archived: boolean; target_repo?: string | null }> }>> {
+  ): Promise<McpResult<{ projects: Array<{ project: string; columns: string[]; archived: boolean; target_repo?: string | null; goals?: Goal[] }> }>> {
     return this.call('kanban_list_projects', opts)
+  }
+
+  /** Upsert: sem `id` cria. Campos omitidos num update ficam como estão. */
+  setGoal(params: {
+    project: string
+    id?: string
+    title?: string
+    target_date?: string | null
+    status?: Goal['status']
+    notes?: string
+  }): Promise<McpResult<{ project: string; goal: Goal }>> {
+    return this.call('kanban_set_goal', params)
+  }
+
+  deleteGoal(params: { project: string; id: string }): Promise<McpResult<{ project: string; goal_id: string }>> {
+    return this.call('kanban_delete_goal', params)
   }
 
   listSprints(params: { project: string; status?: string }): Promise<McpResult<{ sprints: Sprint[] }>> {
@@ -310,6 +340,137 @@ export class KanbanClient {
         },
       }
     }
+  }
+
+  /**
+   * GET /activity segue o modelo do /metrics (rota própria, loopback, sem
+   * token). O tz_offset vai sempre: os buckets diários são no fuso de QUEM
+   * olha, e só o navegador sabe qual é.
+   */
+  async getActivity(params: { days?: number } = {}): Promise<McpResult<ActivityResponse>> {
+    const qs = new URLSearchParams({ tz_offset: String(new Date().getTimezoneOffset()) })
+    if (params.days) qs.set('days', String(params.days))
+    try {
+      const res = await fetch(`${this.baseUrl}/activity?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler a atividade',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  // ── Planejamento (wizard KAD) ──────────────────────────────────────────────
+  // answer/refine/retry retornam já (o turno roda no servidor); o resultado
+  // chega por SSE PLANNING_* com planningGet de polling como fallback. Só o
+  // finalize é síncrono — materialização é escrita local, mas ganha folga.
+
+  planningStart(): Promise<McpResult<PlanningSessionView>> {
+    return this.call('kanban_planning_start', {})
+  }
+
+  planningGet(sessionId: string): Promise<McpResult<PlanningSessionView>> {
+    return this.call('kanban_planning_get', { session_id: sessionId })
+  }
+
+  planningList(): Promise<McpResult<{ sessions: PlanningSessionView[] }>> {
+    return this.call('kanban_planning_list', {})
+  }
+
+  planningAnswer(
+    sessionId: string,
+    step: string,
+    answer: unknown,
+  ): Promise<McpResult<PlanningSessionView>> {
+    return this.call('kanban_planning_answer', { session_id: sessionId, step, answer })
+  }
+
+  planningRefine(sessionId: string, feedback: string): Promise<McpResult<PlanningSessionView>> {
+    return this.call('kanban_planning_refine', { session_id: sessionId, feedback })
+  }
+
+  planningRetry(sessionId: string): Promise<McpResult<PlanningSessionView>> {
+    return this.call('kanban_planning_retry', { session_id: sessionId })
+  }
+
+  planningFinalize(sessionId: string): Promise<McpResult<PlanningFinalizeResult>> {
+    return this.call('kanban_planning_finalize', { session_id: sessionId }, { timeoutMs: 30_000 })
+  }
+
+  planningCancel(sessionId: string): Promise<McpResult<{ session_id: string; status: string }>> {
+    return this.call('kanban_planning_cancel', { session_id: sessionId })
+  }
+
+  // ── Execução do sprint workflow ────────────────────────────────────────────
+
+  /** Exige sprint ativa e target_repo definido no projeto — 409/400 senão. */
+  workflowStart(sprintId: string): Promise<McpResult<WorkflowRunView>> {
+    return this.call('kanban_workflow_start', { sprint_id: sprintId })
+  }
+
+  workflowStop(sprintId: string): Promise<McpResult<WorkflowRunView>> {
+    return this.call('kanban_workflow_stop', { sprint_id: sprintId })
+  }
+
+  workflowStatus(
+    sprintId: string,
+  ): Promise<McpResult<{ sprint_id: string; run: WorkflowRunView | null }>> {
+    return this.call('kanban_workflow_status', { sprint_id: sprintId })
+  }
+
+  /**
+   * GET /workflow/log segue o modelo do /metrics (rota própria, loopback, sem
+   * token). Leitura incremental: devolva `size` como offset da próxima chamada.
+   */
+  async getWorkflowLog(
+    sprintId: string,
+    offset = 0,
+  ): Promise<McpResult<WorkflowLogResult>> {
+    const qs = new URLSearchParams({ sprint_id: sprintId, offset: String(offset) })
+    try {
+      const res = await fetch(`${this.baseUrl}/workflow/log?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler o log do workflow',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  // ── Épicos ─────────────────────────────────────────────────────────────────
+
+  createEpic(params: {
+    project: string
+    name: string
+    objective?: string
+    sprint_ids?: string[]
+  }): Promise<McpResult<{ project: string; epic: Epic }>> {
+    return this.call('kanban_create_epic', params)
+  }
+
+  listEpics(project: string): Promise<McpResult<{ project: string; epics: Epic[] }>> {
+    return this.call('kanban_list_epics', { project })
+  }
+
+  updateEpic(params: {
+    project: string
+    id: string
+    name?: string
+    objective?: string | null
+    status?: 'open' | 'done' | 'dropped'
+    sprint_ids?: string[]
+  }): Promise<McpResult<{ project: string; epic: Epic }>> {
+    return this.call('kanban_update_epic', params)
   }
 
   /** GET /health is a plain route, not a tool — and it needs no token. */

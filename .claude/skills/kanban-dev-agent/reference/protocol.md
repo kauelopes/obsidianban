@@ -1,6 +1,6 @@
 # Dev Agent — Wire Protocol Reference
 
-Runtime detail for the 7 tools a dev token can call. Load this when you need
+Runtime detail for the 8 tools a dev token can call. Load this when you need
 exact params or hit an error you don't recognize.
 
 ## Error envelope
@@ -12,8 +12,8 @@ state.
 
 ## Optimistic concurrency
 
-Every mutation (`move`, `claim`, `release`, `log`) takes the card's current
-`version`. If it's stale you get:
+Every mutation (`move`, `claim`, `release`, `log`, `defer`) takes the card's
+current `version`. If it's stale you get:
 
 ```
 409 { error: "conflict",
@@ -43,6 +43,7 @@ result with no duplicate side effect — use it whenever the network may drop.
 | `kanban_move_card` | `id`, `version`, `to_status` | `input_tokens`, `output_tokens`, `model`, `request_id` | `to_status` is a column slug. Pass token usage to record cost. |
 | `kanban_log_on_card` | `id`, `version`, `log_entry` | `input_tokens`, `output_tokens`, `model`, `request_id` | Appends a timestamped entry to `# Agent Log`. Markdown + mermaid ok. |
 | `kanban_release_card` | `id`, `version` | `revert_to_status` | Defaults to moving the card back to `todo` so `pick_next` sees it; pass `null` to keep status. |
+| `kanban_defer_card` | `id`, `version`, `blocked_by`, `log_entry` | `input_tokens`, `output_tokens`, `model`, `request_id` | Use when this card depends on ANOTHER card (even one in `review`) instead of moving to `review`. Merges `blocked_by`, logs the reason, clears `assigned_to`, and returns the card to `todo` if it was in a started column — atomically. |
 
 ## `pick_next` reasons (when `card` is null)
 

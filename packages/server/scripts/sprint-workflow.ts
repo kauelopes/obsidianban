@@ -28,8 +28,9 @@
 //   TARGET_REPO              dir the DEV harness works in (default cwd)
 //   DEV_DRAIN_LIMIT          max cards a dev works per spawn (default 3; 1 = one
 //                            card per round with exact per-card cost; larger ≈ drain)
-//   DEV_MCP_CONFIG           override path to the dev MCP config (default: PM skill's)
-//   DEV_SETTINGS             override path to the dev settings (default: PM skill's)
+//   DEV_MCP_CONFIG           override path to the dev MCP config (default: the copy
+//                            provisioned in TARGET_REPO by workflow-readiness)
+//   DEV_SETTINGS             override path to the dev settings (same default)
 //   SPRINT_MAX_ROUNDS        loop safeguard (default 50)
 //   RATE_LIMIT_WAIT_SECONDS  seconds to wait when credits run out (default 300).
 //                            For the triage path the API retry-after header takes
@@ -45,7 +46,6 @@
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
 import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
@@ -58,9 +58,6 @@ try {
 } catch {
   /* no .env file — rely on the ambient environment */
 }
-
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.resolve(SCRIPT_DIR, '..')
 
 const KANBAN_URL = process.env.KANBAN_URL ?? 'http://127.0.0.1:9375'
 // When set, every log() call is also appended (with ISO timestamp) to this file.
@@ -79,15 +76,21 @@ const DEV_DRAIN_LIMIT = Math.max(1, Number(process.env.DEV_DRAIN_LIMIT ?? 3) || 
 
 // The harness needs an MCP config (points the dev at the kanban server, injects
 // the dev token) and a settings file (scopes the dev's tools/skills). Resolved
-// from the workflow's repo root, NOT TARGET_REPO — the spawn's cwd is the repo
-// being worked on, which may be elsewhere.
+// from TARGET_REPO: workflow-readiness provisions both there (with the mcp URL
+// corrected to the running server) when the project's repo is set.
 const DEV_MCP_CONFIG = process.env.DEV_MCP_CONFIG
-  ?? path.join(REPO_ROOT, '.claude/skills/kanban-pm-agent/dev.mcp.json')
+  ?? path.join(TARGET_REPO, '.claude/skills/kanban-pm-agent/dev.mcp.json')
 const DEV_SETTINGS = process.env.DEV_SETTINGS
-  ?? path.join(REPO_ROOT, '.claude/skills/kanban-pm-agent/dev-settings.json')
+  ?? path.join(TARGET_REPO, '.claude/skills/kanban-pm-agent/dev-settings.json')
 
 // Opus 4.8 pricing ($/token) — used to price the triage API calls in USD.
-const PRICE = { input: 5 / 1_000_000, output: 25 / 1_000_000 }
+// Cache: leitura 10% do input, escrita 1.25× (tarifa Anthropic padrão).
+const PRICE = {
+  input: 5 / 1_000_000,
+  output: 25 / 1_000_000,
+  cacheRead: 0.5 / 1_000_000,
+  cacheWrite: 6.25 / 1_000_000,
+}
 
 const client = new Anthropic() // reads ANTHROPIC_API_KEY from env
 
@@ -173,20 +176,50 @@ function pmTriageTools() {
 }
 
 // ── Token / cost accounting ──────────────────────────────────────────────────
+// cacheRead/cacheCreation ficam FORA de input/output no usage da API e do
+// harness — ignorá-los é subestimar o custo real por ordens de magnitude.
 interface Usage {
   input: number
   output: number
+  cacheRead: number
+  cacheCreation: number
   usd: number
 }
 
+const ZERO_USAGE: Usage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, usd: 0 }
+
 const sprintTotals: Usage & { devRuns: number; triageRuns: number } = {
-  input: 0, output: 0, usd: 0, devRuns: 0, triageRuns: 0,
+  ...ZERO_USAGE, devRuns: 0, triageRuns: 0,
 }
 
 function accumulate(u: Usage): void {
   sprintTotals.input += u.input
   sprintTotals.output += u.output
+  sprintTotals.cacheRead += u.cacheRead
+  sprintTotals.cacheCreation += u.cacheCreation
   sprintTotals.usd += u.usd
+}
+
+// Registro por round no servidor (op WORKFLOW_*): é a garantia de que NENHUM
+// round — falho, multi-card ou de triagem — fica fora do token_log/metrics.
+// Best-effort: falha aqui é logada, nunca derruba o loop.
+async function reportRoundUsage(kind: 'dev' | 'triage', sprintId: string, u: Usage, turns: number, model: string): Promise<void> {
+  if (u.input === 0 && u.output === 0 && u.cacheRead === 0 && u.cacheCreation === 0 && u.usd === 0) return
+  const { status, body } = await callTool('kanban_log_workflow_usage', {
+    sprint_id: sprintId,
+    kind,
+    input_tokens: u.input,
+    output_tokens: u.output,
+    cache_read_tokens: u.cacheRead,
+    cache_creation_tokens: u.cacheCreation,
+    cost_usd: u.usd,
+    turns,
+    model,
+    request_id: randomUUID(),
+  }, PM_TOKEN)
+  if (status !== 200) {
+    log(`  ⚠ usage do round não registrado (${status}): ${JSON.stringify(body).slice(0, 120)}`)
+  }
 }
 
 // ── Rate-limit helpers ───────────────────────────────────────────────────────
@@ -214,8 +247,12 @@ interface DevRun {
   isError: boolean
   result: string
   sessionId?: string
+  /** Modelo dominante do round (de modelUsage) — vai para o token_log. */
+  model: string
   usage: Usage
   numTurns: number
+  /** Cauda do stderr do harness — é onde falha de MCP/config aparece. */
+  stderrTail: string
 }
 
 // Thin marching order — the kanban-dev-agent skill (auto-loaded by the harness)
@@ -232,6 +269,8 @@ ${scope}
 
 For each card: kanban_claim_card, then kanban_move_card to "in_progress". Do the work. Run the relevant tests or build before completing — if none exist, say so in the log. kanban_log_on_card with a concrete summary (files changed, commands run, results). Then kanban_move_card to "done". If blocked or proposing: kanban_log_on_card with what you tried, what failed, and your recommendation, then kanban_move_card to "review".
 
+If what you discover mid-execution is that this card depends on ANOTHER card — including one already in "review" — that is NOT a reason to move to "review" yourself: call kanban_defer_card with blocked_by set to that card's id instead. It merges the dependency, logs why, releases your claim, and returns the card to "todo" automatically; kanban_pick_next will skip it again until the blocker is done. Reserve "review" for cards where YOU need a human decision, not for cascading dependents.
+
 Mutations take the card's current "version" — read it from the pick_next / get_card / move response and pass it back; on a 409 conflict re-read with kanban_get_card and retry. Do not invent token counts; omit them.`
 }
 
@@ -246,9 +285,17 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
       '--output-format', 'json',
       '--name', 'kanban-dev',
     ]
+    // Diagnóstico: expõe no stderr os logs internos do harness (conexão MCP etc.).
+    if (process.env.DEV_CLAUDE_DEBUG === 'true') args.push('--debug')
+    // O harness NÃO herda a ANTHROPIC_API_KEY: com ela setada o claude troca o
+    // login claude.ai por cobrança na API (e desabilita conectores — observado
+    // derrubando os MCP tools do dev). A key fica só para a triagem via SDK.
+    // DEV_USE_API_KEY=true restaura o comportamento antigo.
+    const env: NodeJS.ProcessEnv = { ...process.env, KANBAN_DEV_TOKEN: DEV_TOKEN }
+    if (process.env.DEV_USE_API_KEY !== 'true') delete env.ANTHROPIC_API_KEY
     const child = spawn('claude', args, {
       cwd: TARGET_REPO,
-      env: { ...process.env, KANBAN_DEV_TOKEN: DEV_TOKEN },
+      env,
     })
     let stdout = ''
     let stderr = ''
@@ -261,16 +308,26 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
       try {
         const j = asRecord(JSON.parse(stdout))
         const u = asRecord(j['usage'])
+        // O modelo real vem de modelUsage (chaveado por modelo); pega o de
+        // maior gasto — sem inventar rótulo quando o harness escolheu sozinho.
+        const modelUsage = asRecord(j['modelUsage'])
+        const model = Object.keys(modelUsage).sort((a, b) =>
+          Number(asRecord(modelUsage[b])['outputTokens'] ?? 0) - Number(asRecord(modelUsage[a])['outputTokens'] ?? 0),
+        )[0] ?? 'claude-code-harness'
         resolve({
           isError: Boolean(j['is_error']),
           result: String(j['result'] ?? ''),
           sessionId: typeof j['session_id'] === 'string' ? j['session_id'] : undefined,
+          model,
           usage: {
             input: Number(u['input_tokens'] ?? 0),
             output: Number(u['output_tokens'] ?? 0),
+            cacheRead: Number(u['cache_read_input_tokens'] ?? 0),
+            cacheCreation: Number(u['cache_creation_input_tokens'] ?? 0),
             usd: Number(j['total_cost_usd'] ?? 0),
           },
           numTurns: Number(j['num_turns'] ?? 0),
+          stderrTail: stderr.slice(-2000),
         })
       } catch {
         resolve(failedRun(`unparseable harness output: ${(stderr || stdout).slice(-500)}`))
@@ -280,7 +337,7 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
 }
 
 function failedRun(msg: string): DevRun {
-  return { isError: true, result: msg, usage: { input: 0, output: 0, usd: 0 }, numTurns: 0 }
+  return { isError: true, result: msg, model: 'claude-code-harness', usage: { ...ZERO_USAGE }, numTurns: 0, stderrTail: '' }
 }
 
 // Dispatch one dev round. Returns the cards that transitioned to done/review
@@ -304,9 +361,15 @@ async function runDev(sprintId: string): Promise<{ run: DevRun; moved: string[] 
 
     sprintTotals.devRuns += 1
     accumulate(run.usage)
+    // Registro incondicional: round com erro também gastou — vai igual.
+    await reportRoundUsage('dev', sprintId, run.usage, run.numTurns, run.model)
 
     if (run.isError) log(`  ⚠ dev run reported an error: ${run.result.slice(0, 200)}`)
-    log(`◀ DEV done — in=${run.usage.input} out=${run.usage.output} $${run.usage.usd.toFixed(4)} (${run.numTurns} turns)`)
+    log(`◀ DEV done — in=${run.usage.input} out=${run.usage.output} cache=${run.usage.cacheRead}r/${run.usage.cacheCreation}w $${run.usage.usd.toFixed(4)} (${run.numTurns} turns)`)
+    // O texto final do dev é a única visão do que ele fez quando o board não
+    // muda — sem isto, um run que gasta e não move card é indiagnosticável.
+    log(`  dev result: ${run.result.slice(0, 400).replace(/\n/g, ' ')}`)
+    if (run.stderrTail.trim()) log(`  dev stderr: ${run.stderrTail.slice(-1500).replace(/\n/g, ' | ')}`)
 
     const after = before ? await settledSet(sprintId) : new Set<string>()
     const moved = before ? [...after].filter((id) => !before.has(id)) : []
@@ -336,12 +399,26 @@ async function deterministicTriage(
       await callTool('kanban_log_on_card',
         { id, version: Number(card['version']), log_entry: 'Blockers cleared — returned to todo by the workflow.', request_id: randomUUID() },
         PM_TOKEN)
+      // Card escalado segue claimed pelo dev, e o PM não move card de outro
+      // ator (403 not_assigned) — solta o claim antes de devolver a todo.
+      const claimed = asRecord((await callTool('kanban_get_card', { id }, PM_TOKEN)).body)
+      if (claimed['assigned_to'] != null) {
+        await callTool('kanban_update_card',
+          { id, version: Number(claimed['version']), assigned_to: null, request_id: randomUUID() },
+          PM_TOKEN)
+      }
       const after = asRecord((await callTool('kanban_get_card', { id }, PM_TOKEN)).body)
-      await callTool('kanban_move_card',
+      const moved = await callTool('kanban_move_card',
         { id, version: Number(after['version']), to_status: 'todo', request_id: randomUUID() },
         PM_TOKEN)
       autoReturned.set(id, (autoReturned.get(id) ?? 0) + 1)
-      log(`  ✓ triage(code): ${id} → todo (blockers cleared)`)
+      if (moved.status === 200) {
+        log(`  ✓ triage(code): ${id} → todo (blockers cleared)`)
+      } else {
+        // Fingir sucesso aqui esconderia o card num limbo — escala para o LLM.
+        log(`  ⚠ triage(code): move de ${id} falhou (${moved.status}: ${JSON.stringify(moved.body).slice(0, 120)}) — escalando`)
+        remaining.push(id)
+      }
     } else {
       remaining.push(id)
     }
@@ -356,8 +433,13 @@ const TRIAGE_SYSTEM = `You are the PM triaging the kanban "review" column. For e
 
 Always kanban_log_on_card a one-line rationale. Mutations take the card's current "version"; on a 409 conflict re-read and retry. Triage every card you were given, then end your turn.`
 
-async function triageReviewLLM(cardIds: string[], sprintId: string): Promise<void> {
-  if (cardIds.length === 0) return
+/**
+ * Retorna false quando a triagem LLM está indisponível (sem créditos, chave
+ * inválida…): os cards ficam em review para um humano e o loop segue sem ela.
+ * Só rate limit é retentado; qualquer outro erro desliga a triagem da run.
+ */
+async function triageReviewLLM(cardIds: string[], sprintId: string): Promise<boolean> {
+  if (cardIds.length === 0) return true
 
   for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
     log(`▶ TRIAGE(llm): ${cardIds.length} ambiguous card(s)${attempt > 0 ? ` (retry ${attempt})` : ''}`)
@@ -374,16 +456,25 @@ async function triageReviewLLM(cardIds: string[], sprintId: string): Promise<voi
         messages: [{ role: 'user', content: `Active sprint_id: ${sprintId}\nTriage these review cards: ${cardIds.join(', ')}` }],
       })
 
-      const used: Usage = { input: 0, output: 0, usd: 0 }
+      const used: Usage = { ...ZERO_USAGE }
+      let turns = 0
       for await (const msg of runner) {
+        turns += 1
         used.input += msg.usage.input_tokens
         used.output += msg.usage.output_tokens
+        used.cacheRead += msg.usage.cache_read_input_tokens ?? 0
+        used.cacheCreation += msg.usage.cache_creation_input_tokens ?? 0
       }
-      used.usd = used.input * PRICE.input + used.output * PRICE.output
+      used.usd =
+        used.input * PRICE.input +
+        used.output * PRICE.output +
+        used.cacheRead * PRICE.cacheRead +
+        used.cacheCreation * PRICE.cacheWrite
       sprintTotals.triageRuns += 1
       accumulate(used)
-      log(`◀ TRIAGE(llm) done — in=${used.input} out=${used.output} $${used.usd.toFixed(4)}`)
-      return
+      await reportRoundUsage('triage', sprintId, used, turns, MODEL)
+      log(`◀ TRIAGE(llm) done — in=${used.input} out=${used.output} cache=${used.cacheRead}r/${used.cacheCreation}w $${used.usd.toFixed(4)}`)
+      return true
     } catch (err) {
       if (err instanceof RateLimitError && attempt < RATE_LIMIT_MAX_RETRIES) {
         // Use the API's own retry-after when present; fall back to our default.
@@ -392,11 +483,13 @@ async function triageReviewLLM(cardIds: string[], sprintId: string): Promise<voi
         await sleep(waitMs)
         continue
       }
-      throw err
+      log(`⚠ TRIAGE(llm) indisponível — cards ficam em review para triagem humana: ${(err as Error).message.slice(0, 200)}`)
+      return false
     }
   }
 
-  throw new Error(`TRIAGE: rate limit persisted after ${RATE_LIMIT_MAX_RETRIES} retries — give up.`)
+  log(`⚠ TRIAGE(llm): rate limit persistiu após ${RATE_LIMIT_MAX_RETRIES} tentativas — cards ficam em review.`)
+  return false
 }
 
 // ── Board reads (orchestrator, pm token) ─────────────────────────────────────
@@ -447,10 +540,13 @@ async function annotateCardCost(cardId: string, run: DevRun): Promise<void> {
   await callTool('kanban_log_on_card', {
     id: cardId,
     version: Number(card['version']),
-    log_entry: `💰 Workflow-measured cost — input=${run.usage.input} output=${run.usage.output} tokens, $${run.usage.usd.toFixed(4)} over ${run.numTurns} turns (model ${MODEL}).`,
+    log_entry: `💰 Workflow-measured cost — input=${run.usage.input} output=${run.usage.output} cache=${run.usage.cacheRead}r/${run.usage.cacheCreation}w tokens, $${run.usage.usd.toFixed(4)} over ${run.numTurns} turns (model ${run.model}).`,
     input_tokens: run.usage.input,
     output_tokens: run.usage.output,
-    model: MODEL,
+    cache_read_tokens: run.usage.cacheRead,
+    cache_creation_tokens: run.usage.cacheCreation,
+    cost_usd: run.usage.usd,
+    model: run.model,
     request_id: randomUUID(),
   }, PM_TOKEN)
 }
@@ -460,7 +556,7 @@ async function printSprintSummary(sprintId: string): Promise<void> {
   const agg = asRecord(asRecord(body)['aggregates'])
   log('\n══ sprint summary ══')
   log(`board: total=${agg['cards_total']} done=${agg['cards_done']} in_progress=${agg['cards_in_progress']} todo=${agg['cards_todo']} other=${agg['cards_other']}`)
-  log(`workflow-measured cost: in=${sprintTotals.input} out=${sprintTotals.output} tokens, $${sprintTotals.usd.toFixed(4)} (dev runs=${sprintTotals.devRuns}, triage runs=${sprintTotals.triageRuns})`)
+  log(`workflow-measured cost: in=${sprintTotals.input} out=${sprintTotals.output} cache=${sprintTotals.cacheRead}r/${sprintTotals.cacheCreation}w tokens, $${sprintTotals.usd.toFixed(4)} (dev runs=${sprintTotals.devRuns}, triage runs=${sprintTotals.triageRuns})`)
 }
 
 // ── Orchestration loop (deterministic) ───────────────────────────────────────
@@ -481,8 +577,14 @@ async function main(): Promise<void> {
     process.exit(1)
   }
   log(`sprint ${sprintId} active — target repo: ${TARGET_REPO} — drain limit: ${DEV_DRAIN_LIMIT}`)
+  log(`dev config: mcp=${DEV_MCP_CONFIG} settings=${DEV_SETTINGS}`)
 
   let round = 0
+  // Falha idêntica repetida (settings ausente, CLI fora do PATH…) não se
+  // resolve com mais rodadas — aborta cedo em vez de queimar MAX_ROUNDS spawns.
+  let consecutiveDevFailures = 0
+  // Triagem LLM que falhou (créditos, chave) fica desligada pelo resto da run.
+  let llmTriageDown = false
   while (round++ < MAX_ROUNDS) {
     log(`\n=== round ${round} ===`)
 
@@ -490,13 +592,26 @@ async function main(): Promise<void> {
     const review = await reviewCards()
     if (review.length > 0) {
       const ambiguous = await deterministicTriage(review, await statusMap(sprintId))
-      await triageReviewLLM(ambiguous, sprintId)
-      continue
+      const resolvedByCode = review.length - ambiguous.length
+      if (ambiguous.length > 0 && !llmTriageDown) {
+        llmTriageDown = !(await triageReviewLLM(ambiguous, sprintId))
+        continue
+      }
+      if (resolvedByCode > 0) continue
+      // Review preso e sem triagem LLM: segue para o dev se houver card pronto;
+      // o `continue` aqui seria um loop infinito de triagem impotente.
     }
 
     // 2. Dispatch a dev if there is a ready card.
     if (await hasReadyCard()) {
       const { run, moved } = await runDev(sprintId)
+      if (run.isError) {
+        if (++consecutiveDevFailures >= 3) {
+          throw new Error(`DEV failed ${consecutiveDevFailures} rounds in a row — aborting. Last error: ${run.result.slice(0, 300)}`)
+        }
+      } else {
+        consecutiveDevFailures = 0
+      }
       // Per-card cost only when the run maps 1:1 to a card (N === 1).
       if (DEV_DRAIN_LIMIT === 1) {
         if (moved.length === 1) {
@@ -509,8 +624,13 @@ async function main(): Promise<void> {
       continue
     }
 
-    // 3. review empty AND no ready card → sprint drained.
-    log('sprint drained: review empty and no ready cards in todo.')
+    // 3. No ready card left. Sem triagem LLM, review pode ter sobras — avisa.
+    const leftover = await reviewCards()
+    if (leftover.length > 0) {
+      log(`sprint drained COM PENDÊNCIAS: ${leftover.length} card(s) em review aguardando triagem humana.`)
+    } else {
+      log('sprint drained: review empty and no ready cards in todo.')
+    }
     break
   }
 

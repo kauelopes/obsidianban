@@ -68,6 +68,28 @@ export function optInt(p: Record<string, unknown>, key: string, def: number): nu
   return v
 }
 
+/**
+ * Campos opcionais de usage medido, aceitos por toda tool que já reporta
+ * tokens. Cache fica FORA de input/output no usage do harness, e cost_usd é a
+ * medição autoritativa — persistir os três é o que impede o /metrics de
+ * subestimar custo re-derivando de tokens incompletos.
+ */
+export function optUsageExtras(p: Record<string, unknown>): {
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  cost_usd: number
+} {
+  const usd = p['cost_usd']
+  if (usd != null && (typeof usd !== 'number' || !Number.isFinite(usd) || usd < 0)) {
+    throw badRequest('invalid_field', { field: 'cost_usd', expected: 'number >= 0' })
+  }
+  return {
+    cache_read_tokens: optInt(p, 'cache_read_tokens', 0),
+    cache_creation_tokens: optInt(p, 'cache_creation_tokens', 0),
+    cost_usd: (usd as number | undefined) ?? 0,
+  }
+}
+
 export function requireInt(
   p: Record<string, unknown>,
   key: string,
@@ -139,6 +161,14 @@ export function generateCardId(): string {
 
 export function generateSprintId(): string {
   return generateId('sprint')
+}
+
+export function generateGoalId(): string {
+  return generateId('goal')
+}
+
+export function generateEpicId(): string {
+  return generateId('epic')
 }
 
 function generateId(prefix: string): string {

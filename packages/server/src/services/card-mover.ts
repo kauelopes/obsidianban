@@ -10,6 +10,7 @@ import { badRequest, conflict, notFound } from './errors.js'
 import { POSITION_GAP } from '../util/constants.js'
 import {
   optInt,
+  optUsageExtras,
   optString,
   rejectDisallowed,
   requireInt,
@@ -25,10 +26,12 @@ import {
 } from './card-shared.js'
 
 const MOVE_ALLOWED = [
-  'id', 'version', 'to_status', 'input_tokens', 'output_tokens', 'model', 'request_id',
+  'id', 'version', 'to_status', 'input_tokens', 'output_tokens',
+  'cache_read_tokens', 'cache_creation_tokens', 'cost_usd', 'model', 'request_id',
 ] as const
 const REORDER_ALLOWED = [
-  'id', 'version', 'after_card_id', 'input_tokens', 'output_tokens', 'model', 'request_id',
+  'id', 'version', 'after_card_id', 'input_tokens', 'output_tokens',
+  'cache_read_tokens', 'cache_creation_tokens', 'cost_usd', 'model', 'request_id',
 ] as const
 
 export class CardMover {
@@ -109,15 +112,16 @@ export class CardMover {
     }
 
     await this.writer.write(merged, body, row.file_basename)
+    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now, op: 'MOVE', card_id: id, card_type: current.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
-      project: row.project,
+      project: row.project, ...usage,
     })
     await this.audit.log({
       ts: now, op: 'MOVE', project: row.project, card_id: id, version: merged.version,
       actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
-      from_status: fromStatus, to_status: resolvedStatus,
+      from_status: fromStatus, to_status: resolvedStatus, ...usage,
     })
     this.sse.emit({
       type: 'CARD_MOVED',
@@ -227,15 +231,16 @@ export class CardMover {
       affectedCards.push({ id: r.id, new_version: updated.version, new_position: newPos })
     }
 
+    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now, op: 'REORDER', card_id: id, card_type: current.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
-      project: row.project,
+      project: row.project, ...usage,
     })
     await this.audit.log({
       ts: now, op: 'REORDER', project: row.project, card_id: id, version: targetCard.version,
       actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
-      affected_cards: affectedCards.map((a) => a.id),
+      affected_cards: affectedCards.map((a) => a.id), ...usage,
     })
     this.sse.emit({
       type: 'CARD_REORDERED',

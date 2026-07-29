@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { TOOL_CATALOG } from '../../src/server/tool-catalog.js'
 
 const VALID_ACCESS = new Set(['all', 'pm', 'manager'])
-const VALID_CATEGORIES = new Set(['Cards', 'Workflow', 'Projetos', 'Auth', 'Sprints'])
+const VALID_CATEGORIES = new Set(['Cards', 'Workflow', 'Projetos', 'Auth', 'Sprints', 'Planejamento'])
 
 describe('TOOL_CATALOG structural integrity', () => {
   it('has at least one entry', () => {
@@ -37,11 +37,11 @@ describe('TOOL_CATALOG structural integrity', () => {
     expect(wrong).toEqual([])
   })
 
-  it("manager-only tools belong to Projetos or Auth categories", () => {
+  it("manager-only tools belong to Projetos, Auth or Planejamento categories", () => {
     const managerTools = TOOL_CATALOG.filter((t) => t.access === 'manager')
     expect(managerTools.length).toBeGreaterThan(0)
     const wrongCategory = managerTools.filter(
-      (t) => t.category !== 'Projetos' && t.category !== 'Auth',
+      (t) => t.category !== 'Projetos' && t.category !== 'Auth' && t.category !== 'Planejamento',
     )
     expect(wrongCategory).toEqual([])
   })

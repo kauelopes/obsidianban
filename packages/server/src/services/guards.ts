@@ -11,3 +11,8 @@ export function requirePmOrManager(claims: TokenClaims): void {
   if (claims.role === 'agent' && claims.agent_type === 'pm') return
   throw forbidden('pm_agent_or_manager_required')
 }
+
+/** Planejamento de projeto é privilégio humano — só a sessão do navegador. */
+export function requireManager(claims: TokenClaims): void {
+  if (claims.role !== 'manager') throw forbidden('manager_required')
+}

@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { Paths } from '../config.js'
-import type { Sprint } from '@obsidiankan/types'
+import type { Epic, Goal, Sprint } from '@obsidiankan/types'
 import { logger } from '../util/logger.js'
 
 export const DEFAULT_COLUMNS = ['backlog', 'todo', 'in_progress', 'review', 'done'] as const
@@ -17,6 +17,10 @@ export interface ProjectMeta {
   sprints?: Sprint[]
   /** Required for workflow auto-launch — absolute path to the git repo used as cwd when starting sprints. */
   target_repo?: string
+  /** Metas de médio prazo — geridas por kanban_set_goal/kanban_delete_goal. */
+  goals?: Goal[]
+  /** Épicos (agrupamentos de sprints) — geridos por kanban_create_epic/kanban_update_epic. */
+  epics?: Epic[]
 }
 
 export interface TokenRecord {

@@ -22,12 +22,15 @@ const IMMUTABLE_FIELDS: ReadonlyArray<keyof Omit<Card, 'body'>> = [
   'created_by',
 ]
 
-function isCardFile(p: string): boolean {
+export function isCardFile(p: string, kanbanData: string): boolean {
   const base = path.basename(p)
   if (!base.endsWith('.md')) return false
   // Skip the project metadata file (which is .json today, but guard anyway).
   if (base === '_meta.md' || base.startsWith('_')) return false
-  return true
+  // Only files DIRECTLY under kanban-data/<project>/ are cards. Subfolders
+  // (kad/ and any future ones) hold project documents, not cards — processing
+  // them would log PARSE_ERROR noise on every human edit.
+  return path.dirname(path.dirname(path.resolve(p))) === path.resolve(kanbanData)
 }
 
 export class FileWatcher {
@@ -52,10 +55,10 @@ export class FileWatcher {
     this.watcher = w
     w.on('error', (err) => logger.error({ err }, 'watcher: filesystem error'))
     w.on('add', (p) => {
-      if (isCardFile(p)) this.schedule(p)
+      if (isCardFile(p, this.paths.kanbanData)) this.schedule(p)
     })
     w.on('change', (p) => {
-      if (isCardFile(p)) this.schedule(p)
+      if (isCardFile(p, this.paths.kanbanData)) this.schedule(p)
     })
     await new Promise<void>((resolve) => w.once('ready', () => resolve()))
   }

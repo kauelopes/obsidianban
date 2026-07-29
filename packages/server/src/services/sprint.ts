@@ -14,7 +14,7 @@ import {
   type ProjectMeta,
 } from '../vault/layout.js'
 import { parseCardFile } from '../cards/serialize.js'
-import { generateSprintId, requireString, optString } from './validation.js'
+import { generateSprintId, requireString, optString, optInt, optUsageExtras } from './validation.js'
 import { badRequest, HttpError, notFound } from './errors.js'
 import { requirePmOrManager } from './guards.js'
 
@@ -537,6 +537,60 @@ export class SprintService {
    * project. Returns the sprint, its parent meta, and the project name so
    * the caller can save the meta after mutation.
    */
+  /**
+   * Registro estruturado de usage por round do workflow (dev ou triagem),
+   * independente de atribuição a card. É a camada "nenhum token se perde":
+   * rounds que falham, drenam N cards ou só triam ficam contabilizados no
+   * token_log (op WORKFLOW_*) com cache e custo medido, e o /metrics agrega.
+   */
+  async logWorkflowUsage(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<{ sprint_id: string; project: string; op: 'WORKFLOW_DEV' | 'WORKFLOW_TRIAGE' }> {
+    requirePmOrManager(claims)
+    const sprintId = requireString(params, 'sprint_id')
+    const kind = requireString(params, 'kind')
+    if (kind !== 'dev' && kind !== 'triage') {
+      throw badRequest('invalid_field', { field: 'kind', expected: "'dev' | 'triage'" })
+    }
+    const located = await this.findSprint(sprintId, claims)
+
+    const inputTokens = optInt(params, 'input_tokens', 0)
+    const outputTokens = optInt(params, 'output_tokens', 0)
+    const turns = optInt(params, 'turns', 0)
+    const model = optString(params, 'model') ?? 'unknown'
+    const usage = optUsageExtras(params)
+    const op = kind === 'dev' ? ('WORKFLOW_DEV' as const) : ('WORKFLOW_TRIAGE' as const)
+    const ts = new Date().toISOString()
+
+    this.repo.logTokens({
+      ts,
+      op,
+      card_id: '',
+      card_type: 'workflow_round',
+      actor: claims.actor,
+      model,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      project: located.project,
+      sprint_id: sprintId,
+      ...usage,
+    })
+    await this.audit.log({
+      ts,
+      op,
+      project: located.project,
+      actor: claims.actor,
+      sprint_id: sprintId,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      model,
+      turns,
+      ...usage,
+    })
+    return { sprint_id: sprintId, project: located.project, op }
+  }
+
   private async findSprint(
     sprintId: string,
     claims: TokenClaims,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CardSummary, EscalationItem, Sprint } from '@obsidiankan/types'
+import type { CardSummary, EscalationItem, Goal, Sprint } from '@obsidiankan/types'
 import { KanbanClient } from '../api/client.js'
 import { type ConnectionState, subscribe } from '../api/events.js'
 import { errorText } from '../api/result.js'
@@ -10,6 +10,7 @@ export interface ProjectInfo {
   columns: string[]
   archived: boolean
   sprints: Sprint[]
+  goals: Goal[]
 }
 
 /**
@@ -51,6 +52,7 @@ export function useBoard(client: KanbanClient, opts: { project?: string } = {}) 
           columns: p.columns,
           archived: p.archived,
           sprints: s.ok ? s.data.sprints : [],
+          goals: p.goals ?? [],
         }
       }),
     )

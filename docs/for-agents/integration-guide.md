@@ -358,6 +358,17 @@ Both emit `CARD_UPDATED` SSE with `changed_fields: ["assigned_to"]`
 and write `CLAIM` / `RELEASE` audit ops so handoffs are easy to
 filter out of the timeline.
 
+- `kanban_defer_card { id, version, blocked_by, log_entry, ...tokens }`
+  — dev-safe way to defer a card that turns out to depend on
+  **another card**, including one already in `review`. Merges
+  `blocked_by` (same validation as `kanban_update_card`: existence,
+  same-project, no cycles), appends `log_entry` to `# Agent Log`,
+  clears `assigned_to`, and moves the card to `todo` if it was in a
+  started column — atomically, avoiding the version-conflict-prone
+  sequence of `update_card` + `log_on_card` + `release_card` +
+  `move_card`. `kanban_pick_next` skips the card again until every
+  blocker is `done`, archived, or deleted.
+
 **Archived cards.** Cards with `archived: true` are hidden from
 `kanban_list_cards` by default. Pass `include_archived: true` to fold them
 back into the result, or `archived_only: true` to see only archived cards
@@ -405,6 +416,15 @@ The PM agent reads cards in `review`, inspects the Agent Log, and decides:
 - Move to `done` or archive (task no longer needed).
 - Create a new card for the proposed work and return the original to `todo`.
 - Resolve the blocker directly and return the card to `todo`.
+
+**Dev agent dependency (not an escalation).** If the blockage is that the
+card depends on **another card** — even one already in `review` — that does
+not need a human decision and must not go through `review`. Call
+`kanban_defer_card { id, version, blocked_by: [<other card id>], log_entry }`
+instead: it merges the blocker, logs why, releases the claim, and returns
+the card to `todo`, then continue with `kanban_pick_next`. This keeps
+`review` reserved for the root card that actually needs judgment, instead of
+a cascade of dependents.
 
 **Health.** `GET /health` returns `{"status":"ok"}` without auth — use it as
 your reachability probe and to drive an "offline" indicator while the SSE

@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import type { CreateAgentTokenResult, WorkflowReadinessResult } from '@obsidiankan/types'
+import { useEffect, useState } from 'react'
+import type { CreateAgentTokenResult, Epic, Goal, WorkflowReadinessResult } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
-import { errorText } from '../api/result.js'
+import { errorText, type McpResult } from '../api/result.js'
 import { Dialog } from './Dialog.js'
 
 /**
@@ -117,6 +117,12 @@ export function ProjectPanel({
 
       <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: 'var(--s-6) 0' }} />
 
+      <GoalsSection client={client} project={project} onChanged={onChanged} setError={setError} />
+
+      <EpicsSection client={client} project={project} onChanged={onChanged} setError={setError} />
+
+      <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: 'var(--s-6) 0' }} />
+
       <div className="form">
         <label>
           <span>Novo token de agente</span>
@@ -180,6 +186,200 @@ export function ProjectPanel({
         </label>
       </div>
     </Dialog>
+  )
+}
+
+/**
+ * Metas de médio prazo do projeto. A home só EXIBE; criar, concluir, replanejar
+ * prazo e remover acontecem aqui. O estado local é a resposta das tools — o
+ * resto da UI atualiza pelo SSE de PROJECT_GOALS_UPDATED via onChanged.
+ */
+function GoalsSection({
+  client,
+  project,
+  onChanged,
+  setError,
+}: {
+  client: KanbanClient
+  project: string
+  onChanged: () => void
+  setError: (e: string | null) => void
+}) {
+  const [goals, setGoals] = useState<Goal[]>([])
+  const [title, setTitle] = useState('')
+  const [date, setDate] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void client.listProjects({ include_archived: true }).then((res) => {
+      if (res.ok) {
+        setGoals(res.data.projects.find((p) => p.project === project)?.goals ?? [])
+      }
+    })
+  }, [client, project])
+
+  async function mutate<T>(fn: () => Promise<McpResult<T>>): Promise<boolean> {
+    setBusy(true)
+    setError(null)
+    const res = await fn()
+    setBusy(false)
+    if (!res.ok) {
+      setError(errorText(res.error))
+      return false
+    }
+    onChanged()
+    return true
+  }
+
+  async function addGoal() {
+    const ok = await mutate(() =>
+      client.setGoal({ project, title: title.trim(), target_date: date || null }),
+    )
+    if (ok) {
+      setTitle('')
+      setDate('')
+      await reload()
+    }
+  }
+
+  async function patch(id: string, changes: { status?: Goal['status']; target_date?: string | null }) {
+    if (await mutate(() => client.setGoal({ project, id, ...changes }))) await reload()
+  }
+
+  async function remove(id: string) {
+    if (await mutate(() => client.deleteGoal({ project, id }))) await reload()
+  }
+
+  async function reload() {
+    const res = await client.listProjects({ include_archived: true })
+    if (res.ok) setGoals(res.data.projects.find((p) => p.project === project)?.goals ?? [])
+  }
+
+  return (
+    <div className="form">
+      <p className="label">Metas do projeto</p>
+      {goals.length === 0 && <p className="field-help">Nenhuma meta ainda.</p>}
+      {goals.map((g) => (
+        <div className="form-row goal-row" key={g.id}>
+          <span className={`goal-title${g.status !== 'open' ? ' muted' : ''}`}>
+            {g.status === 'done' ? '✓ ' : g.status === 'dropped' ? '× ' : ''}
+            {g.title}
+          </span>
+          <input
+            type="date"
+            aria-label={`Prazo de ${g.title}`}
+            value={g.target_date ?? ''}
+            disabled={busy || g.status !== 'open'}
+            onChange={(e) => void patch(g.id, { target_date: e.target.value || null })}
+          />
+          {g.status === 'open' ? (
+            <button disabled={busy} onClick={() => void patch(g.id, { status: 'done' })}>
+              Concluir
+            </button>
+          ) : (
+            <button disabled={busy} onClick={() => void patch(g.id, { status: 'open' })}>
+              Reabrir
+            </button>
+          )}
+          <button className="danger" disabled={busy} onClick={() => void remove(g.id)}>
+            Remover
+          </button>
+        </div>
+      ))}
+      <label>
+        <span>Nova meta</span>
+        <div className="form-row">
+          <input
+            value={title}
+            placeholder="ex. Lançar a v1 pública"
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <input
+            type="date"
+            aria-label="Prazo da nova meta"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+          <button className="primary" disabled={busy || !title.trim()} onClick={() => void addGoal()}>
+            Adicionar meta
+          </button>
+        </div>
+        <span className="field-help">
+          Metas vivem no _meta.json do projeto — dá para editá-las também pelo Obsidian, e os
+          agentes as enxergam via kanban_list_projects.
+        </span>
+      </label>
+    </div>
+  )
+}
+
+/**
+ * Épicos do projeto — criados normalmente pelo wizard de planejamento; aqui a
+ * v1 só lista e muda status (open/done/dropped). O vínculo com sprints aparece
+ * como contagem; o progresso fino fica para o board.
+ */
+function EpicsSection({
+  client,
+  project,
+  onChanged,
+  setError,
+}: {
+  client: KanbanClient
+  project: string
+  onChanged: () => void
+  setError: (e: string | null) => void
+}) {
+  const [epics, setEpics] = useState<Epic[]>([])
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    void client.listEpics(project).then((res) => {
+      if (res.ok) setEpics(res.data.epics)
+    })
+  }, [client, project])
+
+  if (epics.length === 0) return null
+
+  async function setStatus(id: string, status: Epic['status']) {
+    setBusy(true)
+    setError(null)
+    const res = await client.updateEpic({ project, id, status })
+    setBusy(false)
+    if (!res.ok) {
+      setError(errorText(res.error))
+      return
+    }
+    setEpics((prev) => prev.map((e) => (e.id === id ? res.data.epic : e)))
+    onChanged()
+  }
+
+  return (
+    <>
+      <hr style={{ border: 'none', borderTop: '1px solid var(--rule)', margin: 'var(--s-6) 0' }} />
+      <div className="form">
+        <p className="label">Épicos</p>
+        {epics.map((e) => (
+          <div key={e.id} className="form-row" style={{ alignItems: 'baseline' }}>
+            <span>
+              <strong>{e.name}</strong>
+              {e.objective && <span className="field-help"> — {e.objective}</span>}
+              <span className="field-help mono"> · {e.sprint_ids.length} sprint(s)</span>
+            </span>
+            <div className="spacer" />
+            <select
+              aria-label={`status do épico ${e.name}`}
+              value={e.status}
+              disabled={busy}
+              onChange={(ev) => void setStatus(e.id, ev.target.value as Epic['status'])}
+            >
+              <option value="open">aberto</option>
+              <option value="done">concluído</option>
+              <option value="dropped">abandonado</option>
+            </select>
+          </div>
+        ))}
+      </div>
+    </>
   )
 }
 

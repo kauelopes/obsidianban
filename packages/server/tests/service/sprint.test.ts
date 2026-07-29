@@ -12,6 +12,7 @@ import type { AuditLogger } from '../../src/audit/logger.js'
 import { HttpError } from '../../src/services/errors.js'
 
 let paths: Paths
+let db: ReturnType<typeof createTestDb>
 let repo: CardRepository
 let writer: AtomicWriter
 let sprintService: SprintService
@@ -30,7 +31,7 @@ const BASE_CARD = {
 
 beforeEach(async () => {
   paths = await createTempVault()
-  const db = createTestDb()
+  db = createTestDb()
   repo = createTestRepo(db)
   writer = new AtomicWriter(paths, repo)
   sprintService = new SprintService(paths, repo, writer, audit, sse)
@@ -334,5 +335,62 @@ describe('SprintService — PM agent restrictions', () => {
     await expect(
       sprintService.createSprint({ name: 'S1' }, devClaims),
     ).rejects.toMatchObject({ status: 403 })
+  })
+})
+
+describe('SprintService.logWorkflowUsage', () => {
+  it('grava o round no token_log com cache, custo medido e sprint_id', async () => {
+    const sprint = await setupActiveSprint()
+    const res = await sprintService.logWorkflowUsage(
+      {
+        sprint_id: sprint.id,
+        kind: 'dev',
+        input_tokens: 20,
+        output_tokens: 3000,
+        cache_read_tokens: 250_000,
+        cache_creation_tokens: 40_000,
+        cost_usd: 1.7343,
+        turns: 18,
+        model: 'claude-opus-4-8',
+      },
+      PM,
+    )
+    expect(res).toEqual({ sprint_id: sprint.id, project: 'test-project', op: 'WORKFLOW_DEV' })
+
+    const row = db
+      .prepare(`SELECT * FROM token_log WHERE op = 'WORKFLOW_DEV'`)
+      .get() as Record<string, unknown>
+    expect(row).toMatchObject({
+      card_id: '',
+      card_type: 'workflow_round',
+      project: 'test-project',
+      sprint_id: sprint.id,
+      input_tokens: 20,
+      output_tokens: 3000,
+      cache_read_tokens: 250_000,
+      cache_creation_tokens: 40_000,
+      model: 'claude-opus-4-8',
+    })
+    expect(row['cost_usd']).toBeCloseTo(1.7343, 6)
+  })
+
+  it("kind 'triage' vira op WORKFLOW_TRIAGE", async () => {
+    const sprint = await setupActiveSprint()
+    await sprintService.logWorkflowUsage(
+      { sprint_id: sprint.id, kind: 'triage', input_tokens: 5, output_tokens: 9, cost_usd: 0.01 },
+      MGR,
+    )
+    const row = db.prepare(`SELECT op FROM token_log WHERE card_type = 'workflow_round'`).get() as { op: string }
+    expect(row.op).toBe('WORKFLOW_TRIAGE')
+  })
+
+  it('recusa kind desconhecido e dev agents', async () => {
+    const sprint = await setupActiveSprint()
+    await expect(
+      sprintService.logWorkflowUsage({ sprint_id: sprint.id, kind: 'qa' }, PM),
+    ).rejects.toMatchObject({ status: 400 })
+    await expect(
+      sprintService.logWorkflowUsage({ sprint_id: sprint.id, kind: 'dev' }, makeDevClaims()),
+    ).rejects.toBeInstanceOf(HttpError)
   })
 })

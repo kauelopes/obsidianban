@@ -31,8 +31,32 @@ function applySchema(db: Database.Database): void {
     migrateAddArchived(db)
     migrateAddSprintAndDeps(db)
     migrateStatusHyphensToUnderscores(db)
+    migrateTokenLogUsageColumns(db)
   })
   tx()
+}
+
+/**
+ * Add cache/usd/sprint columns to token_log (idempotent). input/output do
+ * harness EXCLUEM tokens de cache — sem estas colunas o custo real fica
+ * irrecuperável e o /metrics subestima; cost_usd guarda a medição autoritativa
+ * (total_cost_usd do harness) em vez de re-derivar de tokens incompletos.
+ */
+function migrateTokenLogUsageColumns(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(token_log)`).all() as Array<{ name: string }>
+  const names = new Set(cols.map((c) => c.name))
+  if (!names.has('cache_read_tokens')) {
+    db.exec(`ALTER TABLE token_log ADD COLUMN cache_read_tokens INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!names.has('cache_creation_tokens')) {
+    db.exec(`ALTER TABLE token_log ADD COLUMN cache_creation_tokens INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!names.has('cost_usd')) {
+    db.exec(`ALTER TABLE token_log ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0`)
+  }
+  if (!names.has('sprint_id')) {
+    db.exec(`ALTER TABLE token_log ADD COLUMN sprint_id TEXT`)
+  }
 }
 
 /**

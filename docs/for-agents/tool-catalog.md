@@ -6,7 +6,7 @@
 
 ---
 
-## Cards (17 tools)
+## Cards (18 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -27,14 +27,19 @@
 | `kanban_list_escalations` | Cards whose most recent explicitly-marked Agent Log entry is an escalation — i.e. work that is waiting on a human decision. Returns the escalation timestamp and the entry text, which is the question being asked. Derived from the card files, so an escalation written by hand in Obsidian shows up too. Answer one with kanban_log_on_card using log_kind: 'pm_resolved', which removes it from this list. |  | ✓ |
 | `kanban_claim_card` | Claim a card for yourself — sets assigned_to to your actor (inferred from the token, not a parameter). Idempotent: calling it on a card you already own returns success without changing version. 409 already_claimed if held by another agent. Does NOT change the card status — call kanban_move_card separately if needed. | ✓ | ✓ |
 | `kanban_release_card` | Release a card you own so another agent can claim it. By default moves the card back to 'todo' (revert_to_status) so pick_next can find it — pass revert_to_status: null to keep the current status unchanged. | ✓ | ✓ |
+| `kanban_defer_card` | Defer this card because it depends on another card — including one already sitting in review — rather than needing human judgment of its own. Merges blocked_by, appends log_entry explaining why, releases your claim (assigned_to → null), and returns the card to 'todo' if it was in a started column. Use this instead of moving to 'review' when what you discovered mid-execution is a dependency, not something that needs a human decision. kanban_pick_next skips the card again until every blocker is done, archived, or deleted. | ✓ | ✓ |
 
-## Workflow (1 tool)
+## Workflow (5 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
 | `kanban_pick_next` | Return the next card ready to work on (no unsatisfied blockers). Only considers cards in 'todo' by default — backlog cards are promoted to todo automatically when the sprint starts. DEV AGENTS: always scoped to the active sprint automatically (sprint_id param is ignored). When card is null, check reason: 'no_active_sprint' = start the sprint first (PM/manager only), 'all_blocked' = all candidates have unmet dependencies, 'empty' = no cards in sprint. The blocked_candidates count tells you how many candidates exist but are gated by unmet dependencies — log this and escalate to a PM agent if it stays > 0. | ✓ | ✓ |
+| `kanban_workflow_start` | Launch the sprint workflow (the agent orchestrator) for an active sprint. Requires the project's target_repo to be set (kanban_set_project_repo) — the pm/dev tokens are read from the repo's .claude/settings.local.json. 409 workflow_already_running if a run for the sprint (or project) is in flight. Progress arrives via SSE (WORKFLOW_STARTED / WORKFLOW_EXITED) and the log via GET /workflow/log. |  | ✓ |
+| `kanban_workflow_stop` | Stop a running sprint workflow — SIGTERM to the whole process group, so any dev harness spawned by it dies too. 409 workflow_not_running when there is nothing to stop. |  | ✓ |
+| `kanban_workflow_status` | Current state of the sprint workflow run for a sprint: running/exited/failed/stopped, pid, timestamps and exit code. run is null when the server never launched (or lost track of, after a restart) a workflow for that sprint. |  | ✓ |
+| `kanban_log_workflow_usage` | Record measured usage for one workflow round (kind 'dev' or 'triage') at sprint level, independent of card attribution: input/output tokens, cache_read/cache_creation tokens (NOT included in input), cost_usd (authoritative, e.g. total_cost_usd from the harness) and turns. This is the no-token-left-behind layer: failed rounds, multi-card drains and triage runs all land in token_log and /metrics even when no card was touched. |  | ✓ |
 
-## Projetos (6 tools)
+## Projetos (11 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -44,6 +49,11 @@
 | `kanban_unarchive_project` | Restore a previously archived project to default listings. |  |  |
 | `kanban_delete_project` | Manager-only — permanently delete a project (requires confirm=<project>) |  |  |
 | `kanban_set_project_repo` | Set or clear the target_repo path for a project — used as the working directory when launching sprint workflows. Without it, starting a sprint skips the workflow and logs a warning. Pass null to clear. |  |  |
+| `kanban_set_goal` | Create or update a medium-term project goal (upsert: omit id to create). Goals live in the project _meta.json and appear in kanban_list_projects. Fields: title (max 120), target_date (YYYY-MM-DD or null), status open\|done\|dropped, notes (max 1000). PM agents operate on their own project; managers pass project explicitly. |  | ✓ |
+| `kanban_delete_goal` | Remove a project goal by id. Prefer status=dropped via kanban_set_goal when the goal was abandoned but its history matters. |  | ✓ |
+| `kanban_create_epic` | Create an epic — a named grouping of sprints under a common objective. Epics live in the project _meta.json beside sprints and goals. Optionally pass sprint_ids to attach sprints at creation; each sprint may belong to at most one epic (409 sprint_already_in_epic otherwise). PM agents operate on their own project; managers pass project explicitly. |  | ✓ |
+| `kanban_list_epics` | List the epics of a project with their sprint_ids. Progress is derived by the caller from the cards of the attached sprints — there is no stored counter. |  | ✓ |
+| `kanban_update_epic` | Update an epic: name, objective, status (open\|done\|dropped) and/or sprint_ids (full replacement; each sprint may belong to at most one epic). Prefer status=dropped over removal — epics have no delete tool by design, the history matters. |  | ✓ |
 
 ## Auth (1 tool)
 

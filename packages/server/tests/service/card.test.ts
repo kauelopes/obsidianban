@@ -234,6 +234,43 @@ describe('CardService.claim', () => {
       expect((e as HttpError).body).toMatchObject({ error: 'already_claimed' })
     }
   })
+
+  // Supervisão: o claim protege dev contra dev, não contra o PM — sem isto um
+  // dev que escalou (ou morreu) segurando o claim trava a triagem para sempre.
+  it('pm agent can update and move a card claimed by a dev', async () => {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id)
+
+    const dev = makeDevClaims()
+    await cardService.claim({ ...TOKEN, id: card.id, version: card.version }, dev)
+
+    let row = repo.findById(card.id)!
+    const updated = await cardService.update(
+      { ...TOKEN, id: card.id, version: row.version, assigned_to: null },
+      PM,
+    )
+    expect(updated.assigned_to).toBeNull()
+
+    row = repo.findById(card.id)!
+    const moved = await cardService.move(
+      { ...TOKEN, id: card.id, version: row.version, to_status: 'todo' },
+      PM,
+    )
+    expect(moved.status).toBe('todo')
+  })
+
+  it('dev agent still cannot write a card claimed by another dev', async () => {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id)
+
+    await cardService.claim({ ...TOKEN, id: card.id, version: card.version }, makeDevClaims())
+
+    const other = makeDevClaims({ actor: 'agent:other-dev' })
+    const row = repo.findById(card.id)!
+    await expect(
+      cardService.update({ ...TOKEN, id: card.id, version: row.version, agent_notes: 'x' }, other),
+    ).rejects.toMatchObject({ status: 403 })
+  })
 })
 
 describe('CardService.pickNext', () => {
@@ -468,6 +505,230 @@ describe('CardService — blocked advancement', () => {
       MGR,
     )
     expect(moved.status).toBe('in_progress')
+  })
+
+  it('treats a deleted blocker as satisfied', async () => {
+    const sprint = await setupWithActiveSprint()
+    const blocker = await createCard(sprint.id, { title: 'Blocker' })
+    const blocked = await createCard(sprint.id, {
+      title: 'Blocked',
+      status: 'todo',
+      blocked_by: [blocker.id],
+    })
+
+    await cardService.delete({ ...TOKEN, id: blocker.id, version: blocker.version }, MGR)
+
+    const moved = await cardService.move(
+      { ...TOKEN, id: blocked.id, version: blocked.version, to_status: 'in_progress' },
+      MGR,
+    )
+    expect(moved.status).toBe('in_progress')
+  })
+})
+
+describe('CardService.deferCard', () => {
+  it('defers a card owned by a dev agent: merges blocked_by, clears the claim, returns to todo, logs why', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const blocker = await createCard(sprint.id, { title: 'Blocker In Review', status: 'review' })
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    const deferred = await cardService.deferCard(
+      {
+        id: card.id, version: card.version, blocked_by: [blocker.id],
+        log_entry: 'depends on blocker card, which is in review',
+      },
+      dev,
+    )
+
+    expect(deferred.status).toBe('todo')
+    expect(deferred.assigned_to).toBeNull()
+    expect(deferred.blocked_by).toEqual([blocker.id])
+    expect(deferred.body).toContain('depends on blocker card, which is in review')
+  })
+
+  it('merges new blockers with existing blocked_by without duplicating', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const existingBlocker = await createCard(sprint.id, { title: 'Existing Blocker' })
+    const newBlocker = await createCard(sprint.id, { title: 'New Blocker' })
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor, blocked_by: [existingBlocker.id],
+    })
+
+    const deferred = await cardService.deferCard(
+      {
+        id: card.id, version: card.version, blocked_by: [existingBlocker.id, newBlocker.id],
+        log_entry: 'more deps discovered',
+      },
+      dev,
+    )
+
+    expect([...deferred.blocked_by].sort()).toEqual([existingBlocker.id, newBlocker.id].sort())
+  })
+
+  it('leaves status unchanged when the card is already in backlog/todo', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const blocker = await createCard(sprint.id, { title: 'Blocker' })
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'todo', assigned_to: dev.actor,
+    })
+
+    const deferred = await cardService.deferCard(
+      { id: card.id, version: card.version, blocked_by: [blocker.id], log_entry: 'wait' },
+      dev,
+    )
+    expect(deferred.status).toBe('todo')
+  })
+
+  it('returns 409 with current_card on stale version', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const blocker = await createCard(sprint.id, { title: 'Blocker' })
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    await expect(
+      cardService.deferCard(
+        { id: card.id, version: 99, blocked_by: [blocker.id], log_entry: 'x' },
+        dev,
+      ),
+    ).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('rejects deferring a card owned by another agent (403)', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const otherDev = makeDevClaims({ actor: 'agent:dev-other' })
+    const blocker = await createCard(sprint.id, { title: 'Blocker' })
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    await expect(
+      cardService.deferCard(
+        { id: card.id, version: card.version, blocked_by: [blocker.id], log_entry: 'x' },
+        otherDev,
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('rejects an unknown blocker id, same as kanban_update_card', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    await expect(
+      cardService.deferCard(
+        { id: card.id, version: card.version, blocked_by: ['card-doesnotexist'], log_entry: 'x' },
+        dev,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('rejects a cross-project blocker', async () => {
+    const sprint = await setupWithActiveSprint()
+    await setupTestProject(paths, 'other-project')
+    const otherSprint = await sprintService.createSprint({ project: 'other-project', name: 'S2' }, MGR)
+    await sprintService.startSprint({ sprint_id: otherSprint.id }, MGR)
+    const foreignBlocker = await cardService.create(
+      { ...TOKEN, title: 'Foreign', type: 'task', project: 'other-project', sprint_id: otherSprint.id },
+      MGR,
+    )
+    const dev = makeDevClaims()
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    await expect(
+      cardService.deferCard(
+        { id: card.id, version: card.version, blocked_by: [foreignBlocker.id], log_entry: 'x' },
+        dev,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('rejects a blocked_by cycle', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const cardA = await createCard(sprint.id, { title: 'A' })
+    const cardB = await createCard(sprint.id, { title: 'B', blocked_by: [cardA.id], assigned_to: dev.actor })
+
+    await expect(
+      cardService.deferCard(
+        { id: cardA.id, version: cardA.version, blocked_by: [cardB.id], log_entry: 'cycle' },
+        MGR,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('requires a non-empty blocked_by array', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    await expect(
+      cardService.deferCard(
+        { id: card.id, version: card.version, blocked_by: [], log_entry: 'x' },
+        dev,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('requires a non-empty log_entry', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const blocker = await createCard(sprint.id, { title: 'Blocker' })
+    const card = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    await expect(
+      cardService.deferCard(
+        { id: card.id, version: card.version, blocked_by: [blocker.id] },
+        dev,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('CardService.pickNext — deferred dependency', () => {
+  it('ignores a deferred card while its blocker sits in review, and re-surfaces it once the blocker reaches done', async () => {
+    const sprint = await setupWithActiveSprint()
+    const dev = makeDevClaims()
+    const blocker = await createCard(sprint.id, { title: 'Blocker', status: 'review' })
+    const dependent = await createCard(sprint.id, {
+      title: 'Dependent', status: 'in_progress', assigned_to: dev.actor,
+    })
+
+    await cardService.deferCard(
+      {
+        id: dependent.id, version: dependent.version, blocked_by: [blocker.id],
+        log_entry: 'waiting on blocker in review',
+      },
+      dev,
+    )
+
+    const whileBlocked = await cardService.pickNext({ status: 'todo' }, PM)
+    expect(whileBlocked.card).toBeNull()
+    expect(whileBlocked.blocked_candidates).toBe(1)
+
+    const blockerRow = repo.findById(blocker.id)!
+    await cardService.move(
+      { ...TOKEN, id: blocker.id, version: blockerRow.version, to_status: 'done' },
+      MGR,
+    )
+
+    const afterDone = await cardService.pickNext({ status: 'todo' }, PM)
+    expect(afterDone.card?.id).toBe(dependent.id)
   })
 })
 

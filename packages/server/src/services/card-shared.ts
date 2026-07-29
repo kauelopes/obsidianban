@@ -4,6 +4,10 @@ import { HttpError, forbidden, badRequest } from './errors.js'
 
 export function assertWritable(assignedTo: string | null, claims: TokenClaims): void {
   if (claims.role === 'manager') return
+  // PM supervisiona claims: sem isto, um dev que escalou (ou morreu) segurando
+  // o claim deixa o card num limbo que a triagem do PM não consegue desfazer.
+  // O claim protege dev contra dev; não é um cadeado contra o supervisor.
+  if (claims.agent_type === 'pm') return
   if (assignedTo == null) return
   if (assignedTo === claims.actor) return
   throw forbidden('not_assigned', { assigned_to: assignedTo })
@@ -21,10 +25,9 @@ export function unmetBlockers(
   const unmet: Array<{ id: string; status: string | 'missing' }> = []
   for (const blockerId of blockerIds) {
     const row = repo.findById(blockerId)
-    if (!row) {
-      unmet.push({ id: blockerId, status: 'missing' })
-      continue
-    }
+    // A deleted blocker can no longer gate anything — treat it as satisfied,
+    // same as done/archived, rather than blocking forever.
+    if (!row) continue
     if (row.status === 'done') continue
     if (row.archived === 1) continue
     unmet.push({ id: blockerId, status: row.status })

@@ -96,6 +96,7 @@ Both transports expose the **same twenty-seven tools**, but which ones are
 | `kanban_move_card` | ✅ | ✅ | ✅ |
 | `kanban_claim_card` | ✅ | ✅ | ✅ |
 | `kanban_release_card` | ✅ | ✅ | ✅ |
+| `kanban_defer_card` | ✅ | ✅ | ✅ |
 | `kanban_pick_next` | ✅ | ✅ | ✅ |
 | `kanban_list_sprints` | ❌ | ✅ | ✅ |
 | `kanban_get_sprint` | ❌ | ✅ | ✅ |
@@ -145,6 +146,24 @@ Dev agents cannot create cards. When a dev agent is **blocked** or wants to
 
 The PM reads cards in `review` and decides whether to close the task, create
 a follow-up card, or resolve the blocker and return the card to `todo`.
+
+### Dev agent dependency protocol
+
+If what a dev agent discovers mid-execution is that the card depends on
+**another card** — including one already sitting in `review` — that is not
+an escalation and must not go through `review`:
+
+1. `kanban_defer_card { id, version, blocked_by: [<other card id>], log_entry: "why" }`
+   — merges the dependency into `blocked_by`, logs the reason, releases the
+   claim, and returns the card to `todo` if it was in a started column, all
+   in one atomic call.
+2. `kanban_pick_next` — continue with the next available task.
+
+`kanban_pick_next` skips the deferred card again until every blocker in its
+`blocked_by` is `done`, archived, or deleted — a blocker sitting in `review`
+or that went back to `todo` still counts as unmet. This keeps `review`
+reserved for cards that actually need a human decision, instead of a cascade
+of dependents surfacing in the human's escalation inbox.
 
 Pick based on where the agent runs.
 

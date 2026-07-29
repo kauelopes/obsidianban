@@ -7,6 +7,9 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 interface SummaryRow {
   total_input_tokens: number
   total_output_tokens: number
+  total_cache_read_tokens: number
+  total_cache_creation_tokens: number
+  total_cost_usd: number
   total_ops: number
 }
 
@@ -14,6 +17,7 @@ interface ByTypeRow {
   type: string
   input_tokens: number
   output_tokens: number
+  cost_usd: number
   ops: number
 }
 
@@ -21,24 +25,30 @@ interface ByDayRow {
   date: string
   input_tokens: number
   output_tokens: number
+  cost_usd: number
 }
 
 interface ByModelRow {
   model: string
   input_tokens: number
   output_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
+  cost_usd: number
 }
 
 interface ByAgentRow {
   actor: string
   input_tokens: number
   output_tokens: number
+  cost_usd: number
 }
 
 interface ByOpRow {
   op: string
   input_tokens: number
   output_tokens: number
+  cost_usd: number
   count: number
 }
 
@@ -46,6 +56,16 @@ interface ByProjectRow {
   project: string
   input_tokens: number
   output_tokens: number
+  cost_usd: number
+  ops: number
+}
+
+interface ByProjectDayRow {
+  project: string
+  date: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
   ops: number
 }
 
@@ -80,6 +100,9 @@ export class MetricsService {
       .prepare(
         `SELECT COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
                 COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+                COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation_tokens,
+                COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
                 COUNT(*) AS total_ops
          FROM token_log${whereClause}`,
       )
@@ -90,6 +113,7 @@ export class MetricsService {
         `SELECT card_type AS type,
                 SUM(input_tokens) AS input_tokens,
                 SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd,
                 COUNT(*) AS ops
          FROM token_log${whereClause}
          GROUP BY card_type
@@ -101,7 +125,8 @@ export class MetricsService {
       .prepare(
         `SELECT substr(ts, 1, 10) AS date,
                 SUM(input_tokens) AS input_tokens,
-                SUM(output_tokens) AS output_tokens
+                SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd
          FROM token_log${whereClause}
          GROUP BY date
          ORDER BY date ASC`,
@@ -112,7 +137,10 @@ export class MetricsService {
       .prepare(
         `SELECT model,
                 SUM(input_tokens) AS input_tokens,
-                SUM(output_tokens) AS output_tokens
+                SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd,
+                SUM(cache_read_tokens) AS cache_read_tokens,
+                SUM(cache_creation_tokens) AS cache_creation_tokens
          FROM token_log${whereClause}
          GROUP BY model
          ORDER BY model ASC`,
@@ -123,7 +151,8 @@ export class MetricsService {
       .prepare(
         `SELECT actor,
                 SUM(input_tokens) AS input_tokens,
-                SUM(output_tokens) AS output_tokens
+                SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd
          FROM token_log${whereClause}
          GROUP BY actor
          ORDER BY actor ASC`,
@@ -135,6 +164,7 @@ export class MetricsService {
         `SELECT op,
                 SUM(input_tokens) AS input_tokens,
                 SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd,
                 COUNT(*) AS count
          FROM token_log${whereClause}
          GROUP BY op
@@ -147,12 +177,29 @@ export class MetricsService {
         `SELECT project,
                 SUM(input_tokens) AS input_tokens,
                 SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd,
                 COUNT(*) AS ops
          FROM token_log${whereClause}
          GROUP BY project
          ORDER BY project ASC`,
       )
       .all(params) as ByProjectRow[]
+
+    // Datas em UTC, como by_day: aqui é contabilidade; a visão em fuso local
+    // é papel do ActivityService.
+    const byProjectDay = this.db
+      .prepare(
+        `SELECT project,
+                substr(ts, 1, 10) AS date,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd,
+                COUNT(*) AS ops
+         FROM token_log${whereClause}
+         GROUP BY project, date
+         ORDER BY project ASC, date ASC`,
+      )
+      .all(params) as ByProjectDayRow[]
 
     return {
       summary,
@@ -162,6 +209,7 @@ export class MetricsService {
       by_agent: byAgent,
       by_operation: byOperation,
       by_project: byProject,
+      by_project_day: byProjectDay,
     }
   }
 }

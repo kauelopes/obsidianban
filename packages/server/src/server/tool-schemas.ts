@@ -7,8 +7,11 @@
 type Schema = Record<string, unknown>
 
 const TOKEN_FIELDS = {
-  input_tokens:  { type: 'integer', minimum: 0, default: 0, description: 'usage.input_tokens from the API response — omit or pass 0 if unavailable' },
+  input_tokens:  { type: 'integer', minimum: 0, default: 0, description: 'usage.input_tokens from the API response — omit or pass 0 if unavailable. NOTE: excludes cache tokens; report those separately.' },
   output_tokens: { type: 'integer', minimum: 0, default: 0, description: 'usage.output_tokens from the API response — omit or pass 0 if unavailable' },
+  cache_read_tokens:     { type: 'integer', minimum: 0, default: 0, description: 'usage.cache_read_input_tokens from the API response — cache tokens are NOT included in input_tokens' },
+  cache_creation_tokens: { type: 'integer', minimum: 0, default: 0, description: 'usage.cache_creation_input_tokens from the API response' },
+  cost_usd:      { type: 'number', minimum: 0, default: 0, description: 'measured cost in USD (e.g. total_cost_usd from the Claude Code harness) — authoritative over token-derived estimates' },
   model:         { type: 'string', description: "model identifier — e.g. 'claude-sonnet-4-6'" },
   request_id:    { type: 'string', description: 'idempotency key — use a UUID or nanoid generated once per logical operation. Retrying with the same id returns the cached response without side effects. Recommended whenever the network may be unreliable.' },
 } as const
@@ -257,6 +260,19 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     additionalProperties: false,
   },
 
+  kanban_defer_card: {
+    type: 'object',
+    required: ['id', 'version', 'blocked_by', 'log_entry'],
+    properties: {
+      id:         { type: 'string' },
+      version:    { type: 'integer', minimum: 1 },
+      blocked_by: { type: 'array', items: { type: 'string' }, minItems: 1, description: 'card id(s) this card depends on — including a card currently in review. Merged with any existing blocked_by, deduped.' },
+      log_entry:  { type: 'string', maxLength: 4000, description: 'appended to # Agent Log explaining why the card was deferred.' },
+      ...TOKEN_FIELDS,
+    },
+    additionalProperties: false,
+  },
+
   kanban_pick_next: {
     type: 'object',
     properties: {
@@ -264,6 +280,39 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
       sprint_id:   { type: 'string' },
       assigned_to: { type: 'string' },
       status:      { type: 'string', description: "column to pick from — defaults to 'todo'. Cards move from backlog to todo automatically when the sprint is started. When card is null, check the 'reason' field: 'no_active_sprint' = backlog has cards but no sprint is active yet (call kanban_start_sprint), 'no_todo_cards' = sprint is active but something else is blocking promotion, 'all_blocked' = all todo cards have unmet dependencies, 'empty' = sprint has no cards." },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_workflow_start: {
+    type: 'object',
+    required: ['sprint_id'],
+    properties: { sprint_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_workflow_stop: {
+    type: 'object',
+    required: ['sprint_id'],
+    properties: { sprint_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_workflow_status: {
+    type: 'object',
+    required: ['sprint_id'],
+    properties: { sprint_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_log_workflow_usage: {
+    type: 'object',
+    required: ['sprint_id', 'kind'],
+    properties: {
+      sprint_id: { type: 'string' },
+      kind:      { type: 'string', enum: ['dev', 'triage'], description: 'which workflow stage spent the tokens' },
+      turns:     { type: 'integer', minimum: 0, default: 0, description: 'harness turns in this round' },
+      ...TOKEN_FIELDS,
     },
     additionalProperties: false,
   },
@@ -285,6 +334,125 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     properties: {
       project:     { type: 'string' },
       target_repo: { type: ['string', 'null'], description: 'absolute path to the git repo used as cwd for sprint workflow launch, or null to clear. When not set, starting a sprint skips the workflow and logs a warning.' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_set_goal: {
+    type: 'object',
+    required: [],
+    properties: {
+      project:     { type: 'string', description: 'required for managers; pm agents are scoped to their own project' },
+      id:          { type: 'string', description: 'goal id to update; omit to create' },
+      title:       { type: 'string', description: 'max 120 chars; required on create' },
+      target_date: { type: ['string', 'null'], description: 'YYYY-MM-DD, or null to clear' },
+      status:      { type: 'string', enum: ['open', 'done', 'dropped'] },
+      notes:       { type: 'string', description: 'max 1000 chars' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_delete_goal: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      project: { type: 'string', description: 'required for managers; pm agents are scoped to their own project' },
+      id:      { type: 'string' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_planning_start: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
+
+  kanban_planning_get: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_planning_answer: {
+    type: 'object',
+    required: ['session_id', 'step', 'answer'],
+    properties: {
+      session_id: { type: 'string' },
+      step:       { type: 'string', description: 'must equal the session current_step — 409 step_mismatch otherwise' },
+      answer:     { description: 'the human answer; shape depends on the screen: form → {fieldId: value}, choice → {choice}, list → {items}, diagram/confirm → {approved: true}' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_planning_refine: {
+    type: 'object',
+    required: ['session_id', 'feedback'],
+    properties: {
+      session_id: { type: 'string' },
+      feedback:   { type: 'string', maxLength: 4000, description: 'what to correct in the current screen' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_planning_retry: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_planning_finalize: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_planning_cancel: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_planning_list: {
+    type: 'object',
+    properties: {},
+    additionalProperties: false,
+  },
+
+  kanban_create_epic: {
+    type: 'object',
+    required: ['name'],
+    properties: {
+      project:    { type: 'string', description: 'required for managers; pm agents are scoped to their own project' },
+      name:       { type: 'string', maxLength: 120 },
+      objective:  { type: 'string', maxLength: 1000 },
+      sprint_ids: { type: 'array', items: { type: 'string' }, description: 'sprints to attach — each sprint may belong to at most one epic' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_list_epics: {
+    type: 'object',
+    properties: {
+      project: { type: 'string', description: 'required for managers; pm agents are scoped to their own project' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_update_epic: {
+    type: 'object',
+    required: ['id'],
+    properties: {
+      project:    { type: 'string', description: 'required for managers; pm agents are scoped to their own project' },
+      id:         { type: 'string' },
+      name:       { type: 'string', maxLength: 120 },
+      objective:  { type: ['string', 'null'], description: 'max 1000 chars, or null to clear' },
+      status:     { type: 'string', enum: ['open', 'done', 'dropped'] },
+      sprint_ids: { type: 'array', items: { type: 'string' }, description: 'full replacement of the attached sprints' },
     },
     additionalProperties: false,
   },

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { CardSummary, GetSprintResult, Sprint } from '@obsidiankan/types'
+import type { CardSummary, Epic, GetSprintResult, Sprint } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
 import { Dialog } from './Dialog.js'
+import { WorkflowPanel } from './WorkflowPanel.js'
 
 export function SprintPanel({
   client,
@@ -27,6 +28,21 @@ export function SprintPanel({
   const [openId, setOpenId] = useState<string | null>(null)
   const [detail, setDetail] = useState<GetSprintResult | null>(null)
   const [moveTo, setMoveTo] = useState('')
+  // Épico de cada sprint (se houver) — só para o badge ao lado do nome.
+  const [epicOf, setEpicOf] = useState<Record<string, string>>({})
+  // Sprint cujo painel de execução de agentes está aberto (uma por vez).
+  const [wfId, setWfId] = useState<string | null>(null)
+
+  useEffect(() => {
+    void client.listEpics(project).then((res) => {
+      if (!res.ok) return
+      const map: Record<string, string> = {}
+      for (const e of res.data.epics as Epic[]) {
+        for (const sid of e.sprint_ids) map[sid] = e.name
+      }
+      setEpicOf(map)
+    })
+  }, [client, project])
 
   const hasActive = sprints.some((s) => s.status === 'active')
 
@@ -82,6 +98,7 @@ export function SprintPanel({
                 >
                   <strong>{s.name}</strong>
                 </button>
+                {epicOf[s.id] && <span className="pill">{epicOf[s.id]}</span>}
                 {/* goal vem como string vazia, não null, nas sprints reais */}
                 {s.goal ? (
                   <>
@@ -106,6 +123,15 @@ export function SprintPanel({
                     iniciar
                   </button>
                 )}
+                {(s.status === 'active' || s.status === 'closed') && (
+                  <button
+                    className={wfId === s.id ? undefined : 'ghost'}
+                    title="Executar e acompanhar os agentes desta sprint"
+                    onClick={() => setWfId((cur) => (cur === s.id ? null : s.id))}
+                  >
+                    agentes
+                  </button>
+                )}
                 {s.status === 'active' && (
                   <button
                     disabled={busy}
@@ -124,6 +150,14 @@ export function SprintPanel({
           ))}
         </tbody>
       </table>
+
+      {wfId && (
+        <WorkflowPanel
+          client={client}
+          sprintId={wfId}
+          sprintActive={sprints.some((s) => s.id === wfId && s.status === 'active')}
+        />
+      )}
 
       {/*
         Anexar cards a uma sprint também não tinha via de UI. Só aparecem os que

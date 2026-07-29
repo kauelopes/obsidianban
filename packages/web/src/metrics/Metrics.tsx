@@ -73,9 +73,18 @@ export function Metrics({ client }: { client: KanbanClient }) {
     return any && sum > 0 ? sum : null
   })()
 
+  // Custo MEDIDO (cost_usd reportado pelas tools) — quando existe, é o número
+  // autoritativo; a estimativa por tokens vira apenas complemento.
+  // `?? 0` cobre servidor antigo (resposta sem os campos medidos).
+  const measured =
+    data && (data.summary.total_cost_usd ?? 0) > 0 ? data.summary.total_cost_usd : null
+  const cacheTokens = data
+    ? (data.summary.total_cache_read_tokens ?? 0) + (data.summary.total_cache_creation_tokens ?? 0)
+    : 0
+
   return (
     <div className="detail">
-      <div className="detail-inner">
+      <div className="detail-inner wide">
         <div className="detail-head">
           <h1>Atividade</h1>
           <div className="detail-ident">
@@ -128,16 +137,36 @@ export function Metrics({ client }: { client: KanbanClient }) {
                 }
                 muted={data.summary.total_output_tokens === 0}
               />
+              <Tile
+                label="tokens de cache (r+w)"
+                value={cacheTokens > 0 ? cacheTokens.toLocaleString('pt-BR') : 'não reportado'}
+                muted={cacheTokens === 0}
+              />
+              <Tile
+                label="custo medido (US$)"
+                value={measured !== null ? measured.toFixed(4) : 'não reportado'}
+                muted={measured === null}
+              />
             </div>
 
-            {estimated !== null && (
+            {measured !== null ? (
               <p className="note">
-                Custo <strong>estimado</strong> em US$ {estimated.toFixed(4)} — calculado a partir
-                dos tokens por modelo e de uma tabela de preços local, não medido. O número
-                autoritativo é o <code>total_cost_usd</code> que o harness reporta ao sprint
-                workflow. Modelos fora da tabela (<code>human</code>, <code>unknown</code>) não
-                entram na conta.
+                Custo <strong>medido</strong>: soma do <code>cost_usd</code> reportado pelas
+                próprias operações (o <code>total_cost_usd</code> do harness no sprint workflow).
+                {estimated !== null && (
+                  <> A estimativa por tokens ficaria em US$ {estimated.toFixed(4)} — ela ignora
+                  cache e operações sem medição, use-a só como referência.</>
+                )}
               </p>
+            ) : (
+              estimated !== null && (
+                <p className="note">
+                  Custo <strong>estimado</strong> em US$ {estimated.toFixed(4)} — calculado a partir
+                  dos tokens por modelo e de uma tabela de preços local, não medido (nenhuma
+                  operação reportou <code>cost_usd</code> ainda). Modelos fora da tabela
+                  (<code>human</code>, <code>unknown</code>) não entram na conta.
+                </p>
+              )
             )}
 
             <BarChart

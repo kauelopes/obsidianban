@@ -63,6 +63,65 @@ export function BarChart({
   )
 }
 
+/**
+ * Pulso diário de um projeto: uma coluna por dia, ops de cards embaixo e
+ * commits empilhados em cima. Duas tonalidades neutras — cor continua
+ * reservada a estado. Escala normalizada pelo MAIOR DIA DO CONJUNTO recebido
+ * via `max`, para os sparklines da home serem comparáveis entre projetos; o
+ * `<title>` por dia carrega o número exato.
+ */
+export function Sparkline({
+  days,
+  max,
+}: {
+  days: Array<{ date: string; card_ops: number; commits: number }>
+  max?: number
+}) {
+  const peak = Math.max(1, max ?? Math.max(...days.map((d) => d.card_ops + d.commits)))
+  const W = 4
+  const GAP = 2
+  const H = 28
+  const width = days.length * (W + GAP) - GAP
+  return (
+    <svg
+      className="sparkline"
+      width={width}
+      height={H}
+      viewBox={`0 0 ${width} ${H}`}
+      role="img"
+      aria-label={`atividade dos últimos ${days.length} dias`}
+    >
+      {days.map((d, i) => {
+        const total = d.card_ops + d.commits
+        const x = i * (W + GAP)
+        // Dia com qualquer atividade nunca arredonda para invisível.
+        const hOps = d.card_ops > 0 ? Math.max(2, (d.card_ops / peak) * H) : 0
+        const hCommits = d.commits > 0 ? Math.max(2, (d.commits / peak) * H) : 0
+        return (
+          <g key={d.date}>
+            <title>{`${d.date}: ${d.card_ops} ops, ${d.commits} commits`}</title>
+            {total === 0 && (
+              <rect className="spark-idle" x={x} y={H - 1} width={W} height={1} />
+            )}
+            {hOps > 0 && (
+              <rect className="spark-ops" x={x} y={H - hOps} width={W} height={hOps} />
+            )}
+            {hCommits > 0 && (
+              <rect
+                className="spark-commits"
+                x={x}
+                y={H - hOps - hCommits}
+                width={W}
+                height={hCommits}
+              />
+            )}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
 export function TokenTable({
   title,
   head,

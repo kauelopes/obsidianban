@@ -47,6 +47,17 @@ describe('KanbanClient — transport', () => {
     expect(calls[0]!.url).toBe('/health')
     expect(res.ok).toBe(true)
   })
+
+  it('getActivity vai por GET com o tz_offset do navegador, sempre', async () => {
+    respond = () => ({ status: 200, body: { window_days: 14, tz_offset_minutes: 0, projects: [] } })
+    const res = await client().getActivity({ days: 14 })
+    const url = new URL(calls[0]!.url, 'http://localhost')
+    expect(url.pathname).toBe('/activity')
+    expect(url.searchParams.get('days')).toBe('14')
+    expect(url.searchParams.get('tz_offset')).toBe(String(new Date().getTimezoneOffset()))
+    expect(calls[0]!.auth).toBeUndefined()
+    expect(res.ok).toBe(true)
+  })
 })
 
 describe('KanbanClient — sprints come from their own tool', () => {
@@ -150,5 +161,32 @@ describe('KanbanClient — failures never throw', () => {
     expect(res.ok).toBe(false)
     if (res.ok) return
     expect(res.error.kind).toBe('conflict')
+  })
+})
+
+describe('KanbanClient — execução do sprint workflow', () => {
+  it('start/stop/status vão pelas tools kanban_workflow_*', async () => {
+    const c = client()
+    await c.workflowStart('sprint-01')
+    await c.workflowStop('sprint-01')
+    await c.workflowStatus('sprint-01')
+    expect(calls.map((x) => x.url)).toEqual([
+      '/mcp/tool/kanban_workflow_start',
+      '/mcp/tool/kanban_workflow_stop',
+      '/mcp/tool/kanban_workflow_status',
+    ])
+    for (const call of calls) expect(call.body).toEqual({ sprint_id: 'sprint-01' })
+  })
+
+  it('getWorkflowLog vai por GET com sprint_id e offset, sem token', async () => {
+    respond = () => ({ status: 200, body: { sprint_id: 's1', run: null, size: 12, data: 'x' } })
+    const res = await client().getWorkflowLog('s1', 7)
+    const url = new URL(calls[0]!.url, 'http://localhost')
+    expect(url.pathname).toBe('/workflow/log')
+    expect(url.searchParams.get('sprint_id')).toBe('s1')
+    expect(url.searchParams.get('offset')).toBe('7')
+    expect(calls[0]!.auth).toBeUndefined()
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.data.size).toBe(12)
   })
 })

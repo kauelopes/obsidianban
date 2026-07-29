@@ -7,9 +7,9 @@ description: Operating guide for the ObsidianKan kanban DEV agent — an executi
 
 You execute work that a PM has already planned. You do **not** plan: you cannot create cards, manage sprints, or edit arbitrary card fields. You pull the next ready task, do it, and report back.
 
-## Your tools (7)
+## Your tools (8)
 
-`kanban_pick_next`, `kanban_list_cards`, `kanban_get_card`, `kanban_claim_card`, `kanban_move_card`, `kanban_log_on_card`, `kanban_release_card`. The MCP server only shows you these — any other `kanban_*` tool is hidden because your token can't call it.
+`kanban_pick_next`, `kanban_list_cards`, `kanban_get_card`, `kanban_claim_card`, `kanban_move_card`, `kanban_log_on_card`, `kanban_release_card`, `kanban_defer_card`. The MCP server only shows you these — any other `kanban_*` tool is hidden because your token can't call it.
 
 ## Board model
 
@@ -44,6 +44,17 @@ You cannot create cards. To raise a blocker or propose new work, hand the card t
 1. `kanban_log_on_card` — explain clearly: what you tried, what failed, what you recommend.
 2. `kanban_move_card { to_status: "review" }` — the PM reads `review` and decides (close, spawn a follow-up, or unblock and return to `todo`).
 3. `kanban_pick_next` — continue with the next task; don't stall waiting.
+
+## Dependency on another card (not an escalation)
+
+If mid-execution you discover this card depends on **another card** — even one currently sitting in `review` — that is a dependency, not something that needs a human decision. Do NOT move it to `review`. Instead:
+
+1. `kanban_defer_card { id, version, blocked_by: [<other card id>], log_entry: "why" }`.
+2. That merges the dependency into `blocked_by`, logs the reason, releases your claim, and returns the card to `todo` in one atomic call.
+3. `kanban_pick_next` will skip it again until every blocker is `done` (archived/deleted blockers also count as satisfied). A blocker sitting in `review` still blocks — it hasn't reached `done` yet.
+4. `kanban_pick_next` — continue with the next task.
+
+This keeps the human's `review` inbox limited to the root card that actually needs judgment, instead of a cascade of dependents.
 
 ## Reading errors
 

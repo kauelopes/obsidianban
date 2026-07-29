@@ -20,6 +20,8 @@ import { Home } from './home/Home.js'
 import { Inbox } from './inbox/Inbox.js'
 import { Metrics } from './metrics/Metrics.js'
 import { ThemeContext } from './markdown/Markdown.js'
+import { PlanEntry, PlanWizard } from './plan/PlanWizard.js'
+import { usePlanningSummary } from './plan/usePlanningSummary.js'
 import { CreateCard } from './ui/CreateCard.js'
 import { CreateProject } from './ui/CreateProject.js'
 import { ProjectPanel } from './ui/ProjectPanel.js'
@@ -27,16 +29,21 @@ import { SprintPanel } from './ui/SprintPanel.js'
 import { ThemeToggle, useTheme } from './ui/theme.js'
 import { TokenGate, useToken } from './TokenGate.js'
 
-function Shell({
+export function Shell({
   children,
   right,
   onLogout,
+  client,
 }: {
   children: React.ReactNode
   right?: React.ReactNode
   onLogout: () => void
+  client: KanbanClient
 }) {
   const { pref, cycle } = useTheme()
+  // Sessão de planejamento é estado do vault, não de uma página — a pill
+  // acompanha o usuário em qualquer rota para a jornada nunca se perder.
+  const planning = usePlanningSummary(client)
   return (
     <div className="app">
       <div className="topbar">
@@ -58,6 +65,11 @@ function Shell({
           </NavLink>
         </nav>
         <div className="spacer" />
+        {planning && (
+          <NavLink to="/planejar" className="pill planning topbar-plan">
+            ◇ planejando: {planning.project_name ?? 'novo projeto'}
+          </NavLink>
+        )}
         {right}
         <ThemeToggle pref={pref} cycle={cycle} />
         <button className="ghost" onClick={onLogout}>
@@ -71,12 +83,20 @@ function Shell({
 
 function HomePage({ client, onLogout }: { client: KanbanClient; onLogout: () => void }) {
   const board = useBoard(client)
+  const navigate = useNavigate()
   const [creatingProject, setCreatingProject] = useState(false)
+  // Sessão de planejamento em andamento muda o rótulo do botão — a rota
+  // /planejar retoma a sessão ativa por conta própria de qualquer forma.
+  const planning = usePlanningSummary(client)
   return (
     <Shell
+      client={client}
       onLogout={onLogout}
       right={
         <>
+          <button className="primary" onClick={() => navigate('/planejar')}>
+            {planning ? 'continuar planejamento' : 'planejar projeto'}
+          </button>
           <button onClick={() => setCreatingProject(true)}>+ projeto</button>
           <span className={`conn ${board.conn}`}>{board.conn}</span>
         </>
@@ -93,7 +113,12 @@ function HomePage({ client, onLogout }: { client: KanbanClient; onLogout: () => 
           </button>
         </p>
       )}
-      <Home client={client} board={board} onCreateProject={() => setCreatingProject(true)} />
+      <Home
+        client={client}
+        board={board}
+        onCreateProject={() => setCreatingProject(true)}
+        onPlanProject={() => navigate('/planejar')}
+      />
       {creatingProject && (
         <CreateProject
           client={client}
@@ -226,6 +251,7 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
 
   return (
     <Shell
+      client={client}
       onLogout={onLogout}
       right={
         <>
@@ -347,7 +373,7 @@ function CardPage({ client, onLogout }: { client: KanbanClient; onLogout: () => 
   )
 
   return (
-    <Shell onLogout={onLogout}>
+    <Shell client={client} onLogout={onLogout}>
       <CardDetail client={client} sprintsFor={sprintsFor} cardsFor={cardsFor} />
     </Shell>
   )
@@ -369,9 +395,25 @@ export function App() {
           <Route path="/board" element={<Navigate to="/" replace />} />
           <Route path="/card/:id" element={<CardPage client={client} onLogout={clearToken} />} />
           <Route
+            path="/planejar"
+            element={
+              <Shell client={client} onLogout={clearToken}>
+                <PlanEntry client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/planejar/:sessionId"
+            element={
+              <Shell client={client} onLogout={clearToken}>
+                <PlanWizard client={client} />
+              </Shell>
+            }
+          />
+          <Route
             path="/inbox"
             element={
-              <Shell onLogout={clearToken}>
+              <Shell client={client} onLogout={clearToken}>
                 <Inbox client={client} />
               </Shell>
             }
@@ -379,7 +421,7 @@ export function App() {
           <Route
             path="/ajuda"
             element={
-              <Shell onLogout={clearToken}>
+              <Shell client={client} onLogout={clearToken}>
                 <Help />
               </Shell>
             }
@@ -387,7 +429,7 @@ export function App() {
           <Route
             path="/atividade"
             element={
-              <Shell onLogout={clearToken}>
+              <Shell client={client} onLogout={clearToken}>
                 <Metrics client={client} />
               </Shell>
             }

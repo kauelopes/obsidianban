@@ -7,15 +7,17 @@ import type { SSEEventBus } from '../server/sse.js'
 import { loadProjectMetaOrNull } from '../vault/layout.js'
 import type { Card, TokenClaims } from '@obsidiankan/types'
 import { conflict, notFound } from './errors.js'
-import { optInt, optString, rejectDisallowed, requireInt, requireString } from './validation.js'
+import { optInt, optString, optUsageExtras, rejectDisallowed, requireInt, requireString } from './validation.js'
 import { readCardBody } from '../vault/card-file.js'
 import { assertWritable } from './card-shared.js'
 
 const CLAIM_ALLOWED = [
-  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id', 'actor',
+  'id', 'version', 'input_tokens', 'output_tokens',
+  'cache_read_tokens', 'cache_creation_tokens', 'cost_usd', 'model', 'request_id', 'actor',
 ] as const
 const RELEASE_ALLOWED = [
-  'id', 'version', 'revert_to_status', 'input_tokens', 'output_tokens', 'model', 'request_id',
+  'id', 'version', 'revert_to_status', 'input_tokens', 'output_tokens',
+  'cache_read_tokens', 'cache_creation_tokens', 'cost_usd', 'model', 'request_id',
 ] as const
 
 export class CardBlocker {
@@ -65,6 +67,7 @@ export class CardBlocker {
       inputTokens,
       outputTokens,
       model,
+      usage: optUsageExtras(params),
       row,
       current,
       targetActor,
@@ -105,6 +108,7 @@ export class CardBlocker {
       inputTokens,
       outputTokens,
       model,
+      usage: optUsageExtras(params),
       row,
       current,
       targetActor: null,
@@ -128,8 +132,9 @@ export class CardBlocker {
     op: 'CLAIM' | 'RELEASE'
     sseFields: string[]
     claims: TokenClaims
+    usage: ReturnType<typeof optUsageExtras>
   }): Promise<Card> {
-    const { id, claimedVersion, inputTokens, outputTokens, model, row, current, targetActor, op, claims } = args
+    const { id, claimedVersion, inputTokens, outputTokens, model, row, current, targetActor, op, claims, usage } = args
     const filePath = path.join(this.paths.kanbanData, row.project, `${row.file_basename}.md`)
     const body = await readCardBody(filePath)
 
@@ -174,12 +179,12 @@ export class CardBlocker {
     this.repo.logTokens({
       ts: now, op: 'UPDATE', card_id: id, card_type: row.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
-      project: row.project,
+      project: row.project, ...usage,
     })
     await this.audit.log({
       ts: now, op, project: row.project, card_id: id, version: next.version,
       actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
-      changed_fields: sseFields,
+      changed_fields: sseFields, ...usage,
     })
     this.sse.emit({
       type: 'CARD_UPDATED',

@@ -1,8 +1,10 @@
 import { promises as fs } from 'node:fs'
 import type { Paths } from '../config.js'
-import type { TokenClaims, WorkflowReadinessResult } from '@obsidiankan/types'
+import type { Goal, TokenClaims, WorkflowReadinessResult } from '@obsidiankan/types'
 import { createAgentToken, type IssuedToken } from '../auth/tokens.js'
 import { checkWorkflowReadiness } from './workflow-readiness.js'
+import { requirePmOrManager } from './guards.js'
+import { generateGoalId, optString, requireString } from './validation.js'
 import {
   listProjects as listProjectDirs,
   listProjectsSafe,
@@ -29,6 +31,7 @@ export interface ProjectInfo {
   columns: string[]
   archived: boolean
   target_repo?: string
+  goals?: Goal[]
 }
 
 export interface SetProjectRepoResult extends ProjectInfo {
@@ -100,7 +103,13 @@ export class AdminService {
       } else if (!includeArchived) {
         if (archived) continue
       }
-      projects.push({ project, columns: meta.columns, archived, target_repo: meta.target_repo })
+      projects.push({
+        project,
+        columns: meta.columns,
+        archived,
+        target_repo: meta.target_repo,
+        goals: sanitizeGoals(meta.goals),
+      })
     }
     return { projects }
   }
@@ -259,6 +268,131 @@ export class AdminService {
     }
     return base
   }
+
+  /**
+   * Upsert de meta: sem `id` cria, com `id` edita. PM edita as metas do próprio
+   * projeto porque planejar médio prazo É trabalho de PM; dev não.
+   */
+  async setGoal(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<{ project: string; goal: Goal }> {
+    requirePmOrManager(claims)
+    const project =
+      claims.role === 'agent'
+        ? claims.project_id
+        : requireMatch(params, 'project', SAFE_PROJECT, '[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}')
+    const meta = await loadProjectMetaOrNull(this.paths, project)
+    if (!meta) throw new HttpError(404, { error: 'not_found', project })
+
+    const goals = meta.goals ?? []
+    const id = optString(params, 'id')
+    const existing = id ? goals.find((g) => g.id === id) : undefined
+    if (id && !existing) {
+      throw new HttpError(404, { error: 'not_found', goal_id: id })
+    }
+
+    const title = existing
+      ? optString(params, 'title', GOAL_TITLE_MAX) ?? existing.title
+      : requireString(params, 'title', GOAL_TITLE_MAX)
+    const targetDate = readTargetDate(params, existing?.target_date ?? null)
+    const status = readGoalStatus(params, existing?.status ?? 'open')
+    const notes = optString(params, 'notes', GOAL_NOTES_MAX) ?? existing?.notes
+
+    const goal: Goal = {
+      id: existing?.id ?? generateGoalId(),
+      title,
+      target_date: targetDate,
+      status,
+      created_at: existing?.created_at ?? new Date().toISOString(),
+      ...(notes ? { notes } : {}),
+    }
+    meta.goals = existing ? goals.map((g) => (g.id === goal.id ? goal : g)) : [...goals, goal]
+    await saveProjectMeta(this.paths, project, meta)
+
+    await this.audit.log({
+      ts: new Date().toISOString(),
+      op: 'GOAL_SET',
+      project,
+      actor: claims.actor,
+      reason: `${goal.id} ${goal.status}`,
+    })
+    this.sse.emit({ type: 'PROJECT_GOALS_UPDATED', payload: { project } })
+    return { project, goal }
+  }
+
+  async deleteGoal(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<{ project: string; goal_id: string }> {
+    requirePmOrManager(claims)
+    const project =
+      claims.role === 'agent'
+        ? claims.project_id
+        : requireMatch(params, 'project', SAFE_PROJECT, '[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}')
+    const id = requireString(params, 'id')
+    const meta = await loadProjectMetaOrNull(this.paths, project)
+    if (!meta) throw new HttpError(404, { error: 'not_found', project })
+    const goals = meta.goals ?? []
+    if (!goals.some((g) => g.id === id)) {
+      throw new HttpError(404, { error: 'not_found', goal_id: id })
+    }
+    meta.goals = goals.filter((g) => g.id !== id)
+    await saveProjectMeta(this.paths, project, meta)
+
+    await this.audit.log({
+      ts: new Date().toISOString(),
+      op: 'GOAL_DELETED',
+      project,
+      actor: claims.actor,
+      reason: id,
+    })
+    this.sse.emit({ type: 'PROJECT_GOALS_UPDATED', payload: { project } })
+    return { project, goal_id: id }
+  }
+}
+
+const GOAL_TITLE_MAX = 120
+const GOAL_NOTES_MAX = 1000
+const GOAL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const GOAL_STATUSES = ['open', 'done', 'dropped'] as const
+
+function readTargetDate(p: Record<string, unknown>, current: string | null): string | null {
+  const v = p['target_date']
+  if (v === undefined) return current
+  if (v === null) return null
+  if (typeof v !== 'string' || !GOAL_DATE_RE.test(v)) {
+    throw badRequest('invalid_field', { field: 'target_date', expected: 'YYYY-MM-DD or null' })
+  }
+  return v
+}
+
+function readGoalStatus(p: Record<string, unknown>, current: Goal['status']): Goal['status'] {
+  const v = p['status']
+  if (v === undefined) return current
+  if (typeof v !== 'string' || !(GOAL_STATUSES as readonly string[]).includes(v)) {
+    throw badRequest('invalid_field', { field: 'status', expected: GOAL_STATUSES.join('|') })
+  }
+  return v as Goal['status']
+}
+
+/**
+ * _meta.json é editável à mão no Obsidian: uma meta malformada não pode
+ * derrubar o listProjects — some da listagem e fica no arquivo para correção.
+ */
+function sanitizeGoals(goals: unknown): Goal[] | undefined {
+  if (!Array.isArray(goals)) return undefined
+  const ok = goals
+    .filter(
+      (g): g is Goal =>
+        typeof g === 'object' && g !== null &&
+        typeof (g as Goal).id === 'string' &&
+        typeof (g as Goal).title === 'string' &&
+        (GOAL_STATUSES as readonly string[]).includes((g as Goal).status),
+    )
+    // target_date ausente numa meta escrita à mão vira null, não descarte.
+    .map((g) => ({ ...g, target_date: typeof g.target_date === 'string' ? g.target_date : null }))
+  return ok.length > 0 ? ok : undefined
 }
 
 function optBool(p: Record<string, unknown>, key: string, def: boolean): boolean {

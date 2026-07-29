@@ -17,6 +17,7 @@ const PROJECT: ProjectInfo = {
   columns: ['backlog', 'todo', 'in_progress', 'review', 'done'],
   archived: false,
   sprints: [SPRINT],
+  goals: [],
 }
 
 function esc(cardId: string, project: string): EscalationItem {
@@ -70,7 +71,7 @@ describe('buildOverview', () => {
   })
 
   it('projeto listado sem nenhum card aparece vazio; cards órfãos inferem projeto', () => {
-    const vazio: ProjectInfo = { project: 'aaa-vazio', columns: ['todo'], archived: false, sprints: [] }
+    const vazio: ProjectInfo = { project: 'aaa-vazio', columns: ['todo'], archived: false, sprints: [], goals: [] }
     const ovs = buildOverview(CARDS, [vazio], [])
     expect(ovs.map((o) => o.project)).toEqual(['aaa-vazio', 'teste'])
     expect(ovs[0]!.total).toBe(0)

@@ -35,6 +35,11 @@ packages/
 ```bash
 VAULT_PATH=/caminho/para/vault   # Vault Obsidian
 MCP_HTTP_PORT=9375               # Porta do servidor (padrão 9375)
+
+# Opcionais — wizard de planejamento (KAD)
+PLANNING_MODEL=…                 # override de modelo do claude headless (default: o do harness)
+PLANNING_TURN_TIMEOUT_MS=240000  # kill do turno headless após esse tempo
+PLANNING_STUB=true               # dev: turnos sintéticos sem LLM (StubRunner) — nunca em produção
 ```
 
 Referência completa em `docs/reference/config.md`.
@@ -53,7 +58,7 @@ Referência completa em `docs/reference/config.md`.
 # Build do plugin Obsidian
 ~/.local/share/pnpm/bin/pnpm run build:plugin
 
-# Testes (525 no workspace: 371 server + 41 plugin + 113 web)
+# Testes (658 no workspace: 481 server + 41 plugin + 136 web)
 ~/.local/share/pnpm/bin/pnpm run test
 ~/.local/share/pnpm/bin/pnpm run test:watch
 ~/.local/share/pnpm/bin/pnpm run test:coverage
@@ -79,7 +84,8 @@ Referência completa em `docs/reference/config.md`.
 | `cards/` | Repositório SQLite de cards, sincronização |
 | `db/` | Conexão SQLite, schema, migrations |
 | `server/` | HTTP (`node:http` cru), SSE, MCP protocol, RBAC, tool catalog |
-| `services/` | Lógica de negócio — card, sprint, query, admin, metrics |
+| `services/` | Lógica de negócio — card, sprint, query, admin, metrics, epic, planning |
+| `planning/` | Wizard KAD "Planejar um novo Projeto" — motor de etapas, runner headless do claude (`--resume`), materialização épicos→sprints→cards |
 | `startup/` | Reconciliação vault → SQLite no startup |
 | `util/` | Logger (pino), constantes |
 | `vault/` | Leitura/escrita de arquivos .md do vault |

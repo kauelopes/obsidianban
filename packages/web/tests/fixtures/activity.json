@@ -1,0 +1,29 @@
+{
+  "window_days": 5,
+  "tz_offset_minutes": 180,
+  "projects": [
+    {
+      "project": "teste",
+      "days": [
+        { "date": "2026-07-21", "card_ops": 0, "commits": 0 },
+        { "date": "2026-07-22", "card_ops": 6, "commits": 2 },
+        { "date": "2026-07-23", "card_ops": 1, "commits": 0 },
+        { "date": "2026-07-24", "card_ops": 0, "commits": 3 },
+        { "date": "2026-07-25", "card_ops": 4, "commits": 1 }
+      ],
+      "estimated_hours_week": 3.5
+    },
+    {
+      "project": "sem-repo",
+      "days": [
+        { "date": "2026-07-21", "card_ops": 0, "commits": 0 },
+        { "date": "2026-07-22", "card_ops": 0, "commits": 0 },
+        { "date": "2026-07-23", "card_ops": 0, "commits": 0 },
+        { "date": "2026-07-24", "card_ops": 0, "commits": 0 },
+        { "date": "2026-07-25", "card_ops": 0, "commits": 0 }
+      ],
+      "estimated_hours_week": 0,
+      "repo_unavailable": true
+    }
+  ]
+}

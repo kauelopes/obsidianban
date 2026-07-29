@@ -17,11 +17,20 @@ import { QueryService } from './services/query.js'
 import { HistoryService } from './services/history.js'
 import { SupervisionService } from './services/supervision.js'
 import { MetricsService } from './services/metrics.js'
+import { ActivityService } from './services/activity.js'
+import { GitActivityService } from './services/git-activity.js'
 import { AdminService } from './services/admin.js'
+import { EpicService } from './services/epic.js'
+import { PlanningService } from './services/planning.js'
+import { PlanningSessionStore } from './planning/session.js'
+import { ClaudeRunner, DEFAULT_TURN_TIMEOUT_MS } from './planning/claude-runner.js'
+import { StubRunner } from './planning/stub-runner.js'
+import { createMaterializer } from './planning/materialize.js'
 import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
-import { WorkflowRunner, loadWorkflowConfig } from './services/workflow-runner.js'
+import { WorkflowManager, loadWorkflowConfig } from './services/workflow-runner.js'
+import { badRequest, conflict } from './services/errors.js'
 import path from 'node:path'
 import { logger } from './util/logger.js'
 import { StaticSite } from './server/static.js'
@@ -51,13 +60,41 @@ async function main(): Promise<void> {
   await idempotency.load()
 
   const sse = new SSEEventBus()
-  const workflowCfg = loadWorkflowConfig(process.env)
-  const workflowRunner = workflowCfg ? new WorkflowRunner(workflowCfg) : null
-  if (workflowCfg) logger.info({ scriptPath: workflowCfg.scriptPath }, 'workflow: auto-launch enabled')
+  const workflowCfg = loadWorkflowConfig(process.env, config.paths)
+  const workflow = new WorkflowManager(workflowCfg, sse)
+  if (workflowCfg.autoLaunch) logger.info({ scriptPath: workflowCfg.scriptPath }, 'workflow: auto-launch enabled')
   const cards = new CardService(config.paths, repo, writer, audit, sse)
   const metrics = new MetricsService(db)
+  const activity = new ActivityService(db, config.paths, new GitActivityService())
   const admin = new AdminService(config.paths, repo, audit, sse)
+  const epics = new EpicService(config.paths, audit, sse)
   const sprints = new SprintService(config.paths, repo, writer, audit, sse)
+  const planningStore = new PlanningSessionStore(config.paths)
+  const planningModel = process.env['PLANNING_MODEL']
+  const planningStub = process.env['PLANNING_STUB'] === 'true' || process.env['PLANNING_STUB'] === '1'
+  if (planningStub) logger.warn('planning: PLANNING_STUB ativo — turnos sintéticos, sem LLM')
+  const planningRunner = planningStub
+    ? new StubRunner()
+    : new ClaudeRunner({
+        cwd: planningStore.baseDir,
+        ...(planningModel ? { model: planningModel } : {}),
+        timeoutMs: Number(process.env['PLANNING_TURN_TIMEOUT_MS'] ?? DEFAULT_TURN_TIMEOUT_MS),
+      })
+  const planning = new PlanningService(
+    planningStore,
+    planningRunner,
+    repo,
+    sse,
+    planningStub ? 'stub' : (planningModel ?? 'claude-headless'),
+    createMaterializer({
+      paths: config.paths,
+      admin,
+      sprints,
+      cards,
+      epics,
+      saveSession: (s) => planningStore.save(s),
+    }),
+  )
   const queries = new QueryService(repo, config.paths, () => admin.getArchivedProjects())
   const history = new HistoryService(config.paths)
   const supervision = new SupervisionService(config.paths, repo)
@@ -85,6 +122,7 @@ async function main(): Promise<void> {
     kanban_list_escalations: async (p, c) => supervision.listEscalations(p, c),
     kanban_claim_card: async (p, c) => cards.claim(p, c),
     kanban_release_card: async (p, c) => cards.release(p, c),
+    kanban_defer_card: async (p, c) => cards.deferCard(p, c),
     kanban_pick_next: async (p, c) => cards.pickNext(p, c),
     kanban_create_project: async (p, c) => admin.createProject(p, c),
     kanban_create_agent_token: async (p, c) => {
@@ -100,13 +138,29 @@ async function main(): Promise<void> {
     kanban_unarchive_project: async (p, c) => admin.unarchiveProject(p, c),
     kanban_delete_project: async (p, c) => admin.deleteProject(p, c),
     kanban_set_project_repo: async (p, c) => admin.setProjectRepo(p, c),
+    kanban_set_goal: async (p, c) => admin.setGoal(p, c),
+    kanban_delete_goal: async (p, c) => admin.deleteGoal(p, c),
+    kanban_planning_start: async (p, c) => planning.start(p, c),
+    kanban_planning_get: async (p, c) => planning.get(p, c),
+    kanban_planning_answer: async (p, c) => planning.answer(p, c),
+    kanban_planning_refine: async (p, c) => planning.refine(p, c),
+    kanban_planning_retry: async (p, c) => planning.retry(p, c),
+    kanban_planning_finalize: async (p, c) => planning.finalize(p, c),
+    kanban_planning_cancel: async (p, c) => planning.cancel(p, c),
+    kanban_planning_list: async (p, c) => planning.list(p, c),
+    kanban_create_epic: async (p, c) => epics.createEpic(p, c),
+    kanban_list_epics: async (p, c) => epics.listEpics(p, c),
+    kanban_update_epic: async (p, c) => epics.updateEpic(p, c),
     kanban_create_sprint: async (p, c) => sprints.createSprint(p, c),
     kanban_start_sprint: async (p, c) => {
       const result = await sprints.startSprint(p, c)
-      if (workflowRunner) {
+      if (workflow.autoLaunch) {
         const meta = await loadProjectMetaOrNull(config.paths, result.project)
         if (meta?.target_repo) {
-          workflowRunner.launch(result.id, meta.target_repo)
+          // Auto-launch é best-effort: falhar aqui não pode desfazer o start da sprint.
+          await workflow.start(result.id, result.project, meta.target_repo).catch((err) => {
+            logger.warn({ err, sprint: result.id }, 'workflow: auto-launch failed')
+          })
         } else {
           logger.warn(
             { sprint: result.id, project: result.project },
@@ -115,6 +169,28 @@ async function main(): Promise<void> {
         }
       }
       return result
+    },
+    kanban_workflow_start: async (p, c) => {
+      const sprintId = String(p['sprint_id'] ?? '')
+      const { sprint, project } = await sprints.getSprint({ sprint_id: sprintId }, c)
+      if (sprint.status !== 'active') throw conflict({ error: 'sprint_not_active', status: sprint.status })
+      const meta = await loadProjectMetaOrNull(config.paths, project)
+      if (!meta?.target_repo) {
+        throw badRequest('target_repo_not_set', { hint: 'defina com kanban_set_project_repo antes de executar o workflow' })
+      }
+      return workflow.start(sprintId, project, meta.target_repo)
+    },
+    kanban_workflow_stop: async (p, c) => {
+      const sprintId = String(p['sprint_id'] ?? '')
+      // getSprint valida a visibilidade (agente só enxerga o próprio projeto).
+      await sprints.getSprint({ sprint_id: sprintId }, c)
+      return workflow.stop(sprintId)
+    },
+    kanban_log_workflow_usage: async (p, c) => sprints.logWorkflowUsage(p, c),
+    kanban_workflow_status: async (p, c) => {
+      const sprintId = String(p['sprint_id'] ?? '')
+      await sprints.getSprint({ sprint_id: sprintId }, c)
+      return { sprint_id: sprintId, run: workflow.status(sprintId) }
     },
     kanban_list_sprints: async (p, c) => sprints.listSprints(p, c),
     kanban_get_sprint: async (p, c) => sprints.getSprint(p, c),
@@ -185,7 +261,7 @@ async function main(): Promise<void> {
   const site = (await candidate.isAvailable()) ? candidate : undefined
   if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
 
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, mcp, site, session })
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }

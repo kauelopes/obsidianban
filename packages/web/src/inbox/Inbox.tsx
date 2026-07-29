@@ -94,7 +94,7 @@ export function Inbox({ client }: { client: KanbanClient }) {
 
   return (
     <div className="detail">
-      <div className="detail-inner">
+      <div className="detail-inner wide">
         <div className="detail-head">
           <h1>Escalações</h1>
           <div className="detail-ident">

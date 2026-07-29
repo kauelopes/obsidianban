@@ -14,6 +14,7 @@ import {
   generateCardId,
   optDueDate,
   optInt,
+  optUsageExtras,
   optNullableString,
   optPriority,
   optString,
@@ -33,11 +34,14 @@ import {
   safeParseStringArray,
 } from './card-shared.js'
 
+const USAGE_EXTRA_FIELDS = ['cache_read_tokens', 'cache_creation_tokens', 'cost_usd'] as const
+
 const UPDATE_ALLOWED_AGENT = [
   'id',
   'version',
   'input_tokens',
   'output_tokens',
+  ...USAGE_EXTRA_FIELDS,
   'model',
   'request_id',
   'title',
@@ -58,6 +62,7 @@ const CREATE_ALLOWED = [
   'type',
   'input_tokens',
   'output_tokens',
+  ...USAGE_EXTRA_FIELDS,
   'model',
   'status',
   'priority',
@@ -72,16 +77,21 @@ const CREATE_ALLOWED = [
   'sprint_id',
 ] as const
 
+const DEFER_ALLOWED = [
+  'id', 'version', 'blocked_by', 'log_entry',
+  'input_tokens', 'output_tokens', ...USAGE_EXTRA_FIELDS, 'model', 'request_id',
+] as const
+
 const DELETE_ALLOWED = [
-  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+  'id', 'version', 'input_tokens', 'output_tokens', ...USAGE_EXTRA_FIELDS, 'model', 'request_id',
 ] as const
 
 const ARCHIVE_ALLOWED = [
-  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+  'id', 'version', 'input_tokens', 'output_tokens', ...USAGE_EXTRA_FIELDS, 'model', 'request_id',
 ] as const
 
 const ZONE_ALLOWED_BASE = [
-  'id', 'version', 'input_tokens', 'output_tokens', 'model', 'request_id',
+  'id', 'version', 'input_tokens', 'output_tokens', ...USAGE_EXTRA_FIELDS, 'model', 'request_id',
 ] as const
 const UPDATE_SPEC_ALLOWED = [...ZONE_ALLOWED_BASE, 'spec'] as const
 const UPDATE_NOTES_ALLOWED = [...ZONE_ALLOWED_BASE, 'notes'] as const
@@ -218,6 +228,7 @@ export class CardWriter {
     }
 
     await this.writer.write(card, body, fileBasename)
+    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now,
       op: 'CREATE',
@@ -228,6 +239,7 @@ export class CardWriter {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       project,
+      ...usage,
     })
     await this.audit.log({
       ts: now,
@@ -239,6 +251,7 @@ export class CardWriter {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       model,
+      ...usage,
     })
     this.sse.emit({
       type: 'CARD_CREATED',
@@ -448,6 +461,7 @@ export class CardWriter {
     await this.writer.write(merged, newBody, newBasename, {
       previousBasename: row.file_basename,
     })
+    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now,
       op: 'UPDATE',
@@ -458,6 +472,7 @@ export class CardWriter {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       project: row.project,
+      ...usage,
     })
     await this.audit.log({
       ts: now,
@@ -470,12 +485,66 @@ export class CardWriter {
       output_tokens: outputTokens,
       model,
       changed_fields: changedFields,
+      ...usage,
     })
     this.sse.emit({
       type: 'CARD_UPDATED',
       payload: { card_id: id, project: row.project, changed_fields: changedFields },
     })
     return { ...merged, body: newBody, file_basename: newBasename }
+  }
+
+  /**
+   * Dev-safe defer: the card depends on another card (even one sitting in
+   * `review`) rather than needing human judgment of its own. Merges the new
+   * blockers into `blocked_by`, logs why, releases the claim, and returns the
+   * card to `todo` if it was already in a started column — one atomic call
+   * instead of update+log+release+move, which is easy to break on version
+   * conflicts when combined manually.
+   */
+  async defer(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
+    rejectDisallowed(params, DEFER_ALLOWED)
+    const id = requireString(params, 'id')
+    requireInt(params, 'version', 1)
+    if (!('blocked_by' in params)) {
+      throw badRequest('missing_field', {
+        field: 'blocked_by',
+        message: 'blocked_by is required for kanban_defer_card.',
+      })
+    }
+    const rawBlockers = params['blocked_by']
+    if (!Array.isArray(rawBlockers) || rawBlockers.length === 0 || !rawBlockers.every((x) => typeof x === 'string')) {
+      throw badRequest('invalid_field', { field: 'blocked_by', expected: 'non-empty string[]' })
+    }
+    if (!('log_entry' in params) || !params['log_entry']) {
+      throw badRequest('missing_field', {
+        field: 'log_entry',
+        message: 'log_entry is required for kanban_defer_card.',
+      })
+    }
+
+    const row = this.repo.findById(id)
+    if (!row) throw notFound()
+    if (claims.role === 'agent' && row.project !== claims.project_id) throw notFound()
+    const current = this.repo.toCard(row)
+    assertWritable(current.assigned_to, claims)
+
+    const unstarted = new Set(['backlog', 'todo'])
+    const mergedBlockedBy = Array.from(new Set([...current.blocked_by, ...(rawBlockers as string[])]))
+
+    const updateParams: Record<string, unknown> = {
+      ...params,
+      blocked_by: mergedBlockedBy,
+      assigned_to: null,
+    }
+    if (!unstarted.has(current.status)) updateParams['status'] = 'todo'
+
+    // update() refuses dev agents outright — defer is explicitly a dev
+    // operation, so elevate for the delegated call the same way logOnCard does.
+    const elevatedClaims: TokenClaims = claims.role === 'agent' && claims.agent_type === 'dev'
+      ? { ...claims, agent_type: 'pm' }
+      : claims
+    return this.update(updateParams, elevatedClaims)
   }
 
   /**
@@ -547,14 +616,15 @@ export class CardWriter {
     this.repo.delete(id)
 
     const now = new Date().toISOString()
+    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now, op: 'DELETE', card_id: id, card_type: row.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
-      project: row.project,
+      project: row.project, ...usage,
     })
     await this.audit.log({
       ts: now, op: 'DELETE', project: row.project, card_id: id, version: row.version,
-      actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
+      actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model, ...usage,
     })
     this.sse.emit({
       type: 'CARD_DELETED',
@@ -621,14 +691,15 @@ export class CardWriter {
 
     await this.writer.write(next, body, row.file_basename)
     const op: 'ARCHIVE' | 'UNARCHIVE' = target ? 'ARCHIVE' : 'UNARCHIVE'
+    const usage = optUsageExtras(params)
     this.repo.logTokens({
       ts: now, op: 'UPDATE', card_id: id, card_type: row.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
-      project: row.project,
+      project: row.project, ...usage,
     })
     await this.audit.log({
       ts: now, op, project: row.project, card_id: id, version: next.version,
-      actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model,
+      actor: claims.actor, input_tokens: inputTokens, output_tokens: outputTokens, model, ...usage,
     })
     this.sse.emit({
       type: target ? 'CARD_ARCHIVED' : 'CARD_UNARCHIVED',

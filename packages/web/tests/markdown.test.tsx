@@ -54,13 +54,17 @@ describe('Markdown', () => {
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(2)
   })
 
-  it('bloco mermaid inválido cai para o código-fonte em vez de desaparecer', async () => {
+  it('bloco mermaid inválido cai para o código-fonte com aviso e erro de parse', async () => {
     const bad = '```mermaid\nisto não é um diagrama {{{\n```'
     const { container } = render(<Markdown>{bad}</Markdown>)
-    // O fallback é <pre><code>; o conteúdo do card nunca some da tela.
+    // O fallback é <pre><code>; o conteúdo do card nunca some da tela. O aviso
+    // deixa claro que é sintaxe quebrada, não texto intencional.
     await waitFor(() => {
-      expect(container.querySelector('pre code')).toBeTruthy()
+      expect(container.querySelector('.mermaid-invalid')).toBeTruthy()
     })
+    expect(container.querySelector('pre code')).toBeTruthy()
+    expect(container.querySelector('.mermaid-invalid-notice')?.textContent).toContain('inválido')
+    expect(container.querySelector('.mermaid-invalid-detail')?.textContent).toBeTruthy()
   })
 })
 

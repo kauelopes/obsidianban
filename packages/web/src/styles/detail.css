@@ -3,12 +3,21 @@
 .detail {
   flex: 1 1 auto;
   overflow-y: auto;
+  /* Sem jitter ao navegar entre páginas com e sem scroll. */
+  scrollbar-gutter: stable;
   padding: var(--s-7) var(--s-6) var(--s-9);
 }
 
 .detail-inner {
-  max-width: 860px;
+  max-width: var(--w-read);
   margin: 0 auto;
+}
+
+/* Páginas-hub (home, atividade, escalações, wizard): dashboards e diagramas
+ * não são prosa — pagam caro pela medida de leitura. A prosa interna continua
+ * limitada por --measure onde importa (.md.prose). */
+.detail-inner.wide {
+  max-width: var(--w-wide);
 }
 
 .detail-head {
@@ -390,6 +399,37 @@
   background: var(--ink-2);
   border: 1px solid var(--rule);
   border-radius: var(--r-md);
+}
+
+.md .mermaid-invalid {
+  margin: 0 0 0.85em;
+  border: 1px solid color-mix(in srgb, var(--alert) 40%, transparent);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.md .mermaid-invalid-notice {
+  margin: 0;
+  padding: var(--s-3) var(--s-5);
+  background: var(--alert-weak);
+  color: var(--alert);
+  font-size: var(--t-sm);
+}
+
+.md .mermaid-invalid-detail {
+  margin: 0;
+  padding: var(--s-2) var(--s-5);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  white-space: pre-wrap;
+  border-bottom: 1px solid var(--rule);
+}
+
+.md .mermaid-invalid pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
 }
 
 /* MathJax em bloco pode estourar a medida; rola em vez de vazar. */
@@ -1060,6 +1100,38 @@
 
 /* ── Home ─────────────────────────────────────────────────────────────────── */
 
+/* Hub focado: uma coluna principal (projetos + uso) e uma lateral de decisão
+ * (fila + planejamento). O aside vem primeiro no DOM — empilhado, a fila fica
+ * no topo; em ≥1280px o grid a reposiciona para a lateral direita. */
+.home-grid {
+  display: grid;
+  gap: var(--s-7);
+  grid-template-areas: 'side' 'main';
+}
+
+.home-side {
+  grid-area: side;
+  min-width: 0;
+}
+
+.home-main {
+  grid-area: main;
+  min-width: 0;
+}
+
+@media (min-width: 1280px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+    grid-template-areas: 'main side';
+    align-items: start;
+  }
+
+  .home-side {
+    position: sticky;
+    top: 0;
+  }
+}
+
 /* "Precisa de você" abre a página: é a fila de decisão, não decoração. A borda
  * é o mesmo canal de alerta do trilho de card escalado. */
 .needs-you {
@@ -1122,6 +1194,55 @@
   white-space: nowrap;
 }
 
+/* Na lateral estreita, cada item empilha: título em linha própria, metadados
+ * em grade — a linha flex com .age empurrada não cabe em ~340px. */
+.home-side .pending a {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-3);
+}
+
+.home-side .pending strong {
+  grid-column: 1 / -1;
+}
+
+.home-side .pending .age {
+  margin-left: 0;
+}
+
+.home-side .pending .why {
+  grid-column: 1 / -1;
+  padding-left: 0;
+}
+
+/* Planejamento em curso: retomável de qualquer estado da fila. */
+.home-plan {
+  margin-top: var(--s-6);
+  border: 1px dashed var(--rule-strong);
+  border-radius: var(--r-md);
+  padding: var(--s-5) var(--s-6);
+}
+
+.home-plan > .label {
+  margin: 0 0 var(--s-4);
+}
+
+.home-plan a {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+
+.home-plan a:hover {
+  text-decoration: none;
+}
+
+.home-plan a:hover strong {
+  color: var(--accent);
+}
+
 /* "Tudo em ordem" é resultado, não ausência — abre a página com a mesma
  * hierarquia que a fila teria, só que em repouso. */
 .all-clear {
@@ -1142,16 +1263,27 @@
   color: var(--fg-1);
 }
 
-/* Grid de projetos: um tile por projeto, o tile inteiro é o link. */
+/* Grid de projetos: um tile por projeto, o tile inteiro é o link.
+ * grid-auto-rows iguala a altura por linha — o .pt-updated com margin-top:auto
+ * ancora o rodapé, então tiles curtos esticam sem buracos. */
 .project-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-auto-rows: 1fr;
   gap: var(--s-5);
   margin-bottom: var(--s-8);
 }
 
 .project-grid .empty-lg {
   grid-column: 1 / -1;
+}
+
+/* Uso: as duas tabelas são estreitas — lado a lado quando a main comporta. */
+.home-usage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: var(--s-6);
+  align-items: start;
 }
 
 .project-tile {
@@ -1217,13 +1349,227 @@
 
 .pt-planned {
   display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
+  align-items: baseline;
+  gap: var(--s-3);
   font-size: var(--t-xs);
+  min-width: 0;
+}
+
+.pt-planned-next {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pt-updated {
   font-size: var(--t-2xs);
   color: var(--fg-2);
   margin-top: auto;
+}
+
+/* Pulso de 14 dias: sparkline + horas estimadas na mesma linha de leitura.
+ * Duas tonalidades NEUTRAS — cor segue reservada a estado. */
+.pt-pulse {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-4);
+}
+
+.sparkline .spark-ops {
+  fill: var(--fg-2);
+}
+
+.sparkline .spark-commits {
+  fill: var(--fg-0);
+  opacity: 0.75;
+}
+
+.sparkline .spark-idle {
+  fill: var(--rule);
+}
+
+.pt-hours {
+  font-size: var(--t-2xs);
+  color: var(--fg-1);
+  white-space: nowrap;
+}
+
+/* Metas abertas: lista tipográfica; só a vencida ganha o canal de alerta. */
+.pt-goals {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  font-size: var(--t-xs);
+}
+
+.pt-goals .goal-mark {
+  color: var(--fg-2);
+}
+
+.pt-goals .goal-date {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  margin-left: var(--s-3);
+}
+
+.pt-goals .goal-overdue,
+.pt-goals .goal-overdue .goal-mark,
+.pt-goals .goal-overdue .goal-date {
+  color: var(--alert);
+}
+
+/* ── Wizard de planejamento (KAD) ─────────────────────────────────────────── */
+
+/* A largura vem do .detail-inner.wide — diagramas mermaid e tabelas de sprint
+ * são as telas mais densas do app; a prosa segue limitada por .md.prose. */
+
+/* Progresso em dois níveis: contagem exata + barra + as 4 fases. */
+.wizard-progress {
+  margin: var(--s-4) 0 var(--s-7);
+}
+
+.wizard-count {
+  margin: 0 0 var(--s-3);
+  font-size: var(--t-2xs);
+  color: var(--fg-1);
+}
+
+.wizard-bar {
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--ink-3);
+  overflow: hidden;
+}
+
+.wizard-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--dur-2) var(--ease);
+}
+
+.wizard-steps {
+  list-style: none;
+  margin: var(--s-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+.wizard-steps li {
+  white-space: nowrap;
+}
+
+.wizard-steps li:not(:last-child)::after {
+  content: '›';
+  margin-left: var(--s-3);
+  color: var(--fg-3, var(--fg-2));
+}
+
+/* "Feito" é conquista, não cancelamento — check, nunca line-through. */
+.wizard-steps li.done::before {
+  content: '✓ ';
+  color: var(--accent);
+}
+
+.wizard-steps li.current {
+  color: var(--fg-0, inherit);
+  font-weight: 600;
+}
+
+.wizard-body h2 {
+  margin: 0 0 var(--s-4);
+  font-size: var(--t-lg);
+}
+
+/* Máquina escrevendo = mono; cor fica para estado (run). */
+.wizard-generating {
+  color: var(--run, var(--fg-2));
+  font-size: var(--t-xs);
+  animation: wizard-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes wizard-pulse {
+  50% { opacity: 0.45; }
+}
+
+.wizard-generated {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.wizard-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.wizard-option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--line, currentColor);
+  border-radius: var(--r-2, 6px);
+  cursor: pointer;
+}
+
+.wizard-option.selected {
+  border-color: var(--accent, teal);
+}
+
+.wizard-list-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--s-2);
+  align-items: start;
+  padding: var(--s-2) 0;
+}
+
+.wizard-list-item textarea {
+  grid-column: 1 / -1;
+}
+
+/* CTA das telas geradas: o markdown pode ter páginas de altura — o botão de
+ * aprovação acompanha o scroll em vez de morar no fim dele. */
+.wizard-cta {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  padding: var(--s-4) 0;
+  background: var(--ink-0);
+  border-top: 1px solid var(--rule);
+}
+
+.wizard-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.wizard-refine {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-end;
+}
+
+.wizard-refine textarea {
+  flex: 1;
+}
+
+.wizard-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--s-7);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line, currentColor);
+  font-size: var(--t-2xs);
 }
