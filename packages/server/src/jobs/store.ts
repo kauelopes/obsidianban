@@ -10,7 +10,7 @@ import type { JobView } from '@obsidiankan/types'
  */
 export type JobRecord = Omit<JobView, 'stalled'>
 
-const JOB_ID_RE = /^job-[0-9A-Za-z]{8}$/
+export const JOB_ID_RE = /^job-[0-9A-Za-z]{8}$/
 
 /**
  * Persistência de jobs duráveis de longa duração em

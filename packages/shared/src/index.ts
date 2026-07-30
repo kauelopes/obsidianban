@@ -318,7 +318,8 @@ export interface AuditEntry {
   cache_read_tokens?: number
   cache_creation_tokens?: number
   cost_usd?: number
-  sprint_id?: string          // WORKFLOW_* (registro por round)
+  sprint_id?: string          // WORKFLOW_* (registro por round), JOB_*
+  job_id?: string             // JOB_*
   turns?: number              // WORKFLOW_* — turnos do harness no round
   // op-specific:
   changed_fields?: string[]    // UPDATE

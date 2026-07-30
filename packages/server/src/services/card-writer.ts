@@ -9,7 +9,7 @@ import { loadProjectMeta, loadProjectMetaOrNull } from '../vault/layout.js'
 import type { Card, TokenClaims } from '@obsidiankan/types'
 import { slugifyTitle, uniqueBasename } from '../cards/slug.js'
 import { POSITION_GAP } from '../util/constants.js'
-import { badRequest, conflict, forbidden, notFound } from './errors.js'
+import { badRequest, conflict, forbidden, notFound, HttpError } from './errors.js'
 import {
   generateCardId,
   optDueDate,
@@ -97,6 +97,17 @@ const UPDATE_SPEC_ALLOWED = [...ZONE_ALLOWED_BASE, 'spec'] as const
 const UPDATE_NOTES_ALLOWED = [...ZONE_ALLOWED_BASE, 'notes'] as const
 
 const MAX_ZONE_LENGTH = 100_000
+
+/**
+ * System claims used by the job runner when it writes to cards on its own
+ * behalf (job finished / stalled). Same precedent as SYSTEM_CLAIMS in
+ * index.ts: manager role bypasses assertWritable, so a card assigned to
+ * `job:<id>` stays writable for the system that owns that assignment.
+ */
+export const JOB_SYSTEM_CLAIMS: TokenClaims = { role: 'manager', actor: 'system:job-runner' }
+
+/** How many times completeJob re-reads and retries on a version conflict. */
+const COMPLETE_JOB_RETRIES = 3
 
 export class CardWriter {
   constructor(
@@ -551,6 +562,56 @@ export class CardWriter {
       ? { ...claims, agent_type: 'pm' }
       : claims
     return this.update(updateParams, elevatedClaims)
+  }
+
+  /**
+   * Called by the JobManager when a long-running job reaches a terminal
+   * state. Two guarantees, mirroring defer()'s conditional-revert precedent:
+   *   - the log entry is ALWAYS appended to # Agent Log;
+   *   - status→'todo' + assigned_to→null happen ONLY while the card is still
+   *     exactly (expectedStatus, expectedAssignedTo) — i.e. still parked on
+   *     the job. Any human/PM intervention in the meantime wins: we log and
+   *     leave the card alone.
+   * Runs under JOB_SYSTEM_CLAIMS (manager bypasses assertWritable) and
+   * retries version conflicts a few times by re-reading — there is no live
+   * caller behind this write to react to a 409.
+   */
+  async completeJob(
+    cardId: string,
+    opts: {
+      expectedStatus: string
+      expectedAssignedTo: string
+      logEntry: string
+      logKind: LogKind
+    },
+  ): Promise<Card> {
+    let lastErr: unknown
+    for (let attempt = 0; attempt < COMPLETE_JOB_RETRIES; attempt++) {
+      const row = this.repo.findById(cardId)
+      if (!row) throw notFound()
+      const current = this.repo.toCard(row)
+
+      const params: Record<string, unknown> = {
+        id: cardId,
+        version: current.version,
+        log_entry: opts.logEntry,
+        log_kind: opts.logKind,
+      }
+      if (current.status === opts.expectedStatus && current.assigned_to === opts.expectedAssignedTo) {
+        params['status'] = 'todo'
+        params['assigned_to'] = null
+      }
+      try {
+        return await this.update(params, JOB_SYSTEM_CLAIMS)
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 409) {
+          lastErr = err
+          continue // card changed under us — re-read and re-evaluate the revert condition
+        }
+        throw err
+      }
+    }
+    throw lastErr
   }
 
   /**

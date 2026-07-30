@@ -906,3 +906,60 @@ describe('CardService.logOnCard', () => {
     ).rejects.toMatchObject({ status: 400 })
   })
 })
+
+describe('CardService.completeJob', () => {
+  async function cardOnJob(jobId: string) {
+    const sprint = await setupWithActiveSprint()
+    const card = await createCard(sprint.id)
+    return cardService.update(
+      { ...TOKEN, id: card.id, version: card.version, status: 'in_progress', assigned_to: `job:${jobId}` },
+      MGR,
+    )
+  }
+
+  it('reverte para todo + libera o claim quando o card ainda está no job', async () => {
+    const card = await cardOnJob('job-abcdefgh')
+
+    const result = await cardService.completeJob(card.id, {
+      expectedStatus: 'in_progress',
+      expectedAssignedTo: 'job:job-abcdefgh',
+      logEntry: 'Job finished — exit 0.',
+      logKind: 'progress',
+    })
+    expect(result.status).toBe('todo')
+    expect(result.assigned_to).toBeNull()
+    expect(result.body).toContain('Job finished — exit 0.')
+    expect(result.updated_by).toBe('system:job-runner')
+  })
+
+  it('só escreve o log quando o card foi mexido por fora (intervenção vence)', async () => {
+    const card = await cardOnJob('job-abcdefgh')
+    // Humano reatribuiu o card no meio do job.
+    const taken = await cardService.update(
+      { ...TOKEN, id: card.id, version: card.version, assigned_to: 'agent:human' },
+      MGR,
+    )
+
+    const result = await cardService.completeJob(card.id, {
+      expectedStatus: 'in_progress',
+      expectedAssignedTo: 'job:job-abcdefgh',
+      logEntry: 'Job finished after takeover.',
+      logKind: 'escalate',
+    })
+    expect(result.status).toBe('in_progress')
+    expect(result.assigned_to).toBe('agent:human')
+    expect(result.version).toBe(taken.version + 1)
+    expect(result.body).toContain('Job finished after takeover.')
+  })
+
+  it('404 quando o card não existe', async () => {
+    await expect(
+      cardService.completeJob('card-missing1', {
+        expectedStatus: 'in_progress',
+        expectedAssignedTo: 'job:job-abcdefgh',
+        logEntry: 'x',
+        logKind: 'progress',
+      }),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+})

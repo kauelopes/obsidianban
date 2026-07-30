@@ -4,7 +4,7 @@ import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
 import { loadProjectMetaOrNull } from '../vault/layout.js'
-import type { Card, ReorderResult, Sprint, TokenClaims } from '@obsidiankan/types'
+import type { Card, LogKind, ReorderResult, Sprint, TokenClaims } from '@obsidiankan/types'
 import { badRequest, HttpError } from './errors.js'
 import { optInt, optString, rejectDisallowed } from './validation.js'
 import { CardReader } from './card-reader.js'
@@ -103,6 +103,17 @@ export class CardService {
   async deferCard(params: Record<string, unknown>, claims: TokenClaims): Promise<Card> {
     if (claims.role === 'agent' && claims.agent_type === 'dev') await this.requireDevActiveSprint(claims)
     return this.cardWriter.defer(params, claims)
+  }
+
+  /**
+   * System entry point for the JobManager: append the job's closing log entry
+   * and conditionally hand the card back to `todo`. See CardWriter.completeJob.
+   */
+  async completeJob(
+    cardId: string,
+    opts: { expectedStatus: string; expectedAssignedTo: string; logEntry: string; logKind: LogKind },
+  ): Promise<Card> {
+    return this.cardWriter.completeJob(cardId, opts)
   }
 
   /**
