@@ -3,8 +3,6 @@ import { SprintPlanningService } from '../../src/services/sprint-planning.js'
 import { SprintPlanningSessionStore } from '../../src/sprint-planning/session.js'
 import type { TurnResult, TurnRunner } from '../../src/planning/claude-runner.js'
 import { SprintService } from '../../src/services/sprint.js'
-import { EpicService } from '../../src/services/epic.js'
-import { CardService } from '../../src/services/card.js'
 import { AtomicWriter } from '../../src/writer/atomic.js'
 import { AuditLogger } from '../../src/audit/logger.js'
 import { SSEEventBus } from '../../src/server/sse.js'
@@ -54,26 +52,18 @@ let store: SprintPlanningSessionStore
 let runner: FakeRunner
 let repo: CardRepository
 let sprints: SprintService
-let epics: EpicService
-let cards: CardService
 let sse: SSEEventBus
 let events: SSEEvent[]
 let service: SprintPlanningService
 
 const mgr = makeManagerClaims()
-const FORM_PAYLOAD = { fields: [{ id: 'capacity', label: 'Capacidade', value: '5' }] }
-const CHOICE_PAYLOAD = {
-  question: 'Qual objetivo?',
-  options: [
-    { id: 'adhoc', label: 'Novo objetivo' },
-    { id: 'outra', label: 'Outra opção' },
-  ],
-}
+const TASK_LIST_INTRO_PAYLOAD = { intro: 'contexto sintético' }
 const TASKS_STRUCTURE = {
   name: 'Sprint nova',
   goal: 'entregar x',
   tasks: [{ title: 'Tarefa 1', type: 'task' }],
 }
+const RISKS_PAYLOAD = { fields: [{ id: 'risks', label: 'Riscos', value: 'nenhum identificado' }] }
 const CONFIRM_PAYLOAD = { markdown: '## resumo' }
 
 /** Espera o turno fire-and-forget assentar (status sai de generating). */
@@ -102,8 +92,6 @@ beforeEach(async () => {
     origEmit(e)
   }
   sprints = new SprintService(paths, repo, writer, audit, sse)
-  epics = new EpicService(paths, audit, sse)
-  cards = new CardService(paths, repo, writer, audit, sse)
   service = new SprintPlanningService(
     paths,
     store,
@@ -112,7 +100,6 @@ beforeEach(async () => {
     sse,
     'claude-test',
     sprints,
-    epics,
     async () => {
       throw new Error('materializer não usado neste teste')
     },
@@ -132,74 +119,46 @@ describe('start', () => {
     ).rejects.toMatchObject({ status: 403 })
   })
 
-  it('dispara o primeiro turno (capacity) imediatamente — toda etapa tem prefill', async () => {
+  it('nasce em awaiting_user na etapa goal, sem turno de LLM', async () => {
     await setupTestProject(paths, 'test-project')
-    runner.pushScreen(FORM_PAYLOAD)
     const s = await service.start({ project: 'test-project' }, mgr)
-    expect(['generating', 'awaiting_user']).toContain(s.status)
-    const settled = await settle(s.session_id)
-    expect(settled.current_step).toBe('capacity')
-    expect(settled.status).toBe('awaiting_user')
-    expect(settled.project).toBe('test-project')
-    expect(runner.prompts[0]).toContain('facilitador de Sprint Planning')
+    expect(s.status).toBe('awaiting_user')
+    expect(s.current_step).toBe('goal')
+    expect(s.project).toBe('test-project')
+    expect(runner.prompts).toHaveLength(0)
+    const payload = s.outputs['goal']?.screen_payload as { fields: Array<{ id: string }> }
+    expect(payload.fields.map((f) => f.id)).toEqual(['objective'])
   })
 
   it('uma sessão ativa por projeto — segundo start no mesmo projeto é 409, outro projeto ok', async () => {
     await setupTestProject(paths, 'test-project')
     await setupTestProject(paths, 'outro-projeto')
-    runner.pushScreen(FORM_PAYLOAD)
     await service.start({ project: 'test-project' }, mgr)
     await expect(service.start({ project: 'test-project' }, mgr)).rejects.toMatchObject({ status: 409 })
 
-    runner.pushScreen(FORM_PAYLOAD)
     const s2 = await service.start({ project: 'outro-projeto' }, mgr)
     expect(s2.project).toBe('outro-projeto')
-  })
-
-  it('contexto: sugere capacidade a partir da velocidade das sprints fechadas', async () => {
-    await setupTestProject(paths, 'test-project')
-    const sprint = await sprints.createSprint({ project: 'test-project', name: 'Sprint 1' }, mgr)
-    await sprints.startSprint({ sprint_id: sprint.id }, mgr)
-    for (const title of ['a', 'b']) {
-      const card = await cards.create(
-        { title, type: 'task', project: 'test-project', sprint_id: sprint.id, input_tokens: 0, output_tokens: 0, model: 'test' },
-        mgr,
-      )
-      await cards.move({ id: card.id, to_status: 'done', version: card.version }, mgr)
-    }
-    await sprints.closeSprint({ sprint_id: sprint.id, rollover_to: null }, mgr)
-
-    runner.pushScreen(FORM_PAYLOAD)
-    const s = await service.start({ project: 'test-project' }, mgr)
-    expect(s.context.suggested_capacity).toEqual({ avg_cards_per_sprint: 2, sample_sprints: 1 })
   })
 })
 
 describe('fluxo completo até review', () => {
-  it('goal com épico existente seta epic_id; tasks emite structure; review habilita finalize', async () => {
+  it('goal com texto livre dispara o turno de tasks; edição humana e avanço até review', async () => {
     await setupTestProject(paths, 'test-project')
-    const { epic } = await epics.createEpic({ project: 'test-project', name: 'Épico A', objective: 'x' }, mgr)
-
-    runner.pushScreen(FORM_PAYLOAD)
     const s = await service.start({ project: 'test-project' }, mgr)
-    await settle(s.session_id)
+    expect(s.current_step).toBe('goal')
 
-    runner.pushScreen({
-      question: 'Qual objetivo?',
-      options: [{ id: epic.id, label: epic.name }, { id: 'adhoc', label: 'novo' }],
-    })
-    await service.answer({ session_id: s.session_id, step: 'capacity', answer: { capacity: '5' } }, mgr)
+    runner.pushScreen(TASK_LIST_INTRO_PAYLOAD, { structure: TASKS_STRUCTURE })
+    await service.answer(
+      { session_id: s.session_id, step: 'goal', answer: { objective: 'melhorar o onboarding' } },
+      mgr,
+    )
     let settled = await settle(s.session_id)
-    expect(settled.current_step).toBe('goal')
-
-    runner.pushScreen(CONFIRM_PAYLOAD, { structure: TASKS_STRUCTURE })
-    await service.answer({ session_id: s.session_id, step: 'goal', answer: { choice: epic.id } }, mgr)
-    settled = await settle(s.session_id)
-    expect(settled.epic_id).toBe(epic.id)
     expect(settled.current_step).toBe('tasks')
+    expect(settled.answers['goal']).toEqual({ objective: 'melhorar o onboarding' })
     expect(settled.outputs['tasks']?.structure).toEqual(TASKS_STRUCTURE)
+    expect(runner.prompts[0]).toContain('melhorar o onboarding')
 
-    runner.pushScreen(FORM_PAYLOAD)
+    runner.pushScreen(RISKS_PAYLOAD)
     await service.answer(
       { session_id: s.session_id, step: 'tasks', answer: { tasks: [{ title: 'Tarefa 1 editada', type: 'task' }] } },
       mgr,
@@ -224,37 +183,14 @@ describe('fluxo completo até review', () => {
     expect(settled.status).toBe('awaiting_user')
     expect(settled.answers['review']).toEqual({ approved: true })
   })
-
-  it('objetivo ad-hoc (adhoc) não seta epic_id', async () => {
-    await setupTestProject(paths, 'test-project')
-    runner.pushScreen(FORM_PAYLOAD)
-    const s = await service.start({ project: 'test-project' }, mgr)
-    await settle(s.session_id)
-
-    runner.pushScreen(CHOICE_PAYLOAD)
-    await service.answer({ session_id: s.session_id, step: 'capacity', answer: { capacity: '3' } }, mgr)
-    await settle(s.session_id)
-
-    runner.pushScreen(CONFIRM_PAYLOAD, { structure: TASKS_STRUCTURE })
-    const settled = await service.answer(
-      { session_id: s.session_id, step: 'goal', answer: { choice: 'adhoc' } },
-      mgr,
-    )
-    expect(settled.epic_id).toBeNull()
-  })
 })
 
 describe('captureTasks (edição humana da etapa tasks)', () => {
   async function reachTasksStep(): Promise<string> {
     await setupTestProject(paths, 'test-project')
-    runner.pushScreen(FORM_PAYLOAD)
     const s = await service.start({ project: 'test-project' }, mgr)
-    await settle(s.session_id)
-    runner.pushScreen(CHOICE_PAYLOAD)
-    await service.answer({ session_id: s.session_id, step: 'capacity', answer: { capacity: '3' } }, mgr)
-    await settle(s.session_id)
     runner.pushScreen({}, { structure: TASKS_STRUCTURE })
-    await service.answer({ session_id: s.session_id, step: 'goal', answer: { choice: 'adhoc' } }, mgr)
+    await service.answer({ session_id: s.session_id, step: 'goal', answer: { objective: 'objetivo x' } }, mgr)
     await settle(s.session_id)
     return s.session_id
   }
@@ -299,9 +235,7 @@ describe('captureTasks (edição humana da etapa tasks)', () => {
 describe('finalize', () => {
   it('exige structure da etapa tasks; chama o materializer quando pronto', async () => {
     await setupTestProject(paths, 'test-project')
-    runner.pushScreen(FORM_PAYLOAD)
     const s = await service.start({ project: 'test-project' }, mgr)
-    await settle(s.session_id)
 
     await expect(service.finalize({ session_id: s.session_id }, mgr)).rejects.toMatchObject({
       status: 409,
@@ -310,17 +244,13 @@ describe('finalize', () => {
     const materializer = vi.fn().mockResolvedValue({
       project: 'test-project',
       sprint_id: 'sprint-x',
-      epic_linked: false,
       new_cards_created: 1,
       new_cards_failed: [],
     })
-    service = new SprintPlanningService(paths, store, runner, repo, sse, 'claude-test', sprints, epics, materializer)
+    service = new SprintPlanningService(paths, store, runner, repo, sse, 'claude-test', sprints, materializer)
 
-    runner.pushScreen(CHOICE_PAYLOAD)
-    await service.answer({ session_id: s.session_id, step: 'capacity', answer: { capacity: '3' } }, mgr)
-    await settle(s.session_id)
-    runner.pushScreen(CONFIRM_PAYLOAD, { structure: TASKS_STRUCTURE })
-    await service.answer({ session_id: s.session_id, step: 'goal', answer: { choice: 'adhoc' } }, mgr)
+    runner.pushScreen({}, { structure: TASKS_STRUCTURE })
+    await service.answer({ session_id: s.session_id, step: 'goal', answer: { objective: 'objetivo x' } }, mgr)
     await settle(s.session_id)
 
     const result = await service.finalize({ session_id: s.session_id }, mgr)
@@ -338,8 +268,9 @@ describe('registra tokens', () => {
   it('token_log com op PLANNING e card_type sprint_planning', async () => {
     const spy = vi.spyOn(repo, 'logTokens')
     await setupTestProject(paths, 'test-project')
-    runner.pushScreen(FORM_PAYLOAD)
     const s = await service.start({ project: 'test-project' }, mgr)
+    runner.pushScreen({}, { structure: TASKS_STRUCTURE })
+    await service.answer({ session_id: s.session_id, step: 'goal', answer: { objective: 'objetivo x' } }, mgr)
     await settle(s.session_id)
     expect(spy).toHaveBeenCalledWith(
       expect.objectContaining({
