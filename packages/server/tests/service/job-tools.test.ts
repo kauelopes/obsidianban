@@ -11,7 +11,7 @@ import { AtomicWriter } from '../../src/writer/atomic.js'
 import { SSEEventBus } from '../../src/server/sse.js'
 import { HttpError } from '../../src/services/errors.js'
 import { JobStore, JOB_ID_RE } from '../../src/jobs/store.js'
-import { JobManager, type JobConfig } from '../../src/services/job-runner.js'
+import { JobManager, type JobConfig, type WorkflowRef } from '../../src/services/job-runner.js'
 import { createJobToolHandlers } from '../../src/server/job-tools.js'
 import type { CardRepository } from '../../src/cards/repository.js'
 import type { AuditLogger } from '../../src/audit/logger.js'
@@ -26,6 +26,9 @@ let jobs: JobManager
 let handlers: Record<string, (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>>
 
 const audit = { log: vi.fn().mockResolvedValue(undefined) } as unknown as AuditLogger
+// Nenhum teste deste arquivo exercita o wake do workflow (Task 7) — só o
+// contrato de start/get/list/stop; um double no-op basta como dependência.
+const noopWorkflow: WorkflowRef = { isRunning: () => false, start: async () => undefined }
 const MGR = makeManagerClaims()
 const DEV = makeDevClaims()
 const TOKEN = { input_tokens: 0, output_tokens: 0, model: 'test' }
@@ -87,8 +90,9 @@ beforeEach(async () => {
     maxRuntimeMs: 60_000,
     maxConcurrent: 3,
     envAllowlist: [],
+    maxWakesPerSprint: 5,
   }
-  jobs = new JobManager(cfg, store, cards, sse, audit)
+  jobs = new JobManager(cfg, store, cards, sse, audit, noopWorkflow, paths)
   handlers = createJobToolHandlers({ paths, cards, jobs })
   vi.clearAllMocks()
 })

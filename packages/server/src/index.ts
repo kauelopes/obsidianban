@@ -75,7 +75,7 @@ async function main(): Promise<void> {
   // deliberada); a reidratação (jobs.init()) roda no boot, após o reconcile.
   const jobCfg = loadJobConfig(process.env, config.paths)
   const jobStore = new JobStore(config.paths)
-  const jobs = new JobManager(jobCfg, jobStore, cards, sse, audit)
+  const jobs = new JobManager(jobCfg, jobStore, cards, sse, audit, workflow, config.paths)
   const metrics = new MetricsService(db)
   const activity = new ActivityService(db, config.paths, new GitActivityService())
   const admin = new AdminService(config.paths, repo, audit, sse)

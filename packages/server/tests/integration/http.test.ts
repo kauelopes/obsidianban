@@ -92,11 +92,14 @@ beforeAll(async () => {
       maxRuntimeMs: 60_000,
       maxConcurrent: 3,
       envAllowlist: [],
+      maxWakesPerSprint: 5,
     },
     new JobStore(paths),
     cardService,
     sse,
     audit,
+    workflow,
+    paths,
   )
   server = new HttpServer({
     port: 0,

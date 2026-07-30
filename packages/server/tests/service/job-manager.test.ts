@@ -14,7 +14,8 @@ import { SSEEventBus } from '../../src/server/sse.js'
 import type { CardRepository } from '../../src/cards/repository.js'
 import type { AuditLogger } from '../../src/audit/logger.js'
 import { JobStore, type JobRecord } from '../../src/jobs/store.js'
-import { JobManager, loadJobConfig, type JobConfig } from '../../src/services/job-runner.js'
+import { JobManager, loadJobConfig, type JobConfig, type WorkflowRef } from '../../src/services/job-runner.js'
+import { loadProjectMetaOrNull, saveProjectMeta } from '../../src/vault/layout.js'
 import type { Card, SSEEvent } from '@obsidiankan/types'
 
 let paths: Paths
@@ -66,7 +67,22 @@ afterEach(async () => {
   await cleanupVault(paths)
 })
 
-function makeManager(overrides: Partial<JobConfig> = {}): JobManager {
+/** Workflow duplo de teste: por padrão nunca roda e start() nunca é chamado sem asserção explícita. */
+function makeFakeWorkflow(overrides: Partial<WorkflowRef> = {}): WorkflowRef & {
+  isRunning: ReturnType<typeof vi.fn>
+  start: ReturnType<typeof vi.fn>
+} {
+  return {
+    isRunning: vi.fn().mockReturnValue(false),
+    start: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  }
+}
+
+function makeManager(
+  overrides: Partial<JobConfig> = {},
+  workflow: WorkflowRef = makeFakeWorkflow(),
+): JobManager {
   const cfg: JobConfig = {
     logDir: path.join(paths.vault, '.kanban', 'job-logs'),
     stallThresholdMs: 60_000,
@@ -74,11 +90,20 @@ function makeManager(overrides: Partial<JobConfig> = {}): JobManager {
     maxRuntimeMs: 60_000,
     maxConcurrent: 3,
     envAllowlist: [],
+    maxWakesPerSprint: 5,
     ...overrides,
   }
-  const m = new JobManager(cfg, store, cardService, sse, audit)
+  const m = new JobManager(cfg, store, cardService, sse, audit, workflow, paths)
   managers.push(m)
   return m
+}
+
+/** Marca o projeto com target_repo (pré-condição de wake) preservando os sprints já salvos. */
+async function setTargetRepo(project: string, targetRepo: string): Promise<void> {
+  const meta = await loadProjectMetaOrNull(paths, project)
+  if (!meta) throw new Error('project meta missing')
+  meta.target_repo = targetRepo
+  await saveProjectMeta(paths, project, meta)
 }
 
 async function setupSprintAndCard(assignedJobId?: string): Promise<{ sprintId: string; card: Card }> {
@@ -167,6 +192,7 @@ describe('loadJobConfig', () => {
       maxRuntimeMs: 43_200_000,
       maxConcurrent: 3,
       envAllowlist: [],
+      maxWakesPerSprint: 5,
     })
   })
 
@@ -179,6 +205,7 @@ describe('loadJobConfig', () => {
         JOB_MAX_RUNTIME_MS: '9999',
         JOB_MAX_CONCURRENT: '1',
         JOB_ENV_ALLOWLIST: 'FOO, BAR ,',
+        JOB_MAX_WAKES_PER_SPRINT: '2',
       },
       p,
     )
@@ -189,6 +216,7 @@ describe('loadJobConfig', () => {
       maxRuntimeMs: 9999,
       maxConcurrent: 1,
       envAllowlist: ['FOO', 'BAR'],
+      maxWakesPerSprint: 2,
     })
   })
 })
@@ -591,6 +619,135 @@ describe('JobManager', () => {
       await fs.writeFile(path.join(store.baseDir, 'job-corrupt9.json'), '{nope', 'utf8')
       const m = makeManager()
       await expect(m.init()).resolves.toBeUndefined()
+    })
+  })
+
+  describe('wake do workflow (Task 7)', () => {
+    async function assignCardToJob(card: Card, jobId: string): Promise<Card> {
+      return cardService.update(
+        { ...TOKEN, id: card.id, version: card.version, status: 'in_progress', assigned_to: `job:${jobId}` },
+        MGR,
+      )
+    }
+
+    it('workflow rodando → finalize não chama start', async () => {
+      const jobId = nextJobId()
+      const { sprintId, card } = await setupSprintAndCard(jobId)
+      await setTargetRepo('test-project', '/fake/repo')
+      const workflow = makeFakeWorkflow({ isRunning: vi.fn().mockReturnValue(true) })
+      const m = makeManager({}, workflow)
+
+      await m.start(startParams(jobId, card.id, sprintId, 'echo done'))
+      await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).status === 'todo')
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(workflow.start).not.toHaveBeenCalled()
+    })
+
+    it('workflow parado + sprint ativa → start chamado exatamente 1x', async () => {
+      const jobId = nextJobId()
+      const { sprintId, card } = await setupSprintAndCard(jobId)
+      await setTargetRepo('test-project', '/fake/repo')
+      const workflow = makeFakeWorkflow()
+      const m = makeManager({}, workflow)
+
+      await m.start(startParams(jobId, card.id, sprintId, 'echo done'))
+      await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).status === 'todo')
+      await waitFor(() => workflow.start.mock.calls.length >= 1)
+
+      expect(workflow.start).toHaveBeenCalledTimes(1)
+      expect(workflow.start).toHaveBeenCalledWith(sprintId, 'test-project', '/fake/repo')
+    })
+
+    it('cap de wakes por sprint: a partir do cap, start não é chamado e o card recebe escalate', async () => {
+      const { sprintId, card: card1 } = await setupSprintAndCard()
+      await setTargetRepo('test-project', '/fake/repo')
+      const workflow = makeFakeWorkflow()
+      const m = makeManager({ maxWakesPerSprint: 2 }, workflow)
+
+      const card2 = await cardService.create(
+        { ...TOKEN, title: 'C2', type: 'task', project: 'test-project', sprint_id: sprintId },
+        MGR,
+      )
+      const card3 = await cardService.create(
+        { ...TOKEN, title: 'C3', type: 'task', project: 'test-project', sprint_id: sprintId },
+        MGR,
+      )
+
+      for (const card of [card1, card2, card3]) {
+        const jobId = nextJobId()
+        const assigned = await assignCardToJob(card, jobId)
+        await m.start(startParams(jobId, assigned.id, sprintId, 'echo done'))
+        await waitFor(async () => (await cardService.get({ id: assigned.id }, MGR)).status === 'todo')
+      }
+
+      expect(workflow.start).toHaveBeenCalledTimes(2)
+      const after3 = await cardService.get({ id: card3.id }, MGR)
+      expect(after3.body).toContain('workflow was not restarted')
+    })
+
+    it('workflow.start lançando não propaga; card recebe escalate', async () => {
+      const jobId = nextJobId()
+      const { sprintId, card } = await setupSprintAndCard(jobId)
+      await setTargetRepo('test-project', '/fake/repo')
+      const workflow = makeFakeWorkflow({ start: vi.fn().mockRejectedValue(new Error('boom')) })
+      const m = makeManager({}, workflow)
+
+      await m.start(startParams(jobId, card.id, sprintId, 'echo done'))
+      await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).status === 'todo')
+      await waitFor(() => workflow.start.mock.calls.length >= 1)
+      await waitFor(async () =>
+        (await cardService.get({ id: card.id }, MGR)).body.includes('workflow was not restarted'),
+      )
+
+      const after = await cardService.get({ id: card.id }, MGR)
+      expect(after.body).toContain('workflow was not restarted')
+    })
+
+    it('job stopped nunca aciona o wake', async () => {
+      const jobId = nextJobId()
+      const { sprintId, card } = await setupSprintAndCard(jobId)
+      await setTargetRepo('test-project', '/fake/repo')
+      const workflow = makeFakeWorkflow()
+      const m = makeManager({}, workflow)
+
+      await m.start(startParams(jobId, card.id, sprintId, 'sleep 30'))
+      await m.stop(jobId, 'human:kaue')
+      await waitFor(async () => (await m.status(jobId))?.status === 'stopped')
+      await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).status === 'todo')
+      // Dá tempo pro finalize concluir de todo — inclusive um wake indevido.
+      await new Promise((r) => setTimeout(r, 100))
+
+      expect(workflow.start).not.toHaveBeenCalled()
+    })
+
+    it('job lost (pid morto na reidratação) nunca aciona o wake', async () => {
+      const jobId = nextJobId()
+      const { sprintId, card } = await setupSprintAndCard(jobId)
+      await setTargetRepo('test-project', '/fake/repo')
+
+      const dead = spawn('true')
+      await new Promise((resolve) => dead.on('close', resolve))
+      const record: JobRecord = {
+        job_id: jobId,
+        card_id: card.id,
+        sprint_id: sprintId,
+        project: 'test-project',
+        command: 'sleep 999',
+        pid: dead.pid ?? null,
+        status: 'running',
+        started_at: new Date().toISOString(),
+        last_output_at: new Date().toISOString(),
+        claimed_by: 'agent:dev-agent',
+      }
+      await store.save(record)
+
+      const workflow = makeFakeWorkflow()
+      const m = makeManager({}, workflow)
+      await m.init()
+
+      expect((await m.status(jobId))?.status).toBe('lost')
+      expect(workflow.start).not.toHaveBeenCalled()
     })
   })
 })

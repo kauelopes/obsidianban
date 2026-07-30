@@ -10,6 +10,7 @@ import type { CardService } from './card.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { SSEEventBus } from '../server/sse.js'
 import type { Paths } from '../config.js'
+import { loadProjectMetaOrNull } from '../vault/layout.js'
 import type { JobStatus, JobView, LogKind } from '@obsidiankan/types'
 import { WORKFLOW_LOG_CHUNK_MAX } from '../util/constants.js'
 
@@ -25,6 +26,8 @@ export interface JobConfig {
   maxConcurrent: number
   /** Nomes extras de env repassados ao filho, além da base fixa. */
   envAllowlist: string[]
+  /** Máximo de tentativas de "wake" do workflow por sprint (em memória — ver Task 7). */
+  maxWakesPerSprint: number
 }
 
 /**
@@ -48,7 +51,18 @@ export function loadJobConfig(env: NodeJS.ProcessEnv, paths: Paths): JobConfig {
     maxRuntimeMs: num('JOB_MAX_RUNTIME_MS', 43_200_000),
     maxConcurrent: num('JOB_MAX_CONCURRENT', 3),
     envAllowlist: allowlist,
+    maxWakesPerSprint: num('JOB_MAX_WAKES_PER_SPRINT', 5),
   }
+}
+
+/**
+ * Referência mínima e estrutural ao WorkflowManager — só o suficiente para o
+ * "wake" do Task 7 (checar se roda, tentar iniciar). Evita importar a classe
+ * inteira aqui (services/workflow-runner.ts) só por essas duas assinaturas.
+ */
+export interface WorkflowRef {
+  isRunning(sprintId: string): boolean
+  start(sprintId: string, project: string, targetRepo: string): Promise<unknown>
 }
 
 export interface JobStartParams {
@@ -125,8 +139,8 @@ const CARD_LOG_TAIL_LINES = 5
  *   - watchdog único de silêncio (JOB_STALLED, nunca mata o processo);
  *   - backstop de duração (maxRuntimeMs → kill + 'timeout');
  *   - ao terminar, devolve o card a `todo` via CardService.completeJob —
- *     condicionado ao card ainda estar parado no job (intervenção humana vence).
- * Sem wake de workflow aqui (Task 7).
+ *     condicionado ao card ainda estar parado no job (intervenção humana vence);
+ *   - depois disso, tenta "acordar" o sprint workflow se ele já drenou (Task 7).
  */
 export class JobManager {
   private readonly runs = new Map<string, Run>()
@@ -140,6 +154,8 @@ export class JobManager {
   private readonly pendingStarts = new Map<string, { cardId: string; sprintId: string }>()
   /** Finalizes em voo — drenados no dispose() para o shutdown não estrandar cards. */
   private readonly pendingFinalizes = new Set<Promise<void>>()
+  /** Contagem de tentativas de wake por sprint — em memória, por vida do servidor (Task 7). */
+  private readonly wakeAttemptsBySprint = new Map<string, number>()
   private readonly watchdog: NodeJS.Timeout
   private tickInFlight = false
 
@@ -149,6 +165,8 @@ export class JobManager {
     private readonly cards: CardService,
     private readonly sse: SSEEventBus,
     private readonly audit: AuditLogger,
+    private readonly workflow: WorkflowRef,
+    private readonly paths: Paths,
   ) {
     this.watchdog = setInterval(() => void this.tick(), this.cfg.stallPollMs)
     this.watchdog.unref()
@@ -797,8 +815,54 @@ export class JobManager {
       logger.warn({ err, job: record.job_id, card: record.card_id }, 'jobs: completeJob on card failed')
     }
 
+    // Wake do workflow: DEPOIS do completeJob (card já em todo quando o round
+    // novo nasce). 'stopped' (humano pediu) e 'lost' (evitar tempestade de
+    // wakes no boot) nunca acordam o workflow.
+    if (status === 'succeeded' || status === 'failed' || status === 'timeout') {
+      await this.maybeWakeWorkflow(record)
+    }
+
     // Registro terminal sai da memória — status()/listForCard leem do store.
     this.runs.delete(record.job_id)
+  }
+
+  /**
+   * Se o sprint workflow já drenou quando um job termina, o card devolvido a
+   * `todo` ficaria esperando um humano. Tenta reiniciar o workflow (mesma
+   * checagem de target_repo/sprint ativo que autoLaunchWorkflowForStartedNext
+   * usa em index.ts), respeitando um cap de tentativas por sprint (em
+   * memória). Fora dessas condições, ou se o start falhar, registra um
+   * escalate no card em vez de propagar o erro — best-effort, nunca derruba o
+   * finalize.
+   */
+  private async maybeWakeWorkflow(record: JobRecord): Promise<void> {
+    if (this.workflow.isRunning(record.sprint_id)) return
+
+    const meta = await loadProjectMetaOrNull(this.paths, record.project).catch((err) => {
+      logger.warn({ err, job: record.job_id, project: record.project }, 'jobs: wake — failed to load project meta')
+      return null
+    })
+    const sprint = meta?.sprints?.find((s) => s.id === record.sprint_id)
+    const sprintActive = sprint?.status === 'active'
+    const targetRepo = meta?.target_repo
+    const attempts = this.wakeAttemptsBySprint.get(record.sprint_id) ?? 0
+
+    if (sprintActive && targetRepo && attempts < this.cfg.maxWakesPerSprint) {
+      this.wakeAttemptsBySprint.set(record.sprint_id, attempts + 1)
+      try {
+        await this.workflow.start(record.sprint_id, record.project, targetRepo)
+        return
+      } catch (err) {
+        logger.warn({ err, job: record.job_id, sprint: record.sprint_id }, 'jobs: workflow wake failed')
+      }
+    }
+
+    await this.appendCardLog(
+      record.card_id,
+      `Job \`${record.job_id}\` finished and the card is back in todo, but the workflow was not ` +
+        'restarted — start it with kanban_workflow_start.',
+      'escalate',
+    )
   }
 
   /**
