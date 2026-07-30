@@ -69,6 +69,8 @@ export class SprintStubRunner implements TurnRunner {
         return {
           markdown: `## ${def.title} (stub)\n\nTexto sintético para a tela de confirmação.\n\n- ponto um\n- ponto dois`,
         }
+      case 'task_list':
+        return { intro: `${def.title} (stub) — contexto sintético` }
     }
   }
 
