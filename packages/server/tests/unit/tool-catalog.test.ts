@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { TOOL_CATALOG } from '../../src/server/tool-catalog.js'
 
 const VALID_ACCESS = new Set(['all', 'pm', 'manager'])
-const VALID_CATEGORIES = new Set(['Cards', 'Workflow', 'Projetos', 'Auth', 'Sprints', 'Planejamento'])
+const VALID_CATEGORIES = new Set(['Cards', 'Workflow', 'Jobs', 'Projetos', 'Auth', 'Sprints', 'Planejamento'])
 
 describe('TOOL_CATALOG structural integrity', () => {
   it('has at least one entry', () => {
@@ -44,6 +44,16 @@ describe('TOOL_CATALOG structural integrity', () => {
       (t) => t.category !== 'Projetos' && t.category !== 'Auth' && t.category !== 'Planejamento',
     )
     expect(wrongCategory).toEqual([])
+  })
+
+  it("the four job tools exist in category Jobs with access 'all'", () => {
+    const jobTools = ['kanban_start_job', 'kanban_get_job', 'kanban_list_jobs', 'kanban_stop_job']
+    for (const name of jobTools) {
+      const entry = TOOL_CATALOG.find((t) => t.name === name)
+      expect(entry, `${name} missing from catalog`).toBeDefined()
+      expect(entry!.category, `${name} category`).toBe('Jobs')
+      expect(entry!.access, `${name} access`).toBe('all')
+    }
   })
 
   it("dev-accessible tools include kanban_pick_next, kanban_move_card, kanban_log_on_card", () => {

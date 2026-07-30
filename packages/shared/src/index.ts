@@ -454,6 +454,8 @@ export interface WorkflowAgentsStatus {
   in_progress_cards: WorkflowInProgressCard[]
   /** Última tool call vista no log — em voo ou já concluída — ou null se nenhuma ainda. */
   last_tool: WorkflowLastTool | null
+  /** Jobs de longa duração rodando NESTA sprint (`stalled` computado ao vivo). */
+  jobs: JobView[]
 }
 
 // ─── Jobs de longa duração (comandos de horas) ───────────────────────────────

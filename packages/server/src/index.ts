@@ -34,6 +34,9 @@ import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
 import { WorkflowManager, loadWorkflowConfig } from './services/workflow-runner.js'
+import { JobManager, loadJobConfig } from './services/job-runner.js'
+import { JobStore } from './jobs/store.js'
+import { createJobToolHandlers } from './server/job-tools.js'
 import { badRequest, conflict } from './services/errors.js'
 import path from 'node:path'
 import { logger } from './util/logger.js'
@@ -68,6 +71,11 @@ async function main(): Promise<void> {
   const workflow = new WorkflowManager(workflowCfg, sse, config.paths)
   if (workflowCfg.autoLaunch) logger.info({ scriptPath: workflowCfg.scriptPath }, 'workflow: auto-launch enabled')
   const cards = new CardService(config.paths, repo, writer, audit, sse)
+  // Jobs de longa duração — instanciado logo após o WorkflowManager (ordem
+  // deliberada); a reidratação (jobs.init()) roda no boot, após o reconcile.
+  const jobCfg = loadJobConfig(process.env, config.paths)
+  const jobStore = new JobStore(config.paths)
+  const jobs = new JobManager(jobCfg, jobStore, cards, sse, audit)
   const metrics = new MetricsService(db)
   const activity = new ActivityService(db, config.paths, new GitActivityService())
   const admin = new AdminService(config.paths, repo, audit, sse)
@@ -167,7 +175,8 @@ async function main(): Promise<void> {
   )
   const queries = new QueryService(repo, config.paths, () => admin.getArchivedProjects())
   const history = new HistoryService(config.paths)
-  const supervision = new SupervisionService(config.paths, repo)
+  // JobManager real injetado: distingue "job vivo" de card preso em job morto.
+  const supervision = new SupervisionService(config.paths, repo, jobs)
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   type ToolDef = { name: string; description: string; inputSchema?: Record<string, unknown>; access: ToolAccess; handler: ToolFn }
@@ -262,6 +271,9 @@ async function main(): Promise<void> {
       await sprints.getSprint({ sprint_id: sprintId }, c)
       return { sprint_id: sprintId, run: workflow.status(sprintId) }
     },
+    // kanban_start_job / kanban_get_job / kanban_list_jobs / kanban_stop_job —
+    // handlers em server/job-tools.ts (contrato de start testável isolado).
+    ...createJobToolHandlers({ paths: config.paths, cards, jobs }),
     kanban_list_sprints: async (p, c) => sprints.listSprints(p, c),
     kanban_get_sprint: async (p, c) => sprints.getSprint(p, c),
     kanban_add_to_sprint: async (p, c) => sprints.addToSprint(p, c),
@@ -295,6 +307,9 @@ async function main(): Promise<void> {
 
     const report = await reconcile(config.paths, repo, audit, { sqliteRebuilt: createdFromScratch })
     logger.info({ ...report }, 'startup: reconciliation complete')
+    // Reidratação de jobs após o reconcile (readota pids vivos, finaliza
+    // 'lost' os mortos, refaz hand-backs interrompidos). Nunca derruba o boot.
+    await jobs.init()
 
     const watcher = new FileWatcher(config.paths, repo, writer, audit, sse)
     await watcher.start()
@@ -303,6 +318,8 @@ async function main(): Promise<void> {
 
     const shutdown = async (signal: string): Promise<void> => {
       logger.info({ signal }, 'shutdown signal received')
+      // Drena finalizes em voo antes de fechar o db — jobs seguem rodando.
+      await jobs.dispose()
       await watcher.stop()
       db.close()
       process.exit(0)
@@ -337,7 +354,7 @@ async function main(): Promise<void> {
   const site = (await candidate.isAvailable()) ? candidate : undefined
   if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
 
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths })
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths, jobManager: jobs })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }
@@ -347,6 +364,9 @@ async function main(): Promise<void> {
   const report = await reconcile(config.paths, repo, audit, { sqliteRebuilt: createdFromScratch })
   state.reconciling = false
   logger.info({ ...report }, 'startup: reconciliation complete')
+  // Reidratação de jobs após o reconcile (readota pids vivos, finaliza 'lost'
+  // os mortos, refaz hand-backs interrompidos). Nunca derruba o boot.
+  await jobs.init()
 
   const watcher = new FileWatcher(config.paths, repo, writer, audit, sse)
   await watcher.start()
@@ -354,6 +374,8 @@ async function main(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutdown signal received')
+    // Drena finalizes em voo antes de fechar o db — jobs seguem rodando.
+    await jobs.dispose()
     await watcher.stop()
     await httpServer.stop()
     db.close()

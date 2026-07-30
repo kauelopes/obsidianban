@@ -14,6 +14,7 @@ import type { McpHttpManager } from './mcp-http.js'
 import type { StaticSite } from './static.js'
 import type { SessionToken } from '../auth/session.js'
 import type { WorkflowManager } from '../services/workflow-runner.js'
+import type { JobManager } from '../services/job-runner.js'
 import type { CardRepository } from '../cards/repository.js'
 import type { Paths } from '../config.js'
 import { listAgentTokens } from '../auth/tokens.js'
@@ -46,6 +47,8 @@ export interface HttpServerDeps {
   cardsRepo?: CardRepository | undefined
   /** Necessário para resolver actor → papel (pm/dev) em GET /workflow/agents. */
   paths?: Paths | undefined
+  /** Jobs de longa duração — alimenta o campo `jobs` em GET /workflow/agents. */
+  jobManager?: Pick<JobManager, 'listRunning'> | undefined
 }
 
 interface ToolHandler {
@@ -283,6 +286,11 @@ export class HttpServer {
         }))
     }
 
+    // A rota é escopada por sprint (sprint_id é obrigatório acima), então o
+    // campo segue o mesmo escopo: só os jobs running DESTA sprint.
+    const jobs =
+      this.deps.jobManager?.listRunning().filter((j) => j.sprint_id === sprintId) ?? []
+
     const body: WorkflowAgentsStatus = {
       sprint_id: sprintId,
       run,
@@ -290,6 +298,7 @@ export class HttpServer {
       last_activity_at: lastActivityAt,
       in_progress_cards: inProgressCards,
       last_tool: lastTool,
+      jobs,
     }
     sendJson(res, 200, body)
   }

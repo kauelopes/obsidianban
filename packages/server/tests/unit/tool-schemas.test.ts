@@ -118,4 +118,33 @@ describe('TOOL_SCHEMAS per-tool spot checks', () => {
     expect(schema['required']).toContain('version')
     expect(schema['required']).toContain('log_entry')
   })
+
+  it('kanban_start_job requires id, version, command — description optional', () => {
+    const schema = TOOL_SCHEMAS['kanban_start_job'] as Record<string, unknown>
+    expect(schema['required']).toEqual(['id', 'version', 'command'])
+    const props = schema['properties'] as Record<string, unknown>
+    expect(props['description']).toBeDefined()
+  })
+
+  it('kanban_get_job requires job_id and accepts optional log_offset', () => {
+    const schema = TOOL_SCHEMAS['kanban_get_job'] as Record<string, unknown>
+    expect(schema['required']).toEqual(['job_id'])
+    const props = schema['properties'] as Record<string, unknown>
+    expect(props['log_offset']).toBeDefined()
+  })
+
+  it('kanban_list_jobs has no required fields and filters by card_id, sprint_id, status', () => {
+    const schema = TOOL_SCHEMAS['kanban_list_jobs'] as Record<string, unknown>
+    expect(schema['required']).toBeUndefined()
+    const props = schema['properties'] as Record<string, Record<string, unknown>>
+    expect(Object.keys(props).sort()).toEqual(['card_id', 'sprint_id', 'status'])
+    expect(props['status']!['enum']).toEqual(['running', 'succeeded', 'failed', 'timeout', 'stopped', 'lost'])
+  })
+
+  it('kanban_stop_job requires job_id — reason optional', () => {
+    const schema = TOOL_SCHEMAS['kanban_stop_job'] as Record<string, unknown>
+    expect(schema['required']).toEqual(['job_id'])
+    const props = schema['properties'] as Record<string, unknown>
+    expect(props['reason']).toBeDefined()
+  })
 })

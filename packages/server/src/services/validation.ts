@@ -171,6 +171,11 @@ export function generateEpicId(): string {
   return generateId('epic')
 }
 
+/** `job-{nanoid(8)}` — must satisfy JOB_ID_RE from jobs/store.ts. */
+export function generateJobId(): string {
+  return generateId('job')
+}
+
 function generateId(prefix: string): string {
   let id = `${prefix}-`
   const arr = new Uint8Array(8)

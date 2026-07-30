@@ -324,6 +324,48 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     additionalProperties: false,
   },
 
+  kanban_start_job: {
+    type: 'object',
+    required: ['id', 'version', 'command'],
+    properties: {
+      id:          { type: 'string', description: 'card id the job runs for' },
+      version:     { type: 'integer', minimum: 1, description: "the card's current version (optimistic locking)" },
+      command:     { type: 'string', maxLength: 4000, description: "shell command executed by the server in the project's target_repo" },
+      description: { type: 'string', maxLength: 500, description: 'short human-readable summary of what the job does' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_get_job: {
+    type: 'object',
+    required: ['job_id'],
+    properties: {
+      job_id:     { type: 'string' },
+      log_offset: { type: 'integer', minimum: 0, description: 'byte offset into the job log — pass 0 for the beginning, then the returned size as the next offset' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_list_jobs: {
+    type: 'object',
+    properties: {
+      card_id:   { type: 'string' },
+      sprint_id: { type: 'string' },
+      status:    { type: 'string', enum: ['running', 'succeeded', 'failed', 'timeout', 'stopped', 'lost'] },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_stop_job: {
+    type: 'object',
+    required: ['job_id'],
+    properties: {
+      job_id: { type: 'string' },
+      reason: { type: 'string', maxLength: 500, description: "why the job is being stopped — recorded in the card's Agent Log" },
+    },
+    additionalProperties: false,
+  },
+
   kanban_create_project: {
     type: 'object',
     required: ['project', 'actor'],

@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
 import type { Paths } from '../config.js'
 import type { Card } from '@obsidiankan/types'
@@ -43,7 +43,11 @@ export class AtomicWriter {
     options: WriteOptions = {},
   ): Promise<{ fileHash: string }> {
     const filePath = cardFilePath(this.paths, card.project, basename)
-    const tmpPath = filePath + '.tmp'
+    // Unique per call — two concurrent writes to the same card (e.g. a job's
+    // async finalize racing a handler's own log write) must not share a tmp
+    // path: a shared name lets one writer's open('w') truncate the other's
+    // in-flight tmp file, and the loser's rename then fails with ENOENT.
+    const tmpPath = `${filePath}.${randomBytes(4).toString('hex')}.tmp`
     const content = serializeCard(card, body)
     const fileHash = sha256(content)
 

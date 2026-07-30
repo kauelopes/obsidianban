@@ -22,6 +22,8 @@ import { makeManagerClaims } from '../helpers/factories.js'
 import { httpPost, httpGet } from '../helpers/http.js'
 import type { McpHttpManager } from '../../src/server/mcp-http.js'
 import { WorkflowManager } from '../../src/services/workflow-runner.js'
+import { JobStore } from '../../src/jobs/store.js'
+import { JobManager } from '../../src/services/job-runner.js'
 
 let paths: Paths
 let server: HttpServer
@@ -29,6 +31,7 @@ let port: number
 let pmTokenRaw: string
 let devTokenRaw: string
 let sprintId: string
+let jobManager: JobManager
 
 const TOKEN = { input_tokens: 0, output_tokens: 0, model: 'test' }
 
@@ -81,6 +84,20 @@ beforeAll(async () => {
     sse,
     paths,
   )
+  jobManager = new JobManager(
+    {
+      logDir: path.join(paths.vault, '.kanban', 'job-logs'),
+      stallThresholdMs: 60_000,
+      stallPollMs: 60_000,
+      maxRuntimeMs: 60_000,
+      maxConcurrent: 3,
+      envAllowlist: [],
+    },
+    new JobStore(paths),
+    cardService,
+    sse,
+    audit,
+  )
   server = new HttpServer({
     port: 0,
     state,
@@ -93,6 +110,7 @@ beforeAll(async () => {
     workflow,
     cardsRepo: repo,
     paths,
+    jobManager,
   })
 
   server.registerTool('kanban_create_card', (p, c) =>
@@ -120,6 +138,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
+  await jobManager.dispose()
   await server.stop()
   await cleanupVault(paths)
 })
@@ -572,5 +591,47 @@ describe('GET /workflow/agents', () => {
 
   it('400 sem sprint_id', async () => {
     expect((await httpGet(port, '/workflow/agents')).status).toBe(400)
+  })
+
+  it('sempre carrega o campo jobs — [] quando nada roda', async () => {
+    const res = await httpGet(port, '/workflow/agents?sprint_id=wf1')
+    expect(res.status).toBe(200)
+    expect((res.body as Record<string, unknown>)['jobs']).toEqual([])
+  })
+
+  it('lista só os jobs running da sprint pedida', async () => {
+    const created = await httpPost(
+      port,
+      '/mcp/tool/kanban_create_card',
+      { title: 'Job HTTP Card', type: 'task', sprint_id: sprintId, ...TOKEN },
+      pmTokenRaw,
+    )
+    const cardId = (created.body as Record<string, unknown>)['id'] as string
+    await jobManager.start({
+      jobId: 'job-httptest',
+      cardId,
+      sprintId,
+      project: 'test-project',
+      command: 'sleep 5',
+      cwd: paths.vault,
+      claimedBy: 'agent:dev',
+    })
+
+    const mine = await httpGet(port, `/workflow/agents?sprint_id=${sprintId}`)
+    const jobs = (mine.body as Record<string, unknown>)['jobs'] as Array<Record<string, unknown>>
+    expect(jobs.map((j) => j['job_id'])).toEqual(['job-httptest'])
+    expect(typeof jobs[0]!['stalled']).toBe('boolean')
+
+    const other = await httpGet(port, '/workflow/agents?sprint_id=wf1')
+    expect((other.body as Record<string, unknown>)['jobs']).toEqual([])
+
+    await jobManager.stop('job-httptest', 'human:test')
+    // Espera o finalize terminar (hand-back gravado) antes do teste acabar —
+    // sem isso, o afterAll global (dispose + cleanupVault) pode correr
+    // enquanto o write do log/card do finalize ainda está em voo.
+    await vi.waitFor(async () => {
+      const status = await jobManager.status('job-httptest')
+      expect(status?.status).toBe('stopped')
+    })
   })
 })

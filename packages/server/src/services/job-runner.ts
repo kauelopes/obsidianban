@@ -222,6 +222,22 @@ export class JobManager {
     return this.overlay(records)
   }
 
+  /**
+   * Listagem geral com filtros opcionais (kanban_list_jobs), mais novo
+   * primeiro. Mesma disciplina de listForCard: o store é a base (todo job é
+   * persistido antes do spawn) e os registros em memória sobrepõem.
+   */
+  async list(filter: { cardId?: string; sprintId?: string; status?: JobStatus } = {}): Promise<JobView[]> {
+    const records = await this.store.list()
+    const views = await this.overlay(records)
+    return views.filter(
+      (v) =>
+        (!filter.cardId || v.card_id === filter.cardId) &&
+        (!filter.sprintId || v.sprint_id === filter.sprintId) &&
+        (!filter.status || v.status === filter.status),
+    )
+  }
+
   /** Jobs running em memória (fonte de verdade com o servidor de pé). */
   listRunning(): JobView[] {
     const views = [...this.runs.values()]
