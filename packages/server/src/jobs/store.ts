@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs'
+import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import type { Paths } from '../config.js'
 import { logger } from '../util/logger.js'
@@ -31,7 +32,12 @@ export class JobStore {
   async save(job: JobRecord): Promise<void> {
     await fs.mkdir(this.dir, { recursive: true })
     const file = path.join(this.dir, `${job.job_id}.json`)
-    const tmp = `${file}.tmp`
+    // Unique per call — the throttle write (last_output_at every ~10s) can
+    // race the terminal finalize write for the same job. A shared .tmp name
+    // lets one writer's write truncate the other's in-flight file, and the
+    // loser's rename then fails with ENOENT (seen in production). Same fix
+    // as AtomicWriter.write in ../writer/atomic.ts.
+    const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`
     await fs.writeFile(tmp, JSON.stringify(job, null, 2) + '\n', 'utf8')
     await fs.rename(tmp, file)
   }

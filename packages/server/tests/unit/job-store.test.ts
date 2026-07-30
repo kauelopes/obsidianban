@@ -59,6 +59,26 @@ describe('JobStore', () => {
     expect(entries).toEqual([`${job.job_id}.json`])
   })
 
+  it('duas escritas concorrentes do mesmo job não colidem no .tmp: ambas completam e nenhum .tmp órfão sobra', async () => {
+    const jobId = 'job-AAAAAAAA'
+    const throttleWrite = makeJob({ job_id: jobId, last_output_at: '2026-01-01T00:00:10.000Z' })
+    const finalizeWrite = makeJob({
+      job_id: jobId,
+      status: 'succeeded',
+      last_output_at: '2026-01-01T00:00:20.000Z',
+    })
+
+    await Promise.all([store.save(throttleWrite), store.save(finalizeWrite)])
+
+    const entries = await fs.readdir(path.join(paths.kanbanInternal, 'jobs'))
+    expect(entries).toEqual([`${jobId}.json`])
+
+    // O arquivo final é íntegro: reflete exatamente uma das duas escritas
+    // (last writer wins), nunca um mix truncado/corrompido das duas.
+    const loaded = await store.load(jobId)
+    expect([throttleWrite, finalizeWrite]).toContainEqual(loaded)
+  })
+
   it('list retorna todos os jobs e ignora lixo/arquivos corrompidos no diretório', async () => {
     const a = makeJob({ job_id: 'job-AAAAAAAA' })
     const b = makeJob({ job_id: 'job-BBBBBBBB' })
