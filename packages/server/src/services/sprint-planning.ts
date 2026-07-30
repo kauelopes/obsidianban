@@ -110,6 +110,7 @@ export class SprintPlanningService {
 
     session.answers[session.current_step] = answer
     if (session.current_step === 'goal') this.captureGoal(session, answer)
+    if (session.current_step === 'tasks') this.captureTasks(session, answer)
 
     const next = nextSprintStep(session.current_step)
     if (!next) {
@@ -355,6 +356,28 @@ export class SprintPlanningService {
     if (typeof choice === 'string' && choice !== 'adhoc') {
       session.epic_id = choice
     }
+  }
+
+  /**
+   * Reconcilia a edição humana da lista de tarefas de volta em
+   * outputs['tasks'].structure — sem isso, finalize() só materializaria a
+   * proposta original do LLM, nunca a edição do usuário. name/goal não fazem
+   * parte desta tela e ficam intocados.
+   */
+  private captureTasks(session: SprintPlanningSession, answer: unknown): void {
+    const existing = session.outputs['tasks']?.structure as { name: string; goal: string } | undefined
+    if (!existing) throw conflict({ reason: 'structure_missing', hint: 'complete a etapa tasks antes' })
+    if (typeof answer !== 'object' || answer === null) {
+      throw badRequest('invalid_field', { field: 'tasks' })
+    }
+    const tasksRaw = (answer as Record<string, unknown>)['tasks']
+    let structure
+    try {
+      structure = validateFinalSprint({ name: existing.name, goal: existing.goal, tasks: tasksRaw })
+    } catch (err) {
+      throw badRequest('invalid_field', { field: 'tasks', detail: (err as Error).message })
+    }
+    session.outputs['tasks'] = { ...session.outputs['tasks']!, structure }
   }
 
   private requireAwaiting(session: SprintPlanningSession): void {

@@ -200,9 +200,17 @@ describe('fluxo completo até review', () => {
     expect(settled.outputs['tasks']?.structure).toEqual(TASKS_STRUCTURE)
 
     runner.pushScreen(FORM_PAYLOAD)
-    await service.answer({ session_id: s.session_id, step: 'tasks', answer: { approved: true } }, mgr)
+    await service.answer(
+      { session_id: s.session_id, step: 'tasks', answer: { tasks: [{ title: 'Tarefa 1 editada', type: 'task' }] } },
+      mgr,
+    )
     settled = await settle(s.session_id)
     expect(settled.current_step).toBe('risks')
+    expect(settled.outputs['tasks']?.structure).toEqual({
+      name: TASKS_STRUCTURE.name,
+      goal: TASKS_STRUCTURE.goal,
+      tasks: [{ title: 'Tarefa 1 editada', type: 'task' }],
+    })
 
     runner.pushScreen(CONFIRM_PAYLOAD)
     await service.answer({ session_id: s.session_id, step: 'risks', answer: { risks: 'nenhum' } }, mgr)
@@ -233,6 +241,58 @@ describe('fluxo completo até review', () => {
       mgr,
     )
     expect(settled.epic_id).toBeNull()
+  })
+})
+
+describe('captureTasks (edição humana da etapa tasks)', () => {
+  async function reachTasksStep(): Promise<string> {
+    await setupTestProject(paths, 'test-project')
+    runner.pushScreen(FORM_PAYLOAD)
+    const s = await service.start({ project: 'test-project' }, mgr)
+    await settle(s.session_id)
+    runner.pushScreen(CHOICE_PAYLOAD)
+    await service.answer({ session_id: s.session_id, step: 'capacity', answer: { capacity: '3' } }, mgr)
+    await settle(s.session_id)
+    runner.pushScreen({}, { structure: TASKS_STRUCTURE })
+    await service.answer({ session_id: s.session_id, step: 'goal', answer: { choice: 'adhoc' } }, mgr)
+    await settle(s.session_id)
+    return s.session_id
+  }
+
+  it('edição válida sobrescreve structure.tasks preservando name/goal', async () => {
+    const sessionId = await reachTasksStep()
+    const settled = await service.answer(
+      {
+        session_id: sessionId,
+        step: 'tasks',
+        answer: { tasks: [{ title: 'Nova tarefa', type: 'feature', priority: 'high' }] },
+      },
+      mgr,
+    )
+    expect(settled.outputs['tasks']?.structure).toEqual({
+      name: TASKS_STRUCTURE.name,
+      goal: TASKS_STRUCTURE.goal,
+      tasks: [{ title: 'Nova tarefa', type: 'feature', priority: 'high' }],
+    })
+  })
+
+  it('lista vazia é rejeitada com 400 e não avança a etapa', async () => {
+    const sessionId = await reachTasksStep()
+    await expect(
+      service.answer({ session_id: sessionId, step: 'tasks', answer: { tasks: [] } }, mgr),
+    ).rejects.toMatchObject({ status: 400 })
+    const after = await service.get({ session_id: sessionId }, mgr)
+    expect(after.current_step).toBe('tasks')
+  })
+
+  it('type inválido é rejeitado com 400', async () => {
+    const sessionId = await reachTasksStep()
+    await expect(
+      service.answer(
+        { session_id: sessionId, step: 'tasks', answer: { tasks: [{ title: 'x', type: 'invalido' }] } },
+        mgr,
+      ),
+    ).rejects.toMatchObject({ status: 400 })
   })
 })
 
