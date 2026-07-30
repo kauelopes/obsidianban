@@ -181,7 +181,7 @@ export function StepTaskList({
   onSubmit: (answer: { tasks: Array<Omit<PlanningTaskItem, 'id'>> }) => void
   onRefine: (feedback: string) => void
 }) {
-  const [tasks, setTasks] = useState<PlanningTaskItem[]>(payload.tasks)
+  const [tasks, setTasks] = useState<PlanningTaskItem[]>(payload.tasks ?? [])
   const patch = (i: number, p: Partial<PlanningTaskItem>) =>
     setTasks((prev) => prev.map((t, j) => (j === i ? { ...t, ...p } : t)))
   const addTag = (i: number, tag: string) =>
@@ -277,7 +277,14 @@ export function StepTaskList({
         <button
           className="primary"
           disabled={busy || tasks.length === 0 || tasks.some((t) => !t.title.trim())}
-          onClick={() => onSubmit({ tasks: tasks.map(({ id: _id, ...rest }) => rest) })}
+          onClick={() =>
+            onSubmit({
+              tasks: tasks.map(({ id: _id, body, ...rest }) => ({
+                ...rest,
+                ...(body?.trim() ? { body } : {}),
+              })),
+            })
+          }
         >
           Confirmar e continuar
         </button>
