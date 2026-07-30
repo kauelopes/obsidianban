@@ -435,7 +435,51 @@ aggregates by type/model/agent/day/operation. Filter with `?from_date=YYYY-MM-DD
 
 ---
 
-## 7. End-to-end TypeScript example
+## 7. Sprint-planning wizard
+
+`kanban_sprint_planning_start` (PM/manager only) drives a guided, multi-turn
+wizard that turns a free-text objective into a materialized sprint with
+tasks. It is a **different subsystem from the autonomous sprint-workflow**
+(`docs/for-agents/sprint-workflow.md`, the code-driven dev/PM execution
+loop) — the wizard is the *planning* step that happens before a sprint
+exists; the workflow is what *executes* an already-active sprint.
+
+Four steps, always in this order:
+
+1. **`goal`** — free-text objective. The only step with `llm: false`: it
+   renders a single form field (`objective`) with **no LLM turn at all** —
+   the user's text is stored as-is and only reaches the LLM later, embedded
+   in the context block of the next step's prompt. This is deliberate: the
+   "why" of a sprint is something the human already knows and should just
+   state, not something worth spending a model turn to elicit.
+2. **`tasks`** — the LLM proposes a sprint name, a goal restatement, and a
+   task breakdown (`task_list` screen, emits a `structure` payload the user
+   edits directly — title/type/priority/body/tags — before confirming). The
+   model chooses how many tasks to propose freely; 3–8 is typical guidance
+   in the prompt, not a hard cap.
+3. **`risks`** — a form pre-filled by the LLM with risks/dependencies
+   inferred from the proposed tasks, purely informative for the user to
+   review.
+4. **`review`** — a markdown summary (objective, tasks, risks) for final
+   approval before the sprint is materialized on the board.
+
+**What's gone from earlier versions of this wizard:** there is no capacity
+step (no velocity-based task-count suggestion) and no epic linkage — a
+sprint created by this wizard is not tied to any epic. Both were removed
+because they added a decision point (how many tasks fit, which epic does
+this belong to) that turned out to be friction, not signal, for a
+single-sprint planning session.
+
+**Materialization.** On confirming `review`, the server creates the sprint
+(name + goal, no epic) and bulk-creates the proposed tasks in one atomic
+step — see `packages/server/src/sprint-planning/materialize.ts`. In
+`PLANNING_STUB=true` dev mode, materialization is replaced by a synthetic
+result (`createStubSprintMaterializer`) — no sprint or cards are actually
+written; see `docs/reference/config.md`.
+
+---
+
+## 8. End-to-end TypeScript example
 
 See `scripts/example-agent-integration.ts` for the full working flow:
 

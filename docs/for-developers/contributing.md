@@ -115,7 +115,7 @@ Alterações em `packages/shared/src/index.ts` afetam tanto o server quanto o we
 
 ## Checklist antes de abrir PR
 
-- [ ] `pnpm run test` — todos os 267+ testes passando
+- [ ] `pnpm run test` — todos os 625+ testes passando
 - [ ] `pnpm run typecheck` — sem erros de tipo
 - [ ] `pnpm run build` — compila sem erros
 - [ ] `pnpm run gen:tools` — se alterou tools MCP

@@ -69,7 +69,7 @@ antigo não é mais rastreado, mas o log em disco continua legível.
 |---|---|---|
 | `PLANNING_MODEL` | — | Override de modelo do `claude` headless; ausente herda o default do harness |
 | `PLANNING_TURN_TIMEOUT_MS` | `240000` | Kill do turno headless após esse tempo. As etapas `sprints_tasks` e `review` geram respostas grandes — para projetos com muitos épicos, use `900000` |
-| `PLANNING_STUB` | `false` | **Modo de desenvolvimento**: `true`/`1` troca o LLM por respostas sintéticas instantâneas e gratuitas (`StubRunner`). Todas as telas do wizard funcionam, incluindo refine, retry e materialização. Nunca usar em produção — o conteúdo gerado é placeholder |
+| `PLANNING_STUB` | `false` | **Modo de desenvolvimento**: `true`/`1` troca o LLM por respostas sintéticas instantâneas e gratuitas (`StubRunner`) e a materialização final por um resultado sintético (`createStub(Sprint)Materializer`) — nenhum projeto, épico, sprint ou card é criado de verdade, nada é gravado no vault. Todas as telas do wizard funcionam, incluindo refine e retry. Nunca usar em produção |
 
 ---
 
@@ -138,3 +138,29 @@ interface Paths {
 Servido pelo servidor na mesma origem (`http://127.0.0.1:9375`), a partir do build de `packages/web/dist`. A sessão do navegador é injetada automaticamente no `index.html` — não há configuração de URL base ou token manual, exceto para trocar de identidade (colar um token sobrescreve a sessão).
 
 Em `vite dev` (porta 5273) não há injeção de sessão — o gate de token aparece, e isso é esperado.
+
+---
+
+## Custo exibido em Home/Metrics: preço de lista da API, não plano de assinatura
+
+Os valores de custo em US$ mostrados em **Home** (`packages/web/src/home/Home.tsx`) e
+**Métricas** (`packages/web/src/metrics/Metrics.tsx`, `widgets.tsx`) são sempre o
+**preço de lista da API pay-per-token** — nunca refletem o que se paga num plano de
+assinatura flat-rate (Claude Max e afins). Se o uso vier majoritariamente de um plano
+desses, o número exibido superestima o custo real; para uma medida imune a essa
+distorção, use os totais de tokens (entrada/saída/cache) ao lado do custo, não o valor
+em US$.
+
+Dois números coexistem, calculados de formas diferentes:
+
+- **Medido** (`measured`) — soma do `cost_usd` que as próprias operações reportaram
+  (o `total_cost_usd` que o harness do sprint workflow devolve por rodada). Quando
+  existe, é o valor autoritativo.
+- **Estimado** (`estimated`) — calculado a partir dos tokens por modelo × uma tabela
+  de preços local (`estimateUsd`), usado como fallback quando nada foi medido ainda,
+  ou mostrado como referência complementar ao lado do medido. Ignora cache e qualquer
+  operação de um modelo fora da tabela de preços (`human`, `unknown` não entram na
+  conta) — por isso pode divergir do medido mesmo quando ambos existem.
+
+`GET /metrics` (ver `docs/for-agents/integration-guide.md` §6) devolve os totais brutos
+por trás desses dois números; a UI só formata e explica a distinção via tooltip.

@@ -1,6 +1,6 @@
 # Guia de Testes — ObsidianKan
 
-O servidor usa [Vitest](https://vitest.dev/) com 267 testes distribuídos em unit, service e integration.
+O servidor usa [Vitest](https://vitest.dev/) com 625 testes distribuídos em unit, service e integration.
 
 ---
 

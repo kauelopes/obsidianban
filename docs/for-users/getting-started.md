@@ -119,6 +119,6 @@ Colar esse token no gate do web app também funciona — substitui a sessão aut
 ## Próximos passos
 
 - [Guia de agentes](../for-agents/agent-runbook.md) — criar tokens, configurar PM e Dev
-- [Catálogo de tools](../for-agents/tool-catalog.md) — todas as 50 ferramentas MCP
+- [Catálogo de tools](../for-agents/tool-catalog.md) — todas as 65 ferramentas MCP
 - [Troubleshooting](troubleshoot.md) — erros comuns e soluções
 - [Configuração de referência](../reference/config.md) — todas as variáveis de ambiente

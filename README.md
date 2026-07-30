@@ -2,7 +2,7 @@
 
 **Um sistema Kanban para agentes de IA e humanos — com a confiabilidade de um banco de dados e a simplicidade de arquivos Markdown.**
 
-ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 50 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um web app para visualização e edição em tempo real.
+ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 65 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um web app para visualização e edição em tempo real.
 
 ---
 
@@ -23,7 +23,7 @@ flowchart LR
     end
 
     subgraph Server["🗄️ MCP Server"]
-        MCP["50 tools MCP\n(HTTP / stdio)"]
+        MCP["65 tools MCP\n(HTTP / stdio)"]
         LOCK["Optimistic locking\nIdempotência\nAudit log"]
     end
 
@@ -104,9 +104,9 @@ O sistema tem três níveis de acesso, controlados por tipo de token. Cada agent
 
 | Papel | Acesso | Responsabilidade |
 |---|---|---|
-| **Manager** | Todos os 50 tools | Cria projetos, provisiona workflow, minta tokens |
-| **PM** | 35 tools (sem admin) | Cria cards, planeja épicos/metas, gerencia sprints, supervisiona review |
-| **Dev** | 9 tools | Executa cards: claim, move, log, pick_next |
+| **Manager** | Todos os 65 tools | Cria projetos, provisiona workflow, minta tokens |
+| **PM** | 50 tools (sem admin) | Cria cards, planeja épicos/metas/sprints (incl. wizard de sprint-planning), supervisiona review |
+| **Dev** | 13 tools | Executa cards: claim, move, log, pick_next, jobs de longa duração |
 
 Veja a matriz completa em [docs/for-agents/tool-catalog.md](docs/for-agents/tool-catalog.md).
 
@@ -138,7 +138,7 @@ Veja a matriz completa em [docs/for-agents/tool-catalog.md](docs/for-agents/tool
 
 ### Para agentes IA
 - [Runbook do agente](docs/for-agents/agent-runbook.md) — mint tokens, configurar clientes
-- [Catálogo de tools](docs/for-agents/tool-catalog.md) — referência das 50 ferramentas MCP
+- [Catálogo de tools](docs/for-agents/tool-catalog.md) — referência das 65 ferramentas MCP
 - [Guia de integração](docs/for-agents/integration-guide.md) — wire protocol, auth, SSE
 - [Sprint workflow](docs/for-agents/sprint-workflow.md) — workflow autônomo de sprint
 

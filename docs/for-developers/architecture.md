@@ -11,6 +11,7 @@ Referência técnica da arquitetura do sistema: estrutura estática, fluxos de p
 - [A3 — Modelo de Tokens e Autorização (RBAC)](#a3--modelo-de-tokens-e-autorização-rbac)
 - [A4 — Setup Inicial de Agentes](#a4--setup-inicial-de-agentes-sequência)
 - [A5 — Loop Interno do Sprint Workflow](#a5--loop-interno-do-sprint-workflow)
+- [A6 — Jobs de Longa Duração](#a6--jobs-de-longa-duração)
 - [B1 — Criação de Sprint](#b1--criação-de-sprint)
 - [B2 — Execução da Sprint](#b2--execução-da-sprint)
 - [B3 — Ciclo de Vida de um Card](#b3--ciclo-de-vida-de-um-card)
@@ -238,6 +239,76 @@ flowchart TD
     class DRAINED terminal
     class FAIL1,FAIL2,ABORT error
 ```
+
+---
+
+## A6 — Jobs de Longa Duração
+
+Comandos que passam de alguns minutos (suítes de teste, builds) não podem rodar como
+chamada síncrona de Bash dentro do turno headless (`claude -p`) do dev agent: o Bash
+tool tem timeout interno (~300s), e um comando que estoura esse timeout é **auto-promovido
+a background pela própria CLI** — não é o agente que pede. Em modo `-p`, um processo em
+background é morto ~5s depois que o processo pai imprime o resultado final, então o
+comando nunca termina de verdade; foi assim que dois cards ficaram presos em `in_progress`
+para sempre (ver `docs/archive/2026-07-30-long-running-jobs.md` para o incidente completo
+que motivou esta feature).
+
+A solução: o **servidor** administra o processo, não o harness do dev. Quatro tools
+(`access: 'all'`, visíveis a dev/PM/manager) substituem Bash/backgrounding para esse caso:
+`kanban_start_job`, `kanban_get_job`, `kanban_list_jobs`, `kanban_stop_job`.
+
+```mermaid
+flowchart TD
+    START(["kanban_start_job(id, version, command)"])
+    SPAWN["JobManager.start()\nspawn(command, detached, stdio pipe)\nlog em &lt;JOB_LOG_DIR&gt;/job-&lt;id&gt;.log"]
+    CLAIM["card reatribuído a job:&lt;job_id&gt;\nmantido/movido para in_progress"]
+    RUN["processo roda\nstdout/stderr → last_output_at"]
+
+    WATCHDOG{"setInterval (JOB_STALL_POLL_MS)\nnow - last_output_at ><br/>JOB_STALL_THRESHOLD_MS (20min)?"}
+    STALL["log 'escalate' no card + SSE JOB_STALLED\n(processo NÃO é morto)"]
+
+    STOP(["kanban_stop_job"])
+    KILL["SIGTERM no grupo\nSIGKILL após grace period"]
+
+    EXIT{"processo\nencerrou?"}
+    FINALIZE["JobManager.finalize()\nloga resultado no Agent Log"]
+    REVERT{"card ainda no mesmo\nstatus/assigned_to\ncapturado no início?"}
+    RESTORE["reverte status→todo\nassigned_to→null"]
+    KEEP["só loga — não mexe no card\n(humano já interveio)"]
+
+    WAKE{"sprint workflow\njá drenou?"}
+    RESTART["reacorda kanban_workflow_start\n(limite 3 tentativas por card,\nnunca resetado)"]
+
+    START --> SPAWN --> CLAIM --> RUN
+    RUN --> WATCHDOG
+    WATCHDOG -->|sim| STALL --> WATCHDOG
+    WATCHDOG -->|não| WATCHDOG
+    STOP --> KILL --> EXIT
+    RUN --> EXIT
+    EXIT -->|sim| FINALIZE --> REVERT
+    REVERT -->|sim| RESTORE --> WAKE
+    REVERT -->|não| KEEP
+    WAKE -->|sim| RESTART
+    WAKE -->|não| DONE(["card em todo,\npronto pro próximo pick_next"])
+    RESTART --> DONE
+
+    classDef terminal fill:#e6f4ea,stroke:#34a853,stroke-width:2px
+    classDef warn fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    class DONE terminal
+    class STALL warn
+```
+
+**Onde vive o estado.** Um job não é campo novo no `Card` — é estado de execução
+efêmero num store JSON separado (`<vault>/.kanban/jobs/<job_id>.json`), no mesmo
+padrão já usado por `PlanningSessionStore` para as sessões do wizard. Visibilidade
+no board vem de duas vias já existentes: entradas no `# Agent Log` do card
+(start/stall/finish) e o campo `jobs: JobView[]` em `GET /workflow/agents`.
+
+**Componentes:** `packages/server/src/jobs/store.ts` (`JobStore`, espelha
+`planning/session.ts`) e `packages/server/src/services/job-runner.ts`
+(`JobManager`, espelha `services/workflow-runner.ts` na estrutura). Config via
+`JOB_LOG_DIR`, `JOB_STALL_THRESHOLD_MS`, `JOB_STALL_POLL_MS`,
+`JOB_MAX_RESTART_ATTEMPTS` — ver `docs/reference/config.md`.
 
 ---
 

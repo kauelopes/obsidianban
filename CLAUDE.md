@@ -38,7 +38,7 @@ MCP_HTTP_PORT=9375               # Porta do servidor (padrão 9375)
 # Opcionais — wizard de planejamento (KAD)
 PLANNING_MODEL=…                 # override de modelo do claude headless (default: o do harness)
 PLANNING_TURN_TIMEOUT_MS=240000  # kill do turno headless após esse tempo
-PLANNING_STUB=true               # dev: turnos sintéticos sem LLM (StubRunner) — nunca em produção
+PLANNING_STUB=true               # dev: turnos sintéticos sem LLM e materialização simulada (nada é criado de verdade) — nunca em produção
 ```
 
 Referência completa em `docs/reference/config.md`.
