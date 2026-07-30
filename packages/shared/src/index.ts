@@ -218,6 +218,9 @@ export type SSEEventType =
   | 'SPRINT_PLANNING_FINALIZED'
   | 'WORKFLOW_STARTED'
   | 'WORKFLOW_EXITED'
+  | 'JOB_STARTED'
+  | 'JOB_STALLED'
+  | 'JOB_FINISHED'
 
 export interface CardCreatedPayload     { card_id: string; project: string; status: string; position: number }
 export interface CardUpdatedPayload     { card_id: string; project: string; changed_fields: string[] }
@@ -243,6 +246,9 @@ export interface SprintPlanningErrorPayload     { session_id: string; step_id: s
 export interface SprintPlanningFinalizedPayload { session_id: string; project: string; sprint_id: string }
 export interface WorkflowStartedPayload  { sprint_id: string; project: string }
 export interface WorkflowExitedPayload   { sprint_id: string; project: string; status: string; exit_code: number | null }
+export interface JobStartedPayload       { job_id: string; card_id: string; sprint_id: string; project: string }
+export interface JobStalledPayload       { job_id: string; card_id: string; sprint_id: string; project: string }
+export interface JobFinishedPayload      { job_id: string; card_id: string; sprint_id: string; project: string; status: string; exit_code: number | null }
 
 export type SSEEventPayload =
   | CardCreatedPayload
@@ -269,6 +275,9 @@ export type SSEEventPayload =
   | SprintPlanningFinalizedPayload
   | WorkflowStartedPayload
   | WorkflowExitedPayload
+  | JobStartedPayload
+  | JobStalledPayload
+  | JobFinishedPayload
 
 export interface SSEEvent {
   type: SSEEventType
@@ -289,6 +298,7 @@ export type AuditOp =
   | 'SPRINT_CREATED' | 'SPRINT_STARTED' | 'SPRINT_CLOSED'
   | 'SPRINT_QUEUED' | 'SPRINT_DEQUEUED'
   | 'WORKFLOW_DEV' | 'WORKFLOW_TRIAGE'
+  | 'JOB_STARTED' | 'JOB_FINISHED' | 'JOB_STALLED' | 'JOB_KILLED'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
 
@@ -443,6 +453,33 @@ export interface WorkflowAgentsStatus {
   in_progress_cards: WorkflowInProgressCard[]
   /** Última tool call vista no log — em voo ou já concluída — ou null se nenhuma ainda. */
   last_tool: WorkflowLastTool | null
+}
+
+// ─── Jobs de longa duração (comandos de horas) ───────────────────────────────
+
+export type JobStatus = 'running' | 'succeeded' | 'failed' | 'timeout' | 'stopped' | 'lost'
+
+/**
+ * Visão de um job durável de longa duração (comando de horas), executado fora
+ * da sessão do dev agent. Persistido em `<vault>/.kanban/jobs/<job_id>.json`
+ * (ver JobStore); `claimed_by` é o actor que iniciou o job. `stalled` nunca é
+ * persistido — é computado ao vivo pelo JobManager a partir de `last_output_at`.
+ */
+export interface JobView {
+  job_id: string                // job-{nanoid(8)}
+  card_id: string
+  sprint_id: string
+  project: string
+  command: string
+  description?: string
+  pid: number | null
+  status: JobStatus
+  started_at: string            // ISO 8601
+  ended_at?: string             // ISO 8601 — presente após término (qualquer status terminal)
+  exit_code?: number            // presente só quando o processo de fato saiu (succeeded/failed)
+  last_output_at: string        // ISO 8601 — última vez que o job produziu output
+  claimed_by: string            // actor que iniciou o job (via kanban_*)
+  stalled?: boolean             // computado ao vivo — nunca persistido
 }
 
 // ─── Tool response envelopes ──────────────────────────────────────────────────

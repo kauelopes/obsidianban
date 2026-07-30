@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url'
 import { logger } from '../util/logger.js'
 import { badRequest, conflict, notFound } from './errors.js'
 import { checkWorkflowReadiness } from './workflow-readiness.js'
+import { readLogSlice } from '../util/log-file.js'
 import type { SSEEventBus } from '../server/sse.js'
 import type { Paths } from '../config.js'
 import type {
@@ -224,27 +225,12 @@ export class WorkflowManager {
     const run = this.runs.get(sprintId)
     const logPath = run?.logPath ?? path.join(this.cfg.logDir, `sprint-${sprintId}.log`)
 
-    const stat = await fs.stat(logPath).catch(() => null)
-    if (!stat) {
+    const slice = await readLogSlice(logPath, offset, WORKFLOW_LOG_CHUNK_MAX)
+    if (!slice) {
       if (!run) throw notFound()
       return { sprint_id: sprintId, run: run.view, size: 0, data: '' }
     }
-
-    const size = stat.size
-    const from = Math.min(Math.max(0, offset), size)
-    const length = Math.min(size - from, WORKFLOW_LOG_CHUNK_MAX)
-    let data = ''
-    if (length > 0) {
-      const fh = await fs.open(logPath, 'r')
-      try {
-        const buf = Buffer.alloc(length)
-        await fh.read(buf, 0, length, from)
-        data = buf.toString('utf8')
-      } finally {
-        await fh.close()
-      }
-    }
-    return { sprint_id: sprintId, run: run?.view ?? null, size: from + length, data }
+    return { sprint_id: sprintId, run: run?.view ?? null, size: slice.size, data: slice.data }
   }
 
   /**
