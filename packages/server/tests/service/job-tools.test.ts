@@ -4,7 +4,7 @@ import type { Paths } from '../../src/config.js'
 import { createTempVault, cleanupVault, setupTestProject } from '../helpers/vault.js'
 import { saveProjectMeta } from '../../src/vault/layout.js'
 import { createTestDb, createTestRepo } from '../helpers/db.js'
-import { makeManagerClaims, makeDevClaims } from '../helpers/factories.js'
+import { makeManagerClaims, makeDevClaims, makeAgentClaims } from '../helpers/factories.js'
 import { CardService } from '../../src/services/card.js'
 import { SprintService } from '../../src/services/sprint.js'
 import { AtomicWriter } from '../../src/writer/atomic.js'
@@ -274,5 +274,76 @@ describe('kanban_stop_job', () => {
     await expect(handlers['kanban_stop_job']!({ job_id: view.job_id }, DEV)).rejects.toMatchObject({
       status: 404,
     })
+  })
+})
+
+// C1 do review final: kanban_get_job/kanban_list_jobs/kanban_stop_job não
+// checavam claims.project_id — um token 'agent' de outro projeto conseguia
+// ler comando+log e parar jobs de qualquer projeto sabendo o job_id. Mesmo
+// padrão de card-reader.ts/card-blocker.ts/card-mover.ts: agent fora do
+// projeto do job -> notFound(); manager (sem project_id) continua vendo tudo.
+describe('cross-project scoping (job tools)', () => {
+  const OTHER_PROJECT = makeAgentClaims({
+    project_id: 'other-project',
+    agent_type: 'dev',
+    actor: 'agent:other-dev',
+  })
+
+  it('kanban_get_job: 404 for an agent outside the job project, by status and by log_offset', async () => {
+    const { card } = await setupProject(paths.vault)
+    const view = (await handlers['kanban_start_job']!(
+      { id: card.id, version: card.version, command: 'echo tail-me && sleep 5' },
+      DEV,
+    )) as JobView
+
+    await expect(handlers['kanban_get_job']!({ job_id: view.job_id }, OTHER_PROJECT)).rejects.toMatchObject({
+      status: 404,
+    })
+    await expect(
+      handlers['kanban_get_job']!({ job_id: view.job_id, log_offset: 0 }, OTHER_PROJECT),
+    ).rejects.toMatchObject({ status: 404 })
+
+    // Same-project dev and manager still see it.
+    const own = (await handlers['kanban_get_job']!({ job_id: view.job_id }, DEV)) as { job: JobView }
+    expect(own.job.job_id).toBe(view.job_id)
+    const mgr = (await handlers['kanban_get_job']!({ job_id: view.job_id }, MGR)) as { job: JobView }
+    expect(mgr.job.job_id).toBe(view.job_id)
+
+    await jobs.stop(view.job_id, 'human:test')
+  })
+
+  it('kanban_list_jobs: an agent from another project never sees the job in the list', async () => {
+    const { card } = await setupProject(paths.vault)
+    const view = (await handlers['kanban_start_job']!(
+      { id: card.id, version: card.version, command: 'echo done' },
+      DEV,
+    )) as JobView
+    await waitFor(async () => (await jobs.status(view.job_id))?.status === 'succeeded')
+
+    const otherList = (await handlers['kanban_list_jobs']!({}, OTHER_PROJECT)) as { jobs: JobView[] }
+    expect(otherList.jobs.map((j) => j.job_id)).not.toContain(view.job_id)
+
+    const ownList = (await handlers['kanban_list_jobs']!({}, DEV)) as { jobs: JobView[] }
+    expect(ownList.jobs.map((j) => j.job_id)).toContain(view.job_id)
+
+    const mgrList = (await handlers['kanban_list_jobs']!({}, MGR)) as { jobs: JobView[] }
+    expect(mgrList.jobs.map((j) => j.job_id)).toContain(view.job_id)
+  })
+
+  it('kanban_stop_job: 404 for an agent outside the job project — job keeps running', async () => {
+    const { card } = await setupProject(paths.vault)
+    const view = (await handlers['kanban_start_job']!(
+      { id: card.id, version: card.version, command: 'sleep 10' },
+      DEV,
+    )) as JobView
+
+    await expect(
+      handlers['kanban_stop_job']!({ job_id: view.job_id, reason: 'not yours' }, OTHER_PROJECT),
+    ).rejects.toMatchObject({ status: 404 })
+
+    const stillRunning = await jobs.status(view.job_id)
+    expect(stillRunning?.status).toBe('running')
+
+    await jobs.stop(view.job_id, 'human:test')
   })
 })

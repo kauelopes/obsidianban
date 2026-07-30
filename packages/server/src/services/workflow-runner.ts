@@ -63,6 +63,13 @@ const SPRINT_ID_RE = /^[A-Za-z0-9_-]+$/
  */
 export class WorkflowManager {
   private readonly runs = new Map<string, Run>()
+  // Reserva síncrona por sprint/projeto, o mesmo padrão de JobManager.pendingStarts
+  // (job-runner.ts): start() faz vários awaits (fs.stat, checkWorkflowReadiness,
+  // resolveTokens, fs.mkdir) antes de `runs.set()`, então dois start() da mesma
+  // sprint ou projeto concorrentes passariam ambos pelo isRunning() síncrono e
+  // spawnariam dois orquestradores. A checagem+reserva abaixo acontece toda
+  // síncrona, antes de qualquer await.
+  private readonly pendingStarts = new Map<string, string>() // sprint_id -> project
   private onFinished: ((view: WorkflowRunView) => void) | null = null
 
   constructor(
@@ -94,7 +101,7 @@ export class WorkflowManager {
 
   async start(sprintId: string, project: string, targetRepo: string): Promise<WorkflowRunView> {
     if (!SPRINT_ID_RE.test(sprintId)) throw badRequest('invalid_field', { field: 'sprint_id' })
-    if (this.isRunning(sprintId)) {
+    if (this.isRunning(sprintId) || this.pendingStarts.has(sprintId)) {
       throw conflict({ error: 'workflow_already_running', sprint_id: sprintId })
     }
     for (const r of this.runs.values()) {
@@ -102,7 +109,22 @@ export class WorkflowManager {
         throw conflict({ error: 'workflow_already_running', sprint_id: r.view.sprint_id, project })
       }
     }
+    for (const [pendingSprintId, pendingProject] of this.pendingStarts) {
+      if (pendingProject === project) {
+        throw conflict({ error: 'workflow_already_running', sprint_id: pendingSprintId, project })
+      }
+    }
 
+    this.pendingStarts.set(sprintId, project)
+    try {
+      return await this.doStart(sprintId, project, targetRepo)
+    } finally {
+      // O run já está em `runs` (sucesso) ou o start falhou — a reserva sai.
+      this.pendingStarts.delete(sprintId)
+    }
+  }
+
+  private async doStart(sprintId: string, project: string, targetRepo: string): Promise<WorkflowRunView> {
     const repoOk = await fs.stat(targetRepo).then((s) => s.isDirectory(), () => false)
     if (!repoOk) throw badRequest('target_repo_missing', { target_repo: targetRepo })
 

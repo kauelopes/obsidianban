@@ -128,17 +128,25 @@ export function createJobToolHandlers({ paths, cards, jobs }: JobToolDeps): Reco
       }
     },
 
-    kanban_get_job: async (p, _c) => {
+    // `kanban_get_job`/`kanban_list_jobs`/`kanban_stop_job` scope by
+    // `claims.project_id` the same way card-reader.ts/card-blocker.ts/
+    // card-mover.ts do: an agent token never sees or acts on a job outside
+    // its own project, even knowing the job_id. Manager claims (no
+    // project_id) see everything, matching the rest of the tool surface.
+    kanban_get_job: async (p, c) => {
       const jobId = String(p['job_id'] ?? '')
       if (p['log_offset'] !== undefined) {
-        return jobs.readLog(jobId, Number(p['log_offset']))
+        const result = await jobs.readLog(jobId, Number(p['log_offset']))
+        if (c.role === 'agent' && (!result.job || result.job.project !== c.project_id)) throw notFound()
+        return result
       }
       const job = await jobs.status(jobId)
       if (!job) throw notFound()
+      if (c.role === 'agent' && job.project !== c.project_id) throw notFound()
       return { job_id: jobId, job }
     },
 
-    kanban_list_jobs: async (p, _c) => {
+    kanban_list_jobs: async (p, c) => {
       const cardId = typeof p['card_id'] === 'string' ? p['card_id'] : undefined
       const sprintId = typeof p['sprint_id'] === 'string' ? p['sprint_id'] : undefined
       const rawStatus = p['status']
@@ -151,12 +159,16 @@ export function createJobToolHandlers({ paths, cards, jobs }: JobToolDeps): Reco
         ...(sprintId !== undefined ? { sprintId } : {}),
         ...(status !== undefined ? { status } : {}),
       })
-      return { jobs: list }
+      const scoped = c.role === 'agent' ? list.filter((job) => job.project === c.project_id) : list
+      return { jobs: scoped }
     },
 
     kanban_stop_job: async (p, c) => {
       const jobId = String(p['job_id'] ?? '')
       const reason = typeof p['reason'] === 'string' ? p['reason'].trim() : ''
+      const before = await jobs.status(jobId)
+      if (!before) throw notFound()
+      if (c.role === 'agent' && before.project !== c.project_id) throw notFound()
       // The reason (which the finalize does not know about) is logged BEFORE
       // the stop is requested — not after. The finalize's own hand-back entry
       // ("Stopped by <actor>") lands once the process actually exits, which
@@ -164,8 +176,6 @@ export function createJobToolHandlers({ paths, cards, jobs }: JobToolDeps): Reco
       // guarantees the reason is on the card before that race window opens.
       // Best-effort: a failure here must not block the stop itself.
       if (reason) {
-        const before = await jobs.status(jobId)
-        if (!before) throw notFound()
         try {
           const card = await cards.get({ id: before.card_id }, JOB_SYSTEM_CLAIMS)
           await cards.logOnCard(

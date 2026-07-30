@@ -838,6 +838,27 @@ export class JobManager {
   private async maybeWakeWorkflow(record: JobRecord): Promise<void> {
     if (this.workflow.isRunning(record.sprint_id)) return
 
+    // Reserva síncrona do slot do cap ANTES de qualquer await: dois finalizes
+    // da mesma sprint terminando juntos (até JOB_MAX_CONCURRENT jobs) não
+    // podem ler a mesma contagem stale e ambos passar do cap — o
+    // get()+set() abaixo não tem await no meio, então cada chamada
+    // concorrente enxerga o incremento das anteriores. Desfeita se o wake sai
+    // desqualificado pelos checks que só ficam disponíveis depois do await
+    // (sprint inativa, sem target_repo) — esses casos não deviam consumir o
+    // cap. A reserva real do double-spawn em si é o pendingStarts síncrono em
+    // WorkflowManager.start (workflow-runner.ts).
+    const attempts = this.wakeAttemptsBySprint.get(record.sprint_id) ?? 0
+    if (attempts >= this.cfg.maxWakesPerSprint) {
+      await this.appendCardLog(
+        record.card_id,
+        `Job \`${record.job_id}\` finished and the card is back in todo, but the workflow was not ` +
+          'restarted — start it with kanban_workflow_start.',
+        'escalate',
+      )
+      return
+    }
+    this.wakeAttemptsBySprint.set(record.sprint_id, attempts + 1)
+
     const meta = await loadProjectMetaOrNull(this.paths, record.project).catch((err) => {
       logger.warn({ err, job: record.job_id, project: record.project }, 'jobs: wake — failed to load project meta')
       return null
@@ -845,16 +866,18 @@ export class JobManager {
     const sprint = meta?.sprints?.find((s) => s.id === record.sprint_id)
     const sprintActive = sprint?.status === 'active'
     const targetRepo = meta?.target_repo
-    const attempts = this.wakeAttemptsBySprint.get(record.sprint_id) ?? 0
 
-    if (sprintActive && targetRepo && attempts < this.cfg.maxWakesPerSprint) {
-      this.wakeAttemptsBySprint.set(record.sprint_id, attempts + 1)
+    if (sprintActive && targetRepo) {
       try {
         await this.workflow.start(record.sprint_id, record.project, targetRepo)
         return
       } catch (err) {
         logger.warn({ err, job: record.job_id, sprint: record.sprint_id }, 'jobs: workflow wake failed')
       }
+    } else {
+      // Desqualificado antes de sequer tentar — devolve o slot reservado, não
+      // conta como tentativa gasta.
+      this.wakeAttemptsBySprint.set(record.sprint_id, attempts)
     }
 
     await this.appendCardLog(

@@ -681,6 +681,14 @@ describe('JobManager', () => {
         await waitFor(async () => (await cardService.get({ id: assigned.id }, MGR)).status === 'todo')
       }
 
+      // A escalate no card3 só é escrita depois que o wake do 3º finalize
+      // decide que o cap foi atingido — status virar 'todo' (esperado acima)
+      // não implica que maybeWakeWorkflow já concluiu, então esperamos pelo
+      // conteúdo final em vez de checar logo após o loop (evita flake).
+      await waitFor(async () =>
+        (await cardService.get({ id: card3.id }, MGR)).body.includes('workflow was not restarted'),
+      )
+
       expect(workflow.start).toHaveBeenCalledTimes(2)
       const after3 = await cardService.get({ id: card3.id }, MGR)
       expect(after3.body).toContain('workflow was not restarted')
