@@ -15,7 +15,7 @@ export interface SprintStepMeta {
 export const SPRINT_STEPS: readonly SprintStepMeta[] = [
   { id: 'capacity', title: 'Capacidade', screen: 'form' },
   { id: 'goal', title: 'Objetivo', screen: 'choice' },
-  { id: 'tasks', title: 'Tarefas', screen: 'confirm' },
+  { id: 'tasks', title: 'Tarefas', screen: 'task_list' },
   { id: 'risks', title: 'Riscos', screen: 'form' },
   { id: 'review', title: 'Revisão', screen: 'confirm' },
 ]

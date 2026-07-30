@@ -4,6 +4,7 @@ import type {
   PlanningChoicePayload,
   PlanningConfirmPayload,
   PlanningFormPayload,
+  PlanningTaskListPayload,
   SprintPlanningFinalizeResult,
   SprintPlanningSessionView,
 } from '@obsidiankan/types'
@@ -12,7 +13,7 @@ import { errorText, type McpResult } from '../api/result.js'
 import { Tile } from '../metrics/widgets.js'
 import { SPRINT_STEPS, sprintStepIndex, sprintStepMeta } from './steps-meta.js'
 import { useSprintPlanning } from './useSprintPlanning.js'
-import { StepChoice, StepConfirm, StepForm } from '../plan/screens.js'
+import { StepChoice, StepConfirm, StepForm, StepTaskList } from '../plan/screens.js'
 
 /**
  * Wizard "Criar sprint com assistente": sem :sessionId retoma a sessão ativa
@@ -236,6 +237,15 @@ function StepScreen({
       return <StepForm payload={payload as PlanningFormPayload} busy={busy} onSubmit={onSubmit} />
     case 'choice':
       return <StepChoice payload={payload as PlanningChoicePayload} busy={busy} onSubmit={onSubmit} />
+    case 'task_list':
+      return (
+        <StepTaskList
+          payload={payload as PlanningTaskListPayload}
+          busy={busy}
+          onSubmit={onSubmit}
+          onRefine={onRefine}
+        />
+      )
     default:
       return (
         <StepConfirm
