@@ -15,3 +15,8 @@ export const ACTIVITY_DAYS_MAX = 60
 export const WORKFLOW_LOG_CHUNK_MAX = 64 * 1024
 // Quanto do fim do log é lido para derivar a fase atual (GET /workflow/agents).
 export const WORKFLOW_PHASE_TAIL_BYTES = 64 * 1024
+
+// ── Supervision ──────────────────────────────────────────────────────────────
+// Quanto tempo um card pode ficar em `in_progress` sem update antes de contar
+// como estagnado (dev agent morto/travado) em kanban_list_escalations.
+export const STALE_IN_PROGRESS_MS = 15 * 60 * 1000

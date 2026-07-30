@@ -608,6 +608,12 @@ export interface EscalationItem {
 
 export interface EscalationsResult {
   escalations: EscalationItem[]
+  /**
+   * Cards presos em `in_progress` (dev agent morto/travado), mesmo shape do
+   * item de `escalations`. Não é subconjunto/superset de `escalations` — são
+   * dois critérios de inclusão diferentes; um card nunca aparece nos dois.
+   */
+  stuck_in_progress: EscalationItem[]
   /** Quantos cards foram varridos, para a UI poder dizer do que fala. */
   scanned: number
 }
