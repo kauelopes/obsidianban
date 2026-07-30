@@ -1,7 +1,9 @@
 import type { SprintPlanningSession, SprintStepId } from './session.js'
+import type { FinalSprint } from './structure-schema.js'
+import { validateFinalSprint } from './structure-schema.js'
 
-/** Este wizard só usa 3 dos 5 tipos de tela do wizard de projeto — sem diagram/list. */
-export type SprintScreenType = 'form' | 'choice' | 'confirm'
+/** Este wizard usa 4 dos 5 tipos de tela do wizard de projeto — sem diagram. */
+export type SprintScreenType = 'form' | 'choice' | 'confirm' | 'task_list'
 
 export interface SprintStepOutput {
   screen_payload: unknown
@@ -26,9 +28,16 @@ const FORM_CONTRACT =
 const CHOICE_CONTRACT =
   '{"screen_payload":{"question":"...","options":[{"id":"...","label":"...","description":"...(opcional)"}],"suggested":"id da opção sugerida (opcional)"}'
 const CONFIRM_CONTRACT = '{"screen_payload":{"markdown":"..."}'
+const TASK_LIST_CONTRACT =
+  '{"screen_payload":{"intro":"...(opcional, breve texto de contexto, nada de markdown/tabela)"}'
 
 function contract(screen: SprintScreenType, withStructure = false): string {
-  const base = { form: FORM_CONTRACT, choice: CHOICE_CONTRACT, confirm: CONFIRM_CONTRACT }[screen]
+  const base = {
+    form: FORM_CONTRACT,
+    choice: CHOICE_CONTRACT,
+    confirm: CONFIRM_CONTRACT,
+    task_list: TASK_LIST_CONTRACT,
+  }[screen]
   const structurePart = withStructure ? ',"structure":{...conforme descrito acima...}' : ''
   return (
     `Responda SOMENTE com um objeto JSON válido, sem cerca de código e sem prosa fora dele, ` +
@@ -114,10 +123,25 @@ function parseConfirm(raw: unknown): SprintStepOutput {
   return out
 }
 
-const PARSERS: Record<'form' | 'choice' | 'confirm', (raw: unknown) => SprintStepOutput> = {
+function parseTaskList(raw: unknown): SprintStepOutput {
+  const { payload, out } = parseCommon(raw)
+  if (out.structure === undefined) throw new Error('structure ausente')
+  let structure: FinalSprint
+  try {
+    structure = validateFinalSprint(out.structure)
+  } catch (err) {
+    throw new Error(`structure inválida: ${(err as Error).message}`)
+  }
+  const intro = typeof payload['intro'] === 'string' ? payload['intro'] : undefined
+  const tasks = structure.tasks.map((t, i) => ({ id: `t-${i}`, ...t }))
+  return { screen_payload: { ...(intro ? { intro } : {}), tasks }, structure }
+}
+
+const PARSERS: Record<'form' | 'choice' | 'confirm' | 'task_list', (raw: unknown) => SprintStepOutput> = {
   form: parseForm,
   choice: parseChoice,
   confirm: parseConfirm,
+  task_list: parseTaskList,
 }
 
 // ── Sequência ────────────────────────────────────────────────────────────────
@@ -126,7 +150,7 @@ const PARSERS: Record<'form' | 'choice' | 'confirm', (raw: unknown) => SprintSte
 function step(
   id: SprintStepId,
   title: string,
-  screen: 'form' | 'choice' | 'confirm',
+  screen: 'form' | 'choice' | 'confirm' | 'task_list',
   task: string,
   opts: { withStructure?: boolean } = {},
 ): SprintStepDef {
@@ -156,10 +180,10 @@ export const SPRINT_STEPS: SprintStepDef[] = [
   step(
     'tasks',
     'Quebra em tarefas',
-    'confirm',
-    `Proponha o nome e o objetivo (goal) desta sprint e a quebra em tarefas executáveis por agentes de IA, dimensionada à capacidade confirmada. Apresente em markdown (screen_payload.markdown) uma tabela com título/tipo/prioridade de cada tarefa, para o usuário revisar (correções via pedido de refinamento, não edição linha a linha). Além do markdown, devolva o campo "structure" com EXATAMENTE esta forma:
+    'task_list',
+    `Proponha o nome e o objetivo (goal) desta sprint e a quebra em tarefas executáveis por agentes de IA, dimensionada à capacidade confirmada. O usuário vai revisar e editar a lista diretamente (título, tipo, prioridade, corpo, tags) antes de confirmar — não monte markdown/tabela, só o campo "structure" com EXATAMENTE esta forma:
 {"name":"<nome curto da sprint>","goal":"<frase-objetivo da sprint>","tasks":[{"title":"...","type":"task|feature|bug|chore","body":"# Spec\\n<o que fazer, critérios de aceite>","priority":"low|medium|high|critical","tags":["..."]}]}
-Cada task.body é a Spec que um agente dev vai executar sem mais contexto — seja específico. 3 a 8 tarefas.`,
+Cada task.body é a Spec que um agente dev vai executar sem mais contexto — seja específico. 3 a 8 tarefas. Em "screen_payload", inclua opcionalmente um "intro" com uma frase de contexto.`,
     { withStructure: true },
   ),
   step(
