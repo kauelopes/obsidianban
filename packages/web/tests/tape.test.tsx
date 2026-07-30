@@ -24,6 +24,7 @@ function renderBoard(cards: readonly CardSummary[], escalated: ReadonlySet<strin
         moveHint={() => null}
         onCreateCard={noop}
         onOpenSprints={noop}
+        onPlanSprint={noop}
         onOpenProject={noop}
         sprintFilter={{}}
         onSprintFilter={noop}

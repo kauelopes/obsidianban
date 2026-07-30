@@ -290,7 +290,7 @@ function buildDevPrompt(limit: number): string {
 
 ${scope}
 
-For each card: kanban_claim_card, then kanban_move_card to "in_progress". Do the work. Run the relevant tests or build before completing — if none exist, say so in the log. kanban_log_on_card with a concrete summary (files changed, commands run, results). Then kanban_move_card to "done". If blocked or proposing: kanban_log_on_card with what you tried, what failed, and your recommendation, then kanban_move_card to "review".
+For each card: kanban_claim_card, then IMMEDIATELY kanban_move_card to "in_progress" — before any other work, so the board reflects it right away. (The orchestrator also moves a freshly claimed card to in_progress on its own shortly after, as a fallback for when this step gets skipped — but don't rely on that; do it yourself first.) Do the work. Run the relevant tests or build before completing — if none exist, say so in the log. kanban_log_on_card with a concrete summary (files changed, commands run, results). Then kanban_move_card to "done". If blocked or proposing: kanban_log_on_card with what you tried, what failed, and your recommendation, then kanban_move_card to "review".
 
 If what you discover mid-execution is that this card depends on ANOTHER card — including one already in "review" — that is NOT a reason to move to "review" yourself: call kanban_defer_card with blocked_by set to that card's id instead. It merges the dependency, logs why, releases your claim, and returns the card to "todo" automatically; kanban_pick_next will skip it again until the blocker is done. Reserve "review" for cards where YOU need a human decision, not for cascading dependents.
 
@@ -328,7 +328,25 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
     })
     let stdout = ''
     let stderr = ''
-    child.stdout.on('data', (d) => (stdout += d.toString()))
+    // Granularidade média sem despejar o stream inteiro: uma linha de log por
+    // tool call, em tempo real — sem isto, o log só ganha uma linha nova
+    // quando o round INTEIRO termina (o parse de parseDevStream é feito uma
+    // vez, no final, sobre o stdout acumulado). Cards que demoram (comando
+    // longo, muitas edições) ficavam invisíveis nesse meio-tempo, e o painel
+    // de agentes acusava "sem atividade" mesmo com o dev trabalhando normal.
+    let carry = ''
+    const openTools = new Map<string, string>() // tool_use_id → nome já logado
+    const pendingClaims = new Map<string, string>() // tool_use_id → card_id de um kanban_claim_card em voo
+    child.stdout.on('data', (d) => {
+      const chunk = d.toString()
+      stdout += chunk
+      carry += chunk
+      let nl: number
+      while ((nl = carry.indexOf('\n')) >= 0) {
+        logToolActivity(carry.slice(0, nl), openTools, pendingClaims)
+        carry = carry.slice(nl + 1)
+      }
+    })
     child.stderr.on('data', (d) => (stderr += d.toString()))
     child.on('error', (err) =>
       resolve(failedRun(`spawn error: ${err.message} (is the 'claude' CLI on PATH?)`)),
@@ -341,6 +359,119 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
       }
     })
   })
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s
+}
+
+// MCP tools chegam prefixadas pelo harness como `mcp__<server>__<tool>` (aqui,
+// servidor "kanban" — ver dev.mcp.json); tira o prefixo só para leitura no log.
+function shortToolName(name: string): string {
+  return name.replace(/^mcp__\w+__/, '')
+}
+
+// Descrição compacta de uma tool call para o log — não é um dump do input
+// inteiro (ruidoso e pode conter texto longo), só os campos que costumam
+// dizer o que está acontecendo (qual card, qual comando, qual arquivo).
+const TOOL_ARG_KEYS = ['command', 'file_path', 'card_id', 'id', 'to_status', 'sprint_id', 'project', 'query']
+function describeToolUse(name: string, input: Record<string, unknown>): string {
+  const bits = TOOL_ARG_KEYS
+    .filter((k) => input[k] !== undefined)
+    .map((k) => `${k}=${truncate(String(input[k]), 60)}`)
+  const short = shortToolName(name)
+  return bits.length > 0 ? `${short}(${bits.join(', ')})` : short
+}
+
+/**
+ * Garante que um card claimado pelo dev não fique invisível no board: o
+ * prompt já instrui "claim, depois move pra in_progress" como dois passos,
+ * mas o modelo às vezes claima, faz o trabalho inteiro, e só move status uma
+ * vez no final (direto todo→done) — o card fica parecendo parado o tempo
+ * todo. Em vez de confiar só no prompt, o orquestrador confirma o claim de
+ * forma independente (kanban_get_card) e move pra in_progress ele mesmo.
+ * Best-effort: uma falha aqui não derruba o round, só fica sem o board
+ * refletir o card em andamento até o dev mover por conta própria.
+ */
+async function verifyAndMoveToInProgress(cardId: string): Promise<void> {
+  try {
+    const got = await callTool('kanban_get_card', { id: cardId }, DEV_TOKEN)
+    const card = asRecord(got.body)
+    if (got.status !== 200) return
+    if (!card['assigned_to']) return // claim não confirmou (ex.: 409 already_claimed) — nada a fazer
+    if (card['status'] !== 'todo') return // já saiu do todo (in_progress/done/review) — nada a fazer
+    const version = card['version']
+    if (typeof version !== 'number') return
+    const res = await callTool(
+      'kanban_move_card',
+      { id: cardId, version, to_status: 'in_progress', input_tokens: 0, output_tokens: 0, model: 'workflow-auto' },
+      DEV_TOKEN,
+    )
+    log(
+      res.status === 200
+        ? `  ⚙ auto-move: card ${cardId} → in_progress`
+        : `  ⚠ auto-move não confirmado para card ${cardId}: HTTP ${res.status}`,
+    )
+  } catch (err) {
+    log(`  ⚠ auto-move falhou para card ${cardId}: ${(err as Error).message}`)
+  }
+}
+
+/**
+ * Processa uma linha (já completa) do stream-json assim que ela chega, só
+ * para logar tool calls em tempo real — não substitui parseDevStream, que
+ * continua fazendo o parse completo (cardSnapshots, usage) no final sobre o
+ * stdout acumulado.
+ */
+function logToolActivity(
+  line: string,
+  openTools: Map<string, string>,
+  pendingClaims: Map<string, string>,
+): void {
+  if (!line.trim()) return
+  let evt: Record<string, unknown>
+  try {
+    evt = asRecord(JSON.parse(line))
+  } catch {
+    return // linha parcial/ruído — só o parse final precisa ser à prova disso
+  }
+
+  if (evt['type'] === 'assistant') {
+    const message = asRecord(evt['message'])
+    for (const block of Array.isArray(message['content']) ? message['content'] : []) {
+      const b = asRecord(block)
+      if (b['type'] !== 'tool_use') continue
+      const toolUseId = typeof b['id'] === 'string' ? b['id'] : null
+      const name = typeof b['name'] === 'string' ? b['name'] : null
+      if (!toolUseId || !name) continue
+      openTools.set(toolUseId, shortToolName(name))
+      log(`  ▶ tool: ${describeToolUse(name, asRecord(b['input']))}`)
+      if (name.endsWith('kanban_claim_card')) {
+        const input = asRecord(b['input'])
+        const cardId = typeof input['id'] === 'string' ? input['id'] : null
+        if (cardId) pendingClaims.set(toolUseId, cardId)
+      }
+    }
+    return
+  }
+
+  if (evt['type'] === 'user') {
+    const message = asRecord(evt['message'])
+    for (const block of Array.isArray(message['content']) ? message['content'] : []) {
+      const b = asRecord(block)
+      if (b['type'] !== 'tool_result') continue
+      const toolUseId = typeof b['tool_use_id'] === 'string' ? b['tool_use_id'] : null
+      const claimedCardId = toolUseId ? pendingClaims.get(toolUseId) : undefined
+      if (claimedCardId && toolUseId) {
+        pendingClaims.delete(toolUseId)
+        void verifyAndMoveToInProgress(claimedCardId)
+      }
+      const name = toolUseId ? openTools.get(toolUseId) : undefined
+      if (!name || !toolUseId) continue
+      openTools.delete(toolUseId)
+      log(`  ◀ tool: ${name}${b['is_error'] ? ' (erro)' : ''}`)
+    }
+  }
 }
 
 // stream-json emite um evento NDJSON por linha. Os que importam aqui:
@@ -694,6 +825,17 @@ async function printSprintSummary(sprintId: string): Promise<void> {
 }
 
 // ── Orchestration loop (deterministic) ───────────────────────────────────────
+
+// Setado pelo SIGUSR1 que WorkflowManager.requestGracefulStop manda só pro pid
+// deste processo (nunca pro grupo) — o dev harness em voo, se houver, não é
+// tocado e termina sozinho; só a checagem no topo do loop principal impede
+// uma rodada NOVA de começar depois disso.
+let stopRequested = false
+process.on('SIGUSR1', () => {
+  stopRequested = true
+  log('⏸ sinal de parada graciosa recebido — termina a rodada atual, sem iniciar outra')
+})
+
 async function main(): Promise<void> {
   if (KANBAN_URL !== 'http://127.0.0.1:9375') {
     log(`note: KANBAN_URL=${KANBAN_URL} — ensure ${DEV_MCP_CONFIG} 'url' matches, or the dev harness won't reach the server.`)
@@ -720,6 +862,13 @@ async function main(): Promise<void> {
   // Triagem LLM que falhou (créditos, chave) fica desligada pelo resto da run.
   let llmTriageDown = false
   while (round++ < MAX_ROUNDS) {
+    // Parada graciosa (WorkflowManager.requestGracefulStop) só sinaliza este
+    // processo, nunca o grupo — a rodada dev já em voo (se houver) termina
+    // normalmente; só a PRÓXIMA rodada não chega a começar.
+    if (stopRequested) {
+      log('parada graciosa solicitada — nenhuma rodada nova será iniciada.')
+      break
+    }
     log(`\n=== round ${round} ===`)
 
     // 1. Triage review before dispatching more dev work.
@@ -771,11 +920,21 @@ async function main(): Promise<void> {
 }
 
 function log(msg: string): void {
-  console.log(msg)
+  // Quando DEBUG_LOG está setado, WorkflowManager já pipeia o stdout deste
+  // processo pro MESMO arquivo — chamar console.log aqui além do
+  // appendFileSync duplicava toda linha (uma cópia sem timestamp via stdout,
+  // outra com timestamp via appendFileSync), e a ordem entre as duas não é
+  // garantida. Isso não é só desperdício de espaço: currentPhase/deriveLastTool
+  // exigem o prefixo `[timestamp]` pra saber QUANDO a última linha foi
+  // gravada, e a cópia sem timestamp acabando por último no arquivo fazia o
+  // parse falhar silenciosamente. Sem DEBUG_LOG (rodando solto num terminal),
+  // console.log continua sendo a única saída.
   if (DEBUG_LOG) {
     try {
       appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`)
     } catch { /* best effort — never crash the workflow over a log write */ }
+  } else {
+    console.log(msg)
   }
 }
 

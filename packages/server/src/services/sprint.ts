@@ -21,6 +21,16 @@ import { requirePmOrManager } from './guards.js'
 const MAX_NAME = 80
 const MAX_GOAL = 1000
 
+export interface CloseSprintResult {
+  sprint_id: string
+  closed_at: string
+  rolled_over: string[]
+  finished: string[]
+  archived: string[]
+  /** Presente quando fechar esta sprint ativou a próxima sprint da fila. */
+  started_next?: { sprint_id: string; project: string }
+}
+
 export class SprintService {
   constructor(
     private readonly paths: Paths,
@@ -54,6 +64,7 @@ export class SprintService {
       started_at: null,
       ended_at: null,
       status: 'planning',
+      queued_at: null,
     }
     meta.sprints = [...(meta.sprints ?? []), sprint]
     await saveProjectMeta(this.paths, project, meta)
@@ -99,6 +110,8 @@ export class SprintService {
     const startedAt = new Date().toISOString()
     located.sprint.status = 'active'
     located.sprint.started_at = startedAt
+    // Ativar tira a sprint da fila — manual ou via avanço automático da fila.
+    located.sprint.queued_at = null
     await saveProjectMeta(this.paths, located.project, located.meta)
 
     // Promote all backlog cards in this sprint to todo.
@@ -402,13 +415,7 @@ export class SprintService {
   async closeSprint(
     params: Record<string, unknown>,
     claims: TokenClaims,
-  ): Promise<{
-    sprint_id: string
-    closed_at: string
-    rolled_over: string[]
-    finished: string[]
-    archived: string[]
-  }> {
+  ): Promise<CloseSprintResult> {
     requirePmOrManager(claims)
     const sprintId = requireString(params, 'sprint_id')
     const located = await this.findSprint(sprintId, claims)
@@ -523,7 +530,106 @@ export class SprintService {
       type: 'SPRINT_CLOSED',
       payload: { sprint_id: sprintId, project: located.project },
     })
-    return { sprint_id: sprintId, closed_at: closedAt, rolled_over: rolledOver, finished, archived }
+
+    // Avança a fila: a sprint 'planning' mais antiga na fila deste projeto
+    // ativa sozinha, cobrindo tanto o fechamento manual quanto o automático.
+    let startedNext: { sprint_id: string; project: string } | undefined
+    const next = this.findNextQueued(located.meta)
+    if (next) {
+      const startedSprint = await this.startSprint({ sprint_id: next.id }, claims)
+      startedNext = { sprint_id: startedSprint.id, project: startedSprint.project }
+    }
+
+    return {
+      sprint_id: sprintId,
+      closed_at: closedAt,
+      rolled_over: rolledOver,
+      finished,
+      archived,
+      ...(startedNext ? { started_next: startedNext } : {}),
+    }
+  }
+
+  /**
+   * Enfileira uma sprint 'planning' para ativar sozinha assim que a sprint
+   * ativa do projeto fechar (manual ou automaticamente). Idempotente: chamar
+   * de novo numa sprint já enfileirada não muda sua posição na fila.
+   */
+  async enqueueSprint(params: Record<string, unknown>, claims: TokenClaims): Promise<Sprint> {
+    requirePmOrManager(claims)
+    const sprintId = requireString(params, 'sprint_id')
+    const located = await this.findSprint(sprintId, claims)
+    if (located.sprint.status !== 'planning') {
+      throw badRequest('invalid_field', { field: 'sprint_id', reason: 'only planning sprints can be queued' })
+    }
+    if (!located.sprint.queued_at) {
+      // Chamadas rápidas o bastante podem cair no mesmo milissegundo, o que
+      // empataria a ordem FIFO da fila — desempata avançando 1ms por vez até
+      // achar um valor livre entre as sprints já enfileiradas no projeto.
+      const taken = new Set(
+        (located.meta.sprints ?? []).map((s) => s.queued_at).filter((v): v is string => !!v),
+      )
+      let ts = new Date().toISOString()
+      while (taken.has(ts)) {
+        ts = new Date(new Date(ts).getTime() + 1).toISOString()
+      }
+      located.sprint.queued_at = ts
+      await saveProjectMeta(this.paths, located.project, located.meta)
+      await this.audit.log({
+        ts: located.sprint.queued_at,
+        op: 'SPRINT_QUEUED',
+        project: located.project,
+        actor: claims.actor,
+        reason: `sprint_id=${sprintId}`,
+      })
+      this.sse.emit({ type: 'SPRINT_UPDATED', payload: { sprint_id: sprintId, project: located.project } })
+    }
+    return located.sprint
+  }
+
+  /** Remove uma sprint da fila sem mudar seu status. Idempotente. */
+  async dequeueSprint(params: Record<string, unknown>, claims: TokenClaims): Promise<Sprint> {
+    requirePmOrManager(claims)
+    const sprintId = requireString(params, 'sprint_id')
+    const located = await this.findSprint(sprintId, claims)
+    if (located.sprint.queued_at) {
+      located.sprint.queued_at = null
+      await saveProjectMeta(this.paths, located.project, located.meta)
+      await this.audit.log({
+        ts: new Date().toISOString(),
+        op: 'SPRINT_DEQUEUED',
+        project: located.project,
+        actor: claims.actor,
+        reason: `sprint_id=${sprintId}`,
+      })
+      this.sse.emit({ type: 'SPRINT_UPDATED', payload: { sprint_id: sprintId, project: located.project } })
+    }
+    return located.sprint
+  }
+
+  /**
+   * Fecha a sprint ativa sozinha quando 100% dos seus cards chegaram a
+   * 'done' — sem isso, encerrar uma sprint concluída sempre dependia de um
+   * humano clicar "encerrar sprint". Não fecha com rollover: se sobrar
+   * qualquer card em outro status, a sprint continua ativa como hoje.
+   */
+  async autoCloseIfComplete(
+    sprintId: string,
+    claims: TokenClaims,
+  ): Promise<CloseSprintResult | null> {
+    const located = await this.findSprint(sprintId, claims).catch(() => null)
+    if (!located || located.sprint.status !== 'active') return null
+    const cards = this.repo.findBySprint(sprintId)
+    if (cards.length === 0 || !cards.every((c) => c.status === 'done')) return null
+    return this.closeSprint({ sprint_id: sprintId, rollover_to: null }, claims)
+  }
+
+  /** Sprint 'planning' com `queued_at` mais antigo no projeto, ou null. */
+  private findNextQueued(meta: ProjectMeta): Sprint | null {
+    const queued = (meta.sprints ?? [])
+      .filter((s): s is Sprint & { queued_at: string } => s.status === 'planning' && !!s.queued_at)
+      .sort((a, b) => a.queued_at.localeCompare(b.queued_at))
+    return queued[0] ?? null
   }
 
   // ── Internals ──────────────────────────────────────────────────────────

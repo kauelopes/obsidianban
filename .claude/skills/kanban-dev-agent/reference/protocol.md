@@ -39,7 +39,7 @@ result with no duplicate side effect — use it whenever the network may drop.
 | `kanban_pick_next` | — | — | Auto-scoped to active sprint. Returns `{ card }` or `{ card: null, reason, blocked_candidates }`. |
 | `kanban_list_cards` | — | `status`, `assigned_to`, `tags`, `limit`, `offset`, `order_by` | Auto-scoped to active sprint; any `sprint_id` is ignored. |
 | `kanban_get_card` | `id` | — | Returns the card incl. `body` and `# Agent Log`. |
-| `kanban_claim_card` | `id`, `version` | — | Sets `assigned_to` to your actor (from token). Idempotent if already yours. Does **not** change status. |
+| `kanban_claim_card` | `id`, `version` | — | Sets `assigned_to` to your actor (from token). Idempotent if already yours. Does **not** change status — move it yourself right after claiming. In the automated sprint workflow, the orchestrator also moves a freshly claimed card to `in_progress` on its own shortly after, as a fallback if you skip that step. |
 | `kanban_move_card` | `id`, `version`, `to_status` | `input_tokens`, `output_tokens`, `model`, `request_id` | `to_status` is a column slug. Pass token usage to record cost. |
 | `kanban_log_on_card` | `id`, `version`, `log_entry` | `input_tokens`, `output_tokens`, `model`, `request_id` | Appends a timestamped entry to `# Agent Log`. Markdown + mermaid ok. |
 | `kanban_release_card` | `id`, `version` | `revert_to_status` | Defaults to moving the card back to `todo` so `pick_next` sees it; pass `null` to keep status. |

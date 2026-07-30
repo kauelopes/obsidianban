@@ -26,6 +26,10 @@ import { PlanningSessionStore } from './planning/session.js'
 import { ClaudeRunner, DEFAULT_TURN_TIMEOUT_MS } from './planning/claude-runner.js'
 import { StubRunner } from './planning/stub-runner.js'
 import { createMaterializer } from './planning/materialize.js'
+import { SprintPlanningSessionStore } from './sprint-planning/session.js'
+import { SprintStubRunner } from './sprint-planning/stub-runner.js'
+import { createSprintMaterializer } from './sprint-planning/materialize.js'
+import { SprintPlanningService } from './services/sprint-planning.js'
 import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
@@ -37,7 +41,7 @@ import { StaticSite } from './server/static.js'
 import { TOOL_SCHEMAS } from './server/tool-schemas.js'
 import { TOOL_CATALOG } from './server/tool-catalog.js'
 import type { ToolAccess } from './server/tool-access.js'
-import type { TokenClaims } from '@obsidiankan/types'
+import type { ManagerToken, TokenClaims } from '@obsidiankan/types'
 
 async function main(): Promise<void> {
   const stdioMode = process.argv.includes('--stdio')
@@ -69,6 +73,44 @@ async function main(): Promise<void> {
   const admin = new AdminService(config.paths, repo, audit, sse)
   const epics = new EpicService(config.paths, audit, sse)
   const sprints = new SprintService(config.paths, repo, writer, audit, sse)
+
+  // Claims para ações disparadas pelo próprio servidor (avanço de fila,
+  // auto-close), sem token emitido — role manager satisfaz os guards dos
+  // métodos de SprintService por igual.
+  const SYSTEM_CLAIMS: ManagerToken = { role: 'manager', actor: 'system:auto-sprint' }
+
+  /**
+   * Mesmo bloco de auto-launch que já existia só em kanban_start_sprint,
+   * reaproveitado para quando a fila avança uma sprint sozinha (fechamento
+   * manual ou automático) — best-effort: falhar aqui não desfaz o que já
+   * ativou.
+   */
+  async function autoLaunchWorkflowForStartedNext(
+    started?: { sprint_id: string; project: string },
+  ): Promise<void> {
+    if (!started || !workflow.autoLaunch) return
+    const meta = await loadProjectMetaOrNull(config.paths, started.project)
+    if (!meta?.target_repo) {
+      logger.warn(
+        { sprint: started.sprint_id, project: started.project },
+        'workflow: target_repo not configured — set via kanban_set_project_repo',
+      )
+      return
+    }
+    await workflow.start(started.sprint_id, started.project, meta.target_repo).catch((err) => {
+      logger.warn({ err, sprint: started.sprint_id }, 'workflow: auto-launch falhou para sprint da fila')
+    })
+  }
+
+  // Toda vez que uma execução termina (saída normal, crash ou stop), checa se
+  // a sprint pode fechar sozinha (100% dos cards em done) e, se fechar e isso
+  // ativar a próxima sprint da fila, dispara o workflow dela também.
+  workflow.setOnFinished((view) => {
+    void sprints
+      .autoCloseIfComplete(view.sprint_id, SYSTEM_CLAIMS)
+      .then((result) => autoLaunchWorkflowForStartedNext(result?.started_next))
+      .catch((err) => logger.warn({ err, sprint: view.sprint_id }, 'sprint: checagem de auto-close falhou'))
+  })
   const planningStore = new PlanningSessionStore(config.paths)
   const planningModel = process.env['PLANNING_MODEL']
   const planningStub = process.env['PLANNING_STUB'] === 'true' || process.env['PLANNING_STUB'] === '1'
@@ -80,19 +122,47 @@ async function main(): Promise<void> {
         ...(planningModel ? { model: planningModel } : {}),
         timeoutMs: Number(process.env['PLANNING_TURN_TIMEOUT_MS'] ?? DEFAULT_TURN_TIMEOUT_MS),
       })
+  const planningModelLabel = planningStub ? 'stub' : (planningModel ?? 'claude-headless')
   const planning = new PlanningService(
     planningStore,
     planningRunner,
     repo,
     sse,
-    planningStub ? 'stub' : (planningModel ?? 'claude-headless'),
+    planningModelLabel,
     createMaterializer({
       paths: config.paths,
       admin,
       sprints,
       cards,
       epics,
+      modelLabel: planningModelLabel,
       saveSession: (s) => planningStore.save(s),
+    }),
+  )
+
+  const sprintPlanningStore = new SprintPlanningSessionStore(config.paths)
+  const sprintPlanningRunner = planningStub
+    ? new SprintStubRunner()
+    : new ClaudeRunner({
+        cwd: sprintPlanningStore.baseDir,
+        ...(planningModel ? { model: planningModel } : {}),
+        timeoutMs: Number(process.env['PLANNING_TURN_TIMEOUT_MS'] ?? DEFAULT_TURN_TIMEOUT_MS),
+      })
+  const sprintPlanning = new SprintPlanningService(
+    config.paths,
+    sprintPlanningStore,
+    sprintPlanningRunner,
+    repo,
+    sse,
+    planningModelLabel,
+    sprints,
+    epics,
+    createSprintMaterializer({
+      sprints,
+      cards,
+      epics,
+      modelLabel: planningModelLabel,
+      saveSession: (s) => sprintPlanningStore.save(s),
     }),
   )
   const queries = new QueryService(repo, config.paths, () => admin.getArchivedProjects())
@@ -148,26 +218,21 @@ async function main(): Promise<void> {
     kanban_planning_finalize: async (p, c) => planning.finalize(p, c),
     kanban_planning_cancel: async (p, c) => planning.cancel(p, c),
     kanban_planning_list: async (p, c) => planning.list(p, c),
+    kanban_sprint_planning_start: async (p, c) => sprintPlanning.start(p, c),
+    kanban_sprint_planning_get: async (p, c) => sprintPlanning.get(p, c),
+    kanban_sprint_planning_answer: async (p, c) => sprintPlanning.answer(p, c),
+    kanban_sprint_planning_refine: async (p, c) => sprintPlanning.refine(p, c),
+    kanban_sprint_planning_retry: async (p, c) => sprintPlanning.retry(p, c),
+    kanban_sprint_planning_finalize: async (p, c) => sprintPlanning.finalize(p, c),
+    kanban_sprint_planning_cancel: async (p, c) => sprintPlanning.cancel(p, c),
+    kanban_sprint_planning_list: async (p, c) => sprintPlanning.list(p, c),
     kanban_create_epic: async (p, c) => epics.createEpic(p, c),
     kanban_list_epics: async (p, c) => epics.listEpics(p, c),
     kanban_update_epic: async (p, c) => epics.updateEpic(p, c),
     kanban_create_sprint: async (p, c) => sprints.createSprint(p, c),
     kanban_start_sprint: async (p, c) => {
       const result = await sprints.startSprint(p, c)
-      if (workflow.autoLaunch) {
-        const meta = await loadProjectMetaOrNull(config.paths, result.project)
-        if (meta?.target_repo) {
-          // Auto-launch é best-effort: falhar aqui não pode desfazer o start da sprint.
-          await workflow.start(result.id, result.project, meta.target_repo).catch((err) => {
-            logger.warn({ err, sprint: result.id }, 'workflow: auto-launch failed')
-          })
-        } else {
-          logger.warn(
-            { sprint: result.id, project: result.project },
-            'workflow: target_repo not configured — set via kanban_set_project_repo',
-          )
-        }
-      }
+      await autoLaunchWorkflowForStartedNext({ sprint_id: result.id, project: result.project })
       return result
     },
     kanban_workflow_start: async (p, c) => {
@@ -186,6 +251,11 @@ async function main(): Promise<void> {
       await sprints.getSprint({ sprint_id: sprintId }, c)
       return workflow.stop(sprintId)
     },
+    kanban_workflow_request_stop: async (p, c) => {
+      const sprintId = String(p['sprint_id'] ?? '')
+      await sprints.getSprint({ sprint_id: sprintId }, c)
+      return workflow.requestGracefulStop(sprintId)
+    },
     kanban_log_workflow_usage: async (p, c) => sprints.logWorkflowUsage(p, c),
     kanban_workflow_status: async (p, c) => {
       const sprintId = String(p['sprint_id'] ?? '')
@@ -196,7 +266,13 @@ async function main(): Promise<void> {
     kanban_get_sprint: async (p, c) => sprints.getSprint(p, c),
     kanban_add_to_sprint: async (p, c) => sprints.addToSprint(p, c),
     kanban_move_between_sprints: async (p, c) => sprints.moveBetweenSprints(p, c),
-    kanban_close_sprint: async (p, c) => sprints.closeSprint(p, c),
+    kanban_close_sprint: async (p, c) => {
+      const result = await sprints.closeSprint(p, c)
+      await autoLaunchWorkflowForStartedNext(result.started_next)
+      return result
+    },
+    kanban_queue_sprint: async (p, c) => sprints.enqueueSprint(p, c),
+    kanban_dequeue_sprint: async (p, c) => sprints.dequeueSprint(p, c),
   }
 
   const tools: ToolDef[] = TOOL_CATALOG.map((m) => {
@@ -261,7 +337,7 @@ async function main(): Promise<void> {
   const site = (await candidate.isAvailable()) ? candidate : undefined
   if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
 
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow })
+  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }

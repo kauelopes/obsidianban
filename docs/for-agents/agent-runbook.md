@@ -331,7 +331,10 @@ board itself:
 1. PM creates cards + `kanban_start_sprint` (promotes `backlog → todo`).
 2. PM dispatches the dev with a generic instruction ("work the active sprint").
 3. Dev loops `pick_next → claim → in_progress → log → done`, and on a blocker
-   follows the escalation protocol (§3): log + move to `review`.
+   follows the escalation protocol (§3): log + move to `review`. (The
+   automated sprint workflow also moves a freshly claimed card to
+   `in_progress` on its own as a fallback if the dev skips that step — see
+   `docs/for-agents/sprint-workflow.md`.)
 4. Dev exits; PM reads the result JSON to know it finished and what it cost.
 5. PM — with its **own** token — calls `kanban_get_sprint` / lists `review` to
    see the *authoritative* state, and decides: close, follow-up, or unblock.

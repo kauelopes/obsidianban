@@ -13,3 +13,5 @@ export const ACTIVITY_DAYS_MAX = 60
 // ── Sprint workflow ──────────────────────────────────────────────────────────
 // Chunk máximo por leitura do log de execução (GET /workflow/log).
 export const WORKFLOW_LOG_CHUNK_MAX = 64 * 1024
+// Quanto do fim do log é lido para derivar a fase atual (GET /workflow/agents).
+export const WORKFLOW_PHASE_TAIL_BYTES = 64 * 1024

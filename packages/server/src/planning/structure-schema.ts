@@ -75,6 +75,11 @@ function validateEpic(raw: unknown, at: string): FinalEpic {
   return { name, objective, sprints }
 }
 
+/** Exportado para reaproveitar em outros wizards que produzem uma FinalSprint isolada (ex.: sprint-planning). */
+export function validateFinalSprint(raw: unknown, at = 'sprint'): FinalSprint {
+  return validateSprint(raw, at)
+}
+
 function validateSprint(raw: unknown, at: string): FinalSprint {
   const s = asObject(raw, at)
   const name = asString(s['name'], `${at}.name`, 80)

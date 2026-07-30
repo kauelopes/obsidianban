@@ -42,6 +42,7 @@ interface Props {
   onShowArchived: (v: boolean) => void
   onCreateCard: (project: string) => void
   onOpenSprints: (project: string) => void
+  onPlanSprint: (project: string) => void
   onOpenProject: (project: string) => void
   sprintFilter: Record<string, string | undefined>
   onSprintFilter: (project: string, sprintId: string | undefined) => void
@@ -58,6 +59,7 @@ export function Board({
   moveHint,
   onCreateCard,
   onOpenSprints,
+  onPlanSprint,
   onOpenProject,
   sprintFilter,
   onSprintFilter,
@@ -209,14 +211,29 @@ export function Board({
                   onChange={(e) => onSprintFilter(g.project, e.target.value || undefined)}
                 >
                   <option value="">todas as sprints</option>
-                  {sprintsFor(g.project).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} — {s.status}
-                    </option>
-                  ))}
+                  {sprintsFor(g.project)
+                    .filter((s) => s.status !== 'closed')
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} — {s.status}
+                      </option>
+                    ))}
+                  {/* Encerradas continuam selecionáveis, só separadas no fim. */}
+                  {sprintsFor(g.project).some((s) => s.status === 'closed') && (
+                    <optgroup label="encerradas">
+                      {sprintsFor(g.project)
+                        .filter((s) => s.status === 'closed')
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
                 </select>
                 <button onClick={() => onCreateCard(g.project)}>+ card</button>
                 <button onClick={() => onOpenSprints(g.project)}>sprints</button>
+                <button onClick={() => onPlanSprint(g.project)}>sprint c/ assistente</button>
                 <button
                   className="ghost"
                   onClick={() => onOpenProject(g.project)}

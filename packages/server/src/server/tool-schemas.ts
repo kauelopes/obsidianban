@@ -298,6 +298,13 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     additionalProperties: false,
   },
 
+  kanban_workflow_request_stop: {
+    type: 'object',
+    required: ['sprint_id'],
+    properties: { sprint_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
   kanban_workflow_status: {
     type: 'object',
     required: ['sprint_id'],
@@ -420,6 +427,72 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
   kanban_planning_list: {
     type: 'object',
     properties: {},
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_start: {
+    type: 'object',
+    required: ['project'],
+    properties: {
+      project: { type: 'string', description: 'agent (pm) tokens ignore this and use their own project' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_get: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_answer: {
+    type: 'object',
+    required: ['session_id', 'step', 'answer'],
+    properties: {
+      session_id: { type: 'string' },
+      step:       { type: 'string', description: 'must equal the session current_step — 409 step_mismatch otherwise' },
+      answer:     { description: 'the human answer; shape depends on the screen: form → {fieldId: value}, choice → {choice}, confirm → {approved: true}' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_refine: {
+    type: 'object',
+    required: ['session_id', 'feedback'],
+    properties: {
+      session_id: { type: 'string' },
+      feedback:   { type: 'string', maxLength: 4000, description: 'what to correct in the current screen' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_retry: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_finalize: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_cancel: {
+    type: 'object',
+    required: ['session_id'],
+    properties: { session_id: { type: 'string' } },
+    additionalProperties: false,
+  },
+
+  kanban_sprint_planning_list: {
+    type: 'object',
+    properties: {
+      project: { type: 'string', description: 'optional filter; agent (pm) tokens are always scoped to their own project' },
+    },
     additionalProperties: false,
   },
 
@@ -563,6 +636,24 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     properties: {
       sprint_id:   { type: 'string' },
       rollover_to: { type: ['string', 'null'], description: "sprint_id of a planning sprint to receive unfinished cards, or null to close without moving them (they stay attached to the closed sprint as historical record). IMPORTANT: cards in 'done' status are automatically archived on sprint close — they will appear in 'archived' and 'finished' in the response." },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_queue_sprint: {
+    type: 'object',
+    required: ['sprint_id'],
+    properties: {
+      sprint_id: { type: 'string' },
+    },
+    additionalProperties: false,
+  },
+
+  kanban_dequeue_sprint: {
+    type: 'object',
+    required: ['sprint_id'],
+    properties: {
+      sprint_id: { type: 'string' },
     },
     additionalProperties: false,
   },

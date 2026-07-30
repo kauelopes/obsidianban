@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import type { CardSummary, Epic, GetSprintResult, Sprint } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
 import { Dialog } from './Dialog.js'
-import { WorkflowPanel } from './WorkflowPanel.js'
 
 export function SprintPanel({
   client,
@@ -30,8 +29,6 @@ export function SprintPanel({
   const [moveTo, setMoveTo] = useState('')
   // Épico de cada sprint (se houver) — só para o badge ao lado do nome.
   const [epicOf, setEpicOf] = useState<Record<string, string>>({})
-  // Sprint cujo painel de execução de agentes está aberto (uma por vez).
-  const [wfId, setWfId] = useState<string | null>(null)
 
   useEffect(() => {
     void client.listEpics(project).then((res) => {
@@ -45,6 +42,17 @@ export function SprintPanel({
   }, [client, project])
 
   const hasActive = sprints.some((s) => s.status === 'active')
+  // Encerradas vão pro fim, com um divisor antes delas — sort é estável, então
+  // a ordem relativa dentro de cada grupo (planning/active vs. closed) não muda.
+  const orderedSprints = [...sprints].sort((a, b) =>
+    Number(a.status === 'closed') - Number(b.status === 'closed'),
+  )
+  const firstClosedIndex = orderedSprints.findIndex((s) => s.status === 'closed')
+  // Ordem da fila é queued_at crescente (FIFO) — mesma regra do back-end.
+  const queueOrder = sprints
+    .filter((s) => s.status === 'planning' && s.queued_at)
+    .sort((a, b) => a.queued_at!.localeCompare(b.queued_at!))
+    .map((s) => s.id)
 
   async function run(fn: () => Promise<{ ok: boolean; error?: unknown }>) {
     setBusy(true)
@@ -83,13 +91,19 @@ export function SprintPanel({
 
       <table className="table">
         <tbody>
-          {sprints.length === 0 && (
+          {orderedSprints.length === 0 && (
             <tr>
               <td className="empty">nenhuma sprint ainda</td>
             </tr>
           )}
-          {sprints.map((s) => (
-            <tr key={s.id}>
+          {orderedSprints.map((s, i) => (
+            <Fragment key={s.id}>
+              {i === firstClosedIndex && (
+                <tr key="closed-divider" className="divider-row">
+                  <td colSpan={3}>encerradas</td>
+                </tr>
+              )}
+              <tr>
               <td>
                 <button
                   className="ghost"
@@ -112,6 +126,11 @@ export function SprintPanel({
               </td>
               <td>
                 <span className={`pill ${s.status}`}>{s.status}</span>
+                {s.status === 'planning' && s.queued_at && (
+                  <span className="pill" title="Ativa sozinha quando a sprint ativa fechar">
+                    na fila #{queueOrder.indexOf(s.id) + 1}
+                  </span>
+                )}
               </td>
               <td className="actions">
                 {s.status === 'planning' && (
@@ -123,14 +142,26 @@ export function SprintPanel({
                     iniciar
                   </button>
                 )}
-                {(s.status === 'active' || s.status === 'closed') && (
-                  <button
-                    className={wfId === s.id ? undefined : 'ghost'}
-                    title="Executar e acompanhar os agentes desta sprint"
-                    onClick={() => setWfId((cur) => (cur === s.id ? null : s.id))}
-                  >
-                    agentes
-                  </button>
+                {s.status === 'planning' && (
+                  s.queued_at ? (
+                    <button
+                      className="ghost"
+                      disabled={busy}
+                      title="Sai da fila — não ativa mais sozinha"
+                      onClick={() => run(() => client.dequeueSprint({ sprint_id: s.id }))}
+                    >
+                      tirar da fila
+                    </button>
+                  ) : (
+                    <button
+                      className="ghost"
+                      disabled={busy}
+                      title="Ativa sozinha assim que a sprint ativa deste projeto fechar"
+                      onClick={() => run(() => client.queueSprint({ sprint_id: s.id }))}
+                    >
+                      enfileirar
+                    </button>
+                  )
                 )}
                 {s.status === 'active' && (
                   <button
@@ -146,18 +177,11 @@ export function SprintPanel({
                   </button>
                 )}
               </td>
-            </tr>
+              </tr>
+            </Fragment>
           ))}
         </tbody>
       </table>
-
-      {wfId && (
-        <WorkflowPanel
-          client={client}
-          sprintId={wfId}
-          sprintActive={sprints.some((s) => s.id === wfId && s.status === 'active')}
-        />
-      )}
 
       {/*
         Anexar cards a uma sprint também não tinha via de UI. Só aparecem os que

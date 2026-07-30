@@ -28,7 +28,7 @@ You execute work that a PM has already planned. You do **not** plan: you cannot 
 
 1. `kanban_pick_next` → get the next ready card (no unmet blockers).
 2. `kanban_claim_card` → take ownership (idempotent if already yours).
-3. `kanban_move_card { to_status: "in_progress" }`.
+3. `kanban_move_card { to_status: "in_progress" }` — do this right away, before starting the real work. (In the automated sprint workflow, the orchestrator also moves a freshly claimed card to `in_progress` on its own shortly after, as a fallback if you skip this step — but don't rely on it: doing it yourself keeps the board accurate immediately instead of a few seconds later.)
 4. Do the work. Append meaningful progress with `kanban_log_on_card` (markdown + mermaid supported).
 5. When done: `kanban_move_card { to_status: "done", input_tokens, output_tokens, model }` to record cost, then loop back to step 1.
 

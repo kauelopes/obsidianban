@@ -50,6 +50,10 @@ export interface Sprint {
   started_at: string | null    // ISO 8601 — when start_sprint was called (null while planning)
   ended_at: string | null      // null while status!=='closed'
   status: 'planning' | 'active' | 'closed'
+  // ISO 8601 — when queue_sprint was called; null when not queued. Only
+  // meaningful while status==='planning'; order in the queue is ascending by
+  // this timestamp (FIFO). Cleared when the sprint activates.
+  queued_at: string | null
 }
 
 export type CardSummary = Omit<Card, 'body'>
@@ -209,6 +213,9 @@ export type SSEEventType =
   | 'PLANNING_STEP_READY'
   | 'PLANNING_ERROR'
   | 'PLANNING_FINALIZED'
+  | 'SPRINT_PLANNING_STEP_READY'
+  | 'SPRINT_PLANNING_ERROR'
+  | 'SPRINT_PLANNING_FINALIZED'
   | 'WORKFLOW_STARTED'
   | 'WORKFLOW_EXITED'
 
@@ -231,6 +238,9 @@ export interface SprintClosedPayload      { sprint_id: string; project: string }
 export interface PlanningStepReadyPayload { session_id: string; step_id: string; status: string }
 export interface PlanningErrorPayload     { session_id: string; step_id: string; reason: string }
 export interface PlanningFinalizedPayload { session_id: string; project: string }
+export interface SprintPlanningStepReadyPayload { session_id: string; step_id: string; status: string }
+export interface SprintPlanningErrorPayload     { session_id: string; step_id: string; reason: string }
+export interface SprintPlanningFinalizedPayload { session_id: string; project: string; sprint_id: string }
 export interface WorkflowStartedPayload  { sprint_id: string; project: string }
 export interface WorkflowExitedPayload   { sprint_id: string; project: string; status: string; exit_code: number | null }
 
@@ -254,6 +264,9 @@ export type SSEEventPayload =
   | PlanningStepReadyPayload
   | PlanningErrorPayload
   | PlanningFinalizedPayload
+  | SprintPlanningStepReadyPayload
+  | SprintPlanningErrorPayload
+  | SprintPlanningFinalizedPayload
   | WorkflowStartedPayload
   | WorkflowExitedPayload
 
@@ -274,6 +287,7 @@ export type AuditOp =
   | 'GOAL_SET' | 'GOAL_DELETED'
   | 'EPIC_SET'
   | 'SPRINT_CREATED' | 'SPRINT_STARTED' | 'SPRINT_CLOSED'
+  | 'SPRINT_QUEUED' | 'SPRINT_DEQUEUED'
   | 'WORKFLOW_DEV' | 'WORKFLOW_TRIAGE'
   | 'HUMAN_EDIT' | 'FIELD_REVERTED' | 'PARSE_ERROR'
   | 'RECONCILED' | 'ORPHAN_REMOVED' | 'SQLITE_REBUILT' | 'EXTERNAL_MUTATION'
@@ -378,6 +392,14 @@ export interface WorkflowRunView {
   started_at: string
   ended_at: string | null
   exit_code: number | null
+  /**
+   * true depois de kanban_workflow_request_stop: o orquestrador não inicia
+   * mais rodada nenhuma, mas deixa a rodada dev em andamento terminar
+   * normalmente (com o log/status que o próprio agente escreve). Só volta a
+   * false quando o processo efetivamente termina (status deixa de ser
+   * 'running'). kanban_workflow_stop continua sendo a parada imediata.
+   */
+  stopping_gracefully: boolean
 }
 
 export interface WorkflowLogResult {
@@ -387,6 +409,40 @@ export interface WorkflowLogResult {
   size: number
   /** Conteúdo a partir do offset pedido (limitado a um chunk por chamada). */
   data: string
+}
+
+/** Fase corrente do orquestrador, derivada dos marcadores do log de execução. */
+export type WorkflowPhase = 'triage' | 'dev' | 'idle'
+
+export interface WorkflowInProgressCard {
+  id: string
+  title: string
+  assigned_to: string | null
+  /** Papel do actor que reivindicou o card, quando conhecido (via tokens do projeto). */
+  assigned_role: 'pm' | 'dev' | null
+}
+
+/**
+ * Visão agregada para o painel de agentes: status do processo + fase atual +
+ * cards em andamento. Consumida por GET /workflow/agents.
+ */
+export interface WorkflowLastTool {
+  /** Nome da tool (prefixo mcp__<server>__ já removido), ex. "kanban_move_card", "Bash". */
+  name: string
+  /** ISO 8601 — quando essa linha foi gravada (início ou fim da chamada, ver `status`). */
+  at: string
+  /** 'running' só é confiável durante a fase 'dev' (ver deriveLastTool). */
+  status: 'running' | 'done' | 'error'
+}
+
+export interface WorkflowAgentsStatus {
+  sprint_id: string
+  run: WorkflowRunView | null
+  phase: WorkflowPhase
+  last_activity_at: string | null
+  in_progress_cards: WorkflowInProgressCard[]
+  /** Última tool call vista no log — em voo ou já concluída — ou null se nenhuma ainda. */
+  last_tool: WorkflowLastTool | null
 }
 
 // ─── Tool response envelopes ──────────────────────────────────────────────────
@@ -637,6 +693,43 @@ export interface PlanningFinalizeResult {
   goals: number
   kad_files: string[]
   repo_copy_ok: boolean | null
+}
+
+export type SprintStepId = 'capacity' | 'goal' | 'tasks' | 'risks' | 'review'
+
+export interface SprintPlanningContextView {
+  project_epics: Array<{ id: string; name: string; objective: string | null }>
+  suggested_capacity: { avg_cards_per_sprint: number; sample_sprints: number } | null
+  target_repo: string | null
+}
+
+/**
+ * Visão da sessão do wizard de sprint devolvida pelas tools
+ * kanban_sprint_planning_*. Menor que PlanningSessionView: sem `kad`, com
+ * `project`/`context` (o wizard já nasce escopado a um projeto existente).
+ */
+export interface SprintPlanningSessionView {
+  session_id: string
+  project: string
+  epic_id: string | null
+  status: PlanningStatus
+  current_step: SprintStepId
+  context: SprintPlanningContextView
+  answers: Record<string, unknown>
+  outputs: Record<string, PlanningStepOutput>
+  usage: { input_tokens: number; output_tokens: number; usd: number; turns: number }
+  last_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SprintPlanningFinalizeResult {
+  session_id: string
+  project: string
+  sprint_id: string
+  epic_linked: boolean
+  new_cards_created: number
+  new_cards_failed: Array<{ index: number; error: string }>
 }
 
 // ─── Client-specific ─────────────────────────────────────────────────────────

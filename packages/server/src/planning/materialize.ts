@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { TokenClaims, WorkflowReadinessResult } from '@obsidiankan/types'
+import { wizardActorTag } from './wizard-actor.js'
 import type { Paths } from '../config.js'
 import type { AdminService } from '../services/admin.js'
 import type { SprintService } from '../services/sprint.js'
@@ -19,6 +20,8 @@ export interface MaterializeDeps {
   sprints: SprintService
   cards: CardService
   epics: EpicService
+  /** Rótulo do modelo que roda os turnos do wizard — vira o actor `<modelo>:wizard`. */
+  modelLabel: string
   /** Persiste a sessão após cada fase — é o checkpoint da retomada. */
   saveSession(session: PlanningSession): Promise<void>
 }
@@ -58,6 +61,10 @@ export function createMaterializer(deps: MaterializeDeps): Materializer {
     const targetRepo = structure.project.target_repo ?? session.target_repo ?? undefined
     const cp = (session.materialization ??= {})
     const save = () => deps.saveSession(session)
+    // Quem decidiu épicos, sprints e cards foi o modelo, não o humano que
+    // clicou em "finalizar" — o actor gravado no CREATE reflete isso.
+    const wizardActor = wizardActorTag(deps.modelLabel)
+    const wizardClaims: TokenClaims = { ...claims, actor: wizardActor }
 
     // 1. Projeto (minta o token pm — aparece uma única vez, nunca persiste)
     let token: string | null = null
@@ -65,7 +72,7 @@ export function createMaterializer(deps: MaterializeDeps): Materializer {
     let readiness: WorkflowReadinessResult | undefined
     if (!cp.project_created) {
       const created = await deps.admin.createProject(
-        { project, actor: claims.actor, ...(targetRepo ? { target_repo: targetRepo } : {}) },
+        { project, actor: wizardActor, ...(targetRepo ? { target_repo: targetRepo } : {}) },
         claims,
       )
       token = created.token
@@ -81,7 +88,7 @@ export function createMaterializer(deps: MaterializeDeps): Materializer {
       if (cp.epics[epic.name]) continue
       const { epic: created } = await deps.epics.createEpic(
         { project, name: epic.name, objective: epic.objective },
-        claims,
+        wizardClaims,
       )
       cp.epics[epic.name] = created.id
       await save()
@@ -95,7 +102,7 @@ export function createMaterializer(deps: MaterializeDeps): Materializer {
         if (cp.sprints[key]) continue
         const created = await deps.sprints.createSprint(
           { project, name: sprint.name, goal: sprint.goal },
-          claims,
+          wizardClaims,
         )
         cp.sprints[key] = created.id
         await save()
@@ -108,7 +115,7 @@ export function createMaterializer(deps: MaterializeDeps): Materializer {
           id: cp.epics[epic.name]!,
           sprint_ids: epic.sprints.map((s) => cp.sprints![`${epic.name}/${s.name}`]!),
         },
-        claims,
+        wizardClaims,
       )
     }
 
@@ -138,7 +145,7 @@ export function createMaterializer(deps: MaterializeDeps): Materializer {
               input_tokens: 0,
               output_tokens: 0,
             },
-            claims,
+            wizardClaims,
           )
           cardsCreated += res.created.length
           for (const f of res.failed) {
@@ -160,7 +167,7 @@ export function createMaterializer(deps: MaterializeDeps): Materializer {
             ...(g.target_date !== undefined ? { target_date: g.target_date } : {}),
             ...(g.notes ? { notes: g.notes } : {}),
           },
-          claims,
+          wizardClaims,
         )
       }
       cp.goals_done = true

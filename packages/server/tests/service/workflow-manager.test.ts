@@ -176,6 +176,55 @@ describe('WorkflowManager', () => {
     expect(exited?.payload).toMatchObject({ sprint_id: 'sprint-01', status: 'stopped' })
   })
 
+  it('requestGracefulStop sinaliza só o processo (SIGUSR1), não mata na hora', async () => {
+    await writeTokens()
+    // Simula o contrato real de sprint-workflow.ts: instala seu próprio
+    // handler de SIGUSR1 (terminando a "rodada" e saindo sozinho pouco
+    // depois) em vez de depender do default do Node p/ SIGUSR1 sem handler
+    // (que ativa o inspector, não mata nem ignora o processo).
+    const script = await writeScript(`
+      process.on('SIGUSR1', () => setTimeout(() => process.exit(0), 50))
+      setTimeout(() => {}, 30000)
+    `)
+    const m = manager(script)
+    await m.start('sprint-01', 'proj', repo)
+    // Dá tempo do processo filho de fato registrar seu handler de SIGUSR1
+    // antes de mandarmos o sinal — sem isso, mandar o sinal na primeira
+    // fração de ms após o spawn corre contra o V8 ainda inicializando, e cai
+    // no comportamento default do Node p/ SIGUSR1 sem handler (inspector),
+    // não no exit esperado. Mesma folga que existe na prática (ninguém clica
+    // "Parar" no primeiro milissegundo de um workflow real).
+    await new Promise((resolve) => setTimeout(resolve, 150))
+
+    const view = m.requestGracefulStop('sprint-01')
+    expect(view.stopping_gracefully).toBe(true)
+    expect(m.status('sprint-01')?.status).toBe('running') // não mata na hora
+
+    await waitFor(() => m.status('sprint-01')?.status === 'exited')
+    expect(m.status('sprint-01')?.exit_code).toBe(0)
+  })
+
+  it('requestGracefulStop é idempotente e reflete no status()', async () => {
+    await writeTokens()
+    const script = await writeScript(`setTimeout(() => {}, 30000)`)
+    const m = manager(script)
+    await m.start('sprint-01', 'proj', repo)
+
+    m.requestGracefulStop('sprint-01')
+    m.requestGracefulStop('sprint-01')
+    expect(m.status('sprint-01')?.stopping_gracefully).toBe(true)
+
+    m.stop('sprint-01')
+    await waitFor(() => m.status('sprint-01')?.status === 'stopped')
+  })
+
+  it('requestGracefulStop recusa quando não há execução rodando', async () => {
+    const m = manager(path.join(dir, 'x.mjs'))
+    await expect(() => m.requestGracefulStop('nope')).toThrowError(
+      expect.objectContaining({ status: 404 }),
+    )
+  })
+
   it('tokens do settings do repo vencem o ambiente do servidor', async () => {
     // Regressão: um placeholder herdado do shell que lançou o servidor não pode
     // sobrepor os tokens reais provisionados no repo alvo.
@@ -247,5 +296,150 @@ describe('WorkflowManager', () => {
     const m = manager(path.join(dir, 'x.mjs'))
     await expect(m.start('../etc', 'proj', repo)).rejects.toMatchObject({ status: 400 })
     await expect(m.readLog('a/b', 0)).rejects.toMatchObject({ status: 400 })
+  })
+
+  describe('setOnFinished', () => {
+    it('dispara o hook com a view final após saída normal', async () => {
+      await writeTokens()
+      const script = await writeScript(`console.log('ok')`)
+      const m = manager(script)
+      const seen: string[] = []
+      m.setOnFinished((view) => seen.push(view.status))
+
+      await m.start('sprint-01', 'proj', repo)
+      await waitFor(() => m.status('sprint-01')?.status === 'exited')
+      expect(seen).toEqual(['exited'])
+    })
+
+    it('dispara o hook também quando o processo é parado via stop()', async () => {
+      await writeTokens()
+      const script = await writeScript(`setTimeout(() => {}, 30000)`)
+      const m = manager(script)
+      const seen: string[] = []
+      m.setOnFinished((view) => seen.push(view.status))
+
+      await m.start('sprint-01', 'proj', repo)
+      m.stop('sprint-01')
+      await waitFor(() => m.status('sprint-01')?.status === 'stopped')
+      expect(seen).toEqual(['stopped'])
+    })
+
+    it('um hook que lança não impede o finalize de completar', async () => {
+      await writeTokens()
+      const script = await writeScript(`console.log('ok')`)
+      const m = manager(script)
+      m.setOnFinished(() => {
+        throw new Error('boom')
+      })
+
+      await m.start('sprint-01', 'proj', repo)
+      await waitFor(() => m.status('sprint-01')?.status === 'exited')
+      expect(m.status('sprint-01')?.exit_code).toBe(0)
+    })
+  })
+
+  describe('currentPhase', () => {
+    it('sem log em disco, fase é idle e sem atividade', async () => {
+      const m = manager(path.join(dir, 'x.mjs'))
+      expect(await m.currentPhase('nope')).toEqual({
+        phase: 'idle',
+        lastActivityAt: null,
+        lastTool: null,
+      })
+    })
+
+    it('detecta fase dev quando o marcador de início é o mais recente', async () => {
+      await fs.mkdir(logDir, { recursive: true })
+      await fs.writeFile(
+        path.join(logDir, 'sprint-s1.log'),
+        '▶ TRIAGE(llm): 2 ambiguous card(s)\n◀ TRIAGE(llm) done\n▶ DEV: working up to 3 card(s)\n',
+        'utf8',
+      )
+      const m = manager(path.join(dir, 'x.mjs'))
+      const { phase, lastActivityAt } = await m.currentPhase('s1')
+      expect(phase).toBe('dev')
+      expect(lastActivityAt).not.toBeNull()
+    })
+
+    it('detecta fase triage quando o marcador de início é o mais recente', async () => {
+      await fs.mkdir(logDir, { recursive: true })
+      await fs.writeFile(
+        path.join(logDir, 'sprint-s2.log'),
+        '▶ DEV: working up to 3 card(s)\n◀ DEV done — in=1 out=1\n▶ TRIAGE(llm): 1 ambiguous card(s)\n',
+        'utf8',
+      )
+      const m = manager(path.join(dir, 'x.mjs'))
+      expect((await m.currentPhase('s2')).phase).toBe('triage')
+    })
+
+    it('fase idle quando o último marcador é de término', async () => {
+      await fs.mkdir(logDir, { recursive: true })
+      await fs.writeFile(
+        path.join(logDir, 'sprint-s3.log'),
+        '▶ DEV: working up to 3 card(s)\n◀ DEV done — in=1 out=1\n',
+        'utf8',
+      )
+      const m = manager(path.join(dir, 'x.mjs'))
+      expect((await m.currentPhase('s3')).phase).toBe('idle')
+    })
+
+    it('lastTool aponta a tool em voo dentro de um round dev', async () => {
+      await fs.mkdir(logDir, { recursive: true })
+      await fs.writeFile(
+        path.join(logDir, 'sprint-s4.log'),
+        '[2026-01-01T00:00:00.000Z] ▶ DEV: working up to 3 card(s)\n' +
+          '[2026-01-01T00:00:01.000Z]   ▶ tool: kanban_claim_card(card_id=card-1)\n' +
+          '[2026-01-01T00:00:02.000Z]   ◀ tool: kanban_claim_card\n' +
+          '[2026-01-01T00:00:03.000Z]   ▶ tool: Bash(command=pnpm test)\n',
+        'utf8',
+      )
+      const m = manager(path.join(dir, 'x.mjs'))
+      const { phase, lastTool } = await m.currentPhase('s4')
+      expect(phase).toBe('dev')
+      expect(lastTool).toEqual({ name: 'Bash', at: '2026-01-01T00:00:03.000Z', status: 'running' })
+    })
+
+    it('lastTool continua apontando a última chamada mesmo depois de ela fechar', async () => {
+      await fs.mkdir(logDir, { recursive: true })
+      await fs.writeFile(
+        path.join(logDir, 'sprint-s5.log'),
+        '[2026-01-01T00:00:00.000Z] ▶ DEV: working up to 3 card(s)\n' +
+          '[2026-01-01T00:00:01.000Z]   ▶ tool: Bash(command=pnpm test)\n' +
+          '[2026-01-01T00:00:05.000Z]   ◀ tool: Bash\n',
+        'utf8',
+      )
+      const m = manager(path.join(dir, 'x.mjs'))
+      const { lastTool } = await m.currentPhase('s5')
+      expect(lastTool).toEqual({ name: 'Bash', at: '2026-01-01T00:00:05.000Z', status: 'done' })
+    })
+
+    it('lastTool reporta status error quando a chamada falhou', async () => {
+      await fs.mkdir(logDir, { recursive: true })
+      await fs.writeFile(
+        path.join(logDir, 'sprint-s7.log'),
+        '[2026-01-01T00:00:00.000Z] ▶ DEV: working up to 3 card(s)\n' +
+          '[2026-01-01T00:00:01.000Z]   ▶ tool: kanban_move_card(id=card-1, to_status=done)\n' +
+          '[2026-01-01T00:00:02.000Z]   ◀ tool: kanban_move_card (erro)\n',
+        'utf8',
+      )
+      const m = manager(path.join(dir, 'x.mjs'))
+      const { lastTool } = await m.currentPhase('s7')
+      expect(lastTool).toEqual({ name: 'kanban_move_card', at: '2026-01-01T00:00:02.000Z', status: 'error' })
+    })
+
+    it('não reporta tool "running" fantasma fora da fase dev (round já terminou)', async () => {
+      await fs.mkdir(logDir, { recursive: true })
+      await fs.writeFile(
+        path.join(logDir, 'sprint-s6.log'),
+        '[2026-01-01T00:00:00.000Z] ▶ DEV: working up to 3 card(s)\n' +
+          '[2026-01-01T00:00:01.000Z]   ▶ tool: Bash(command=pnpm test)\n' +
+          '[2026-01-01T00:00:05.000Z] ◀ DEV done — in=1 out=1\n', // round fechou sem "◀ tool:" — ex. crash
+        'utf8',
+      )
+      const m = manager(path.join(dir, 'x.mjs'))
+      const result = await m.currentPhase('s6')
+      expect(result.phase).toBe('idle')
+      expect(result.lastTool).toBeNull()
+    })
   })
 })

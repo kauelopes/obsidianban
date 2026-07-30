@@ -25,17 +25,18 @@
 | `kanban_unarchive_card` | Restore an archived card to the default listing |  | ✓ |
 | `kanban_get_card_history` | Full mutation history of a card, read from the append-only audit log: who changed what and when, with changed_fields, status transitions and recorded token cost. Newest first. Fields other than ts and op are all optional and vary by call site, not just by op: MOVE adds from_status/to_status, UPDATE adds changed_fields, and token fields are present only when the caller reported them. Check for presence rather than inferring the shape from op. |  | ✓ |
 | `kanban_list_escalations` | Cards currently sitting in status 'review' — i.e. work waiting on a decision. Every card in 'review' qualifies, since that column is itself the escalation protocol; the automated PM triage in the sprint workflow already tries to resolve each one (deterministic blocker check, then an LLM triage that can CLOSE/RETURN/create a FOLLOW-UP) before it survives to show up here. Returns the last Agent Log entry's timestamp and text as escalated_at/reason (falling back to updated_at and a placeholder if the card has no log entries). Derived from the card files, so an escalation written by hand in Obsidian shows up too. Answer one with kanban_log_on_card using log_kind: 'pm_resolved', then move the card off 'review' (to 'done' or 'todo') — that move is what removes it from this list. |  | ✓ |
-| `kanban_claim_card` | Claim a card for yourself — sets assigned_to to your actor (inferred from the token, not a parameter). Idempotent: calling it on a card you already own returns success without changing version. 409 already_claimed if held by another agent. Does NOT change the card status — call kanban_move_card separately if needed. | ✓ | ✓ |
+| `kanban_claim_card` | Claim a card for yourself — sets assigned_to to your actor (inferred from the token, not a parameter). Idempotent: calling it on a card you already own returns success without changing version. 409 already_claimed if held by another agent. Does NOT change the card status — call kanban_move_card separately if needed. In the automated sprint workflow specifically, the orchestrator watches for a successful dev claim and moves the card to in_progress on its own shortly after as a safety net (some rounds skip that step); move it yourself anyway for faster board visibility — don't rely on the fallback. | ✓ | ✓ |
 | `kanban_release_card` | Release a card you own so another agent can claim it. By default moves the card back to 'todo' (revert_to_status) so pick_next can find it — pass revert_to_status: null to keep the current status unchanged. | ✓ | ✓ |
 | `kanban_defer_card` | Defer this card because it depends on another card — including one already sitting in review — rather than needing human judgment of its own. Merges blocked_by, appends log_entry explaining why, releases your claim (assigned_to → null), and returns the card to 'todo' if it was in a started column. Use this instead of moving to 'review' when what you discovered mid-execution is a dependency, not something that needs a human decision. kanban_pick_next skips the card again until every blocker is done, archived, or deleted. | ✓ | ✓ |
 
-## Workflow (5 tools)
+## Workflow (6 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
 | `kanban_pick_next` | Return the next card ready to work on (no unsatisfied blockers). Only considers cards in 'todo' by default — backlog cards are promoted to todo automatically when the sprint starts. DEV AGENTS: always scoped to the active sprint automatically (sprint_id param is ignored). When card is null, check reason: 'no_active_sprint' = start the sprint first (PM/manager only), 'all_blocked' = all candidates have unmet dependencies, 'empty' = no cards in sprint. The blocked_candidates count tells you how many candidates exist but are gated by unmet dependencies — log this and escalate to a PM agent if it stays > 0. | ✓ | ✓ |
 | `kanban_workflow_start` | Launch the sprint workflow (the agent orchestrator) for an active sprint. Requires the project's target_repo to be set (kanban_set_project_repo) — the pm/dev tokens are read from the repo's .claude/settings.local.json. 409 workflow_already_running if a run for the sprint (or project) is in flight. Progress arrives via SSE (WORKFLOW_STARTED / WORKFLOW_EXITED) and the log via GET /workflow/log. |  | ✓ |
-| `kanban_workflow_stop` | Stop a running sprint workflow — SIGTERM to the whole process group, so any dev harness spawned by it dies too. 409 workflow_not_running when there is nothing to stop. |  | ✓ |
+| `kanban_workflow_stop` | Immediately stop a running sprint workflow — SIGTERM to the whole process group, so any dev harness spawned by it dies too. Interrupts an in-flight dev round mid-work: the current card stays claimed and in whatever status it was left in (often still in_progress with no closing log entry) since kanban_pick_next never returns in_progress cards again. Prefer kanban_workflow_request_stop unless you need it to stop right now. 409 workflow_not_running when there is nothing to stop. |  | ✓ |
+| `kanban_workflow_request_stop` | Request a graceful stop: signals the orchestrator process only (never the dev harness child) to not start another round — the round in flight, if any, finishes normally (the dev agent reaches done/review and writes its own log entry, same as a natural drain). The workflow then exits on its own once that round completes; this can take minutes. Idempotent. 409 workflow_not_running if nothing is running. If the run appears stuck (see the idle warning on GET /workflow/agents), use kanban_workflow_stop instead for an immediate kill. |  | ✓ |
 | `kanban_workflow_status` | Current state of the sprint workflow run for a sprint: running/exited/failed/stopped, pid, timestamps and exit code. run is null when the server never launched (or lost track of, after a restart) a workflow for that sprint. |  | ✓ |
 | `kanban_log_workflow_usage` | Record measured usage for one workflow round (kind 'dev' or 'triage') at sprint level, independent of card attribution: input/output tokens, cache_read/cache_creation tokens (NOT included in input), cost_usd (authoritative, e.g. total_cost_usd from the harness) and turns. This is the no-token-left-behind layer: failed rounds, multi-card drains and triage runs all land in token_log and /metrics even when no card was touched. |  | ✓ |
 
@@ -55,7 +56,7 @@
 | `kanban_list_epics` | List the epics of a project with their sprint_ids. Progress is derived by the caller from the cards of the attached sprints — there is no stored counter. |  | ✓ |
 | `kanban_update_epic` | Update an epic: name, objective, status (open\|done\|dropped) and/or sprint_ids (full replacement; each sprint may belong to at most one epic). Prefer status=dropped over removal — epics have no delete tool by design, the history matters. |  | ✓ |
 
-## Planejamento (8 tools)
+## Planejamento (16 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -67,6 +68,14 @@
 | `kanban_planning_finalize` | Materialize an approved plan: creates the real project (returning the one-time pm token and workflow_readiness like kanban_create_project), the epics, the sprints (in planning state), the cards (bulk, tagged epic:<slug>), the goals, writes the KAD documents to kanban-data/<project>/kad/ and copies them to <target_repo>/docs/kad/. Synchronous and checkpointed: if it fails midway, calling it again resumes without duplicating — but the pm token is only returned by the first pass (token_hint explains the fallback). |  |  |
 | `kanban_planning_cancel` | Cancel a planning session: kills any in-flight turn and marks the session cancelled. Not reversible. |  |  |
 | `kanban_planning_list` | List planning sessions that are not finished (anything but done/cancelled) — used by the Home to offer "continue planning". |  |  |
+| `kanban_sprint_planning_start` | Start a new sprint-planning wizard session for an existing project (requires `project`). Loads project context (epics, closed-sprint velocity) to seed the first step. Only one active session per project — 409 sprint_planning_session_active otherwise. Returns the session already generating the first step (capacity). |  | ✓ |
+| `kanban_sprint_planning_get` | Get the full state of a sprint-planning session — current step, screen payload, project context used, usage and status. Poll this while status is "generating"; the SSE event SPRINT_PLANNING_STEP_READY fires when the screen is ready. |  | ✓ |
+| `kanban_sprint_planning_answer` | Submit the human answer for the current step and advance the wizard. Every step is LLM-prefilled, so this always returns immediately with status "generating" — the result arrives via SSE/polling, never synchronously. |  | ✓ |
+| `kanban_sprint_planning_refine` | Ask the LLM to correct the current step (tasks/review screens) with free-text feedback. Stays on the same step; returns "generating" like kanban_sprint_planning_answer. |  | ✓ |
+| `kanban_sprint_planning_retry` | Re-run the last failed turn of a sprint-planning session (rate limit, invalid JSON, timeout). Only valid when status is "error". |  | ✓ |
+| `kanban_sprint_planning_finalize` | Materialize an approved sprint plan: creates the sprint (in planning state), links it to the chosen epic if any (appending to its sprint_ids, not replacing), and bulk-creates the new tasks. Synchronous and checkpointed: if it fails midway, calling it again resumes without duplicating. |  | ✓ |
+| `kanban_sprint_planning_cancel` | Cancel a sprint-planning session: kills any in-flight turn and marks the session cancelled. Not reversible. |  | ✓ |
+| `kanban_sprint_planning_list` | List sprint-planning sessions that are not finished (anything but done/cancelled), optionally filtered by `project` — used to offer "continue sprint planning". PM agents only see their own project. |  | ✓ |
 
 ## Auth (1 tool)
 
@@ -74,7 +83,7 @@
 |------|-------------|:---:|:--:|
 | `kanban_create_agent_token` | Manager-only — mint a new agent token. agent_type: "pm" = planning + execution (create/update cards, manage sprints, view sprint info); "dev" = execution-only (pick work, claim, log progress, move cards, escalate to review — cannot create cards, manage or query sprints; all tools require an active sprint and list_cards/pick_next auto-scope to it). |  |  |
 
-## Sprints (7 tools)
+## Sprints (9 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -84,4 +93,6 @@
 | `kanban_get_sprint` | PM/manager only — get a sprint with its full card list plus aggregates: card counts by status (done, in_progress, todo, other) and summed token usage (total_input_tokens, total_output_tokens, total_cache_read_tokens, total_cache_creation_tokens, total_cost_usd) across the sprint. |  | ✓ |
 | `kanban_add_to_sprint` | Attach cards to a sprint; optionally move_to_todo. Manager or pm agent. |  | ✓ |
 | `kanban_move_between_sprints` | Move cards between sprints in the same project. Manager or pm agent. |  | ✓ |
-| `kanban_close_sprint` | Close a sprint. rollover_to: sprint_id moves unfinished cards to a planning sprint; rollover_to: null keeps them in the closed sprint as history. IMPORTANT: cards in 'done' are automatically archived. Manager or pm agent. |  | ✓ |
+| `kanban_close_sprint` | Close a sprint. rollover_to: sprint_id moves unfinished cards to a planning sprint; rollover_to: null keeps them in the closed sprint as history. IMPORTANT: cards in 'done' are automatically archived. If a planning sprint is queued (kanban_queue_sprint) in this project, closing activates the earliest-queued one automatically. Manager or pm agent. |  | ✓ |
+| `kanban_queue_sprint` | Queue a planning sprint to auto-activate as soon as the project’s active sprint closes (manually or automatically once all its cards reach done). Multiple sprints can be queued; they activate in the order queued (FIFO). Idempotent. Manager or pm agent. |  | ✓ |
+| `kanban_dequeue_sprint` | Remove a sprint from the auto-activation queue without changing its status. Idempotent. Manager or pm agent. |  | ✓ |

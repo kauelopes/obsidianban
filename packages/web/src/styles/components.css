@@ -823,17 +823,32 @@ button.ghost:hover:not(:disabled) {
   margin-left: auto;
 }
 
-/* ── Execução do sprint workflow (WorkflowPanel) ──────────────────────────── */
+/* ── Painel de agentes no topo do board (AgentsStatusBar) ─────────────────── */
 
-.workflow-panel {
+/*
+ * Sempre visível quando há sprint ativa — é o único lugar hoje que responde
+ * "o que os agentes estão fazendo agora", então fica junto do PageHeader em
+ * vez de escondido dentro do modal de Sprints.
+ */
+.agents-bar {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  flex-wrap: wrap;
   gap: var(--s-4);
-  margin-top: var(--s-6);
-  padding: var(--s-5);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-md);
+  padding: var(--s-4) var(--s-6);
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--fg-1) 3%, transparent);
 }
+
+.agents-bar .banner {
+  flex-basis: 100%;
+  margin: 0;
+  padding: var(--s-3) 0 0;
+  border-bottom: none;
+  background: none;
+}
+
+/* ── Log de execução (drawer do AgentsStatusBar) ──────────────────────────── */
 
 /* Tail do log: lê-se como terminal, rola sozinho para o fim. */
 .workflow-log {

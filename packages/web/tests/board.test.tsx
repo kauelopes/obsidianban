@@ -53,6 +53,7 @@ function renderBoard(cards: CardSummary[], escalated: ReadonlySet<string> = new 
         onShowArchived={() => {}}
         onCreateCard={() => {}}
         onOpenSprints={() => {}}
+        onPlanSprint={() => {}}
         onOpenProject={() => {}}
         sprintFilter={{}}
         onSprintFilter={() => {}}

@@ -14,6 +14,10 @@ import type { McpHttpManager } from './mcp-http.js'
 import type { StaticSite } from './static.js'
 import type { SessionToken } from '../auth/session.js'
 import type { WorkflowManager } from '../services/workflow-runner.js'
+import type { CardRepository } from '../cards/repository.js'
+import type { Paths } from '../config.js'
+import { listAgentTokens } from '../auth/tokens.js'
+import type { WorkflowAgentsStatus, WorkflowInProgressCard } from '@obsidiankan/types'
 
 export interface ServerState {
   startedAt: number
@@ -36,8 +40,12 @@ export interface HttpServerDeps {
   site?: StaticSite | undefined
   /** Ephemeral browser session token, injected into the served index.html. */
   session?: SessionToken | undefined
-  /** Execuções do sprint workflow — serve GET /workflow/log. */
+  /** Execuções do sprint workflow — serve GET /workflow/log e /workflow/agents. */
   workflow?: WorkflowManager | undefined
+  /** Cards indexados — serve GET /workflow/agents (cards em andamento na sprint). */
+  cardsRepo?: CardRepository | undefined
+  /** Necessário para resolver actor → papel (pm/dev) em GET /workflow/agents. */
+  paths?: Paths | undefined
 }
 
 interface ToolHandler {
@@ -98,6 +106,9 @@ export class HttpServer {
     }
     if (req.method === 'GET' && url.split('?')[0] === '/workflow/log') {
       return this.handleWorkflowLog(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/workflow/agents') {
+      return this.handleWorkflowAgents(req, res, url)
     }
 
     const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(url.split('?')[0] ?? '')
@@ -221,6 +232,66 @@ export class HttpServer {
       return
     }
     sendJson(res, 200, await this.deps.workflow.readLog(sprintId, offset))
+  }
+
+  /**
+   * Visão agregada para o painel de agentes no board: status do processo +
+   * fase corrente + cards em andamento (assignee + papel pm/dev, quando
+   * resolvível). Mesma postura de /workflow/log: rota da SPA local,
+   * loopback-only, sem token.
+   */
+  private async handleWorkflowAgents(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: string,
+  ): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isLoopback(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.workflow) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const sprintId = params.get('sprint_id')
+    if (!sprintId) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'sprint_id obrigatório' })
+      return
+    }
+
+    const run = this.deps.workflow.status(sprintId)
+    const { phase, lastActivityAt, lastTool } = await this.deps.workflow.currentPhase(sprintId)
+
+    let inProgressCards: WorkflowInProgressCard[] = []
+    if (this.deps.cardsRepo) {
+      const project = run?.project ?? params.get('project')
+      const roleByActor = new Map<string, 'pm' | 'dev'>()
+      if (project && this.deps.paths) {
+        const tokens = await listAgentTokens(this.deps.paths, project).catch(() => [])
+        for (const t of tokens) roleByActor.set(t.actor, t.agent_type)
+      }
+      inProgressCards = this.deps.cardsRepo
+        .findBySprint(sprintId)
+        .filter((row) => row.status === 'in_progress')
+        .map((row) => ({
+          id: row.id,
+          title: row.title,
+          assigned_to: row.assigned_to,
+          assigned_role: row.assigned_to ? roleByActor.get(row.assigned_to) ?? null : null,
+        }))
+    }
+
+    const body: WorkflowAgentsStatus = {
+      sprint_id: sprintId,
+      run,
+      phase,
+      last_activity_at: lastActivityAt,
+      in_progress_cards: inProgressCards,
+      last_tool: lastTool,
+    }
+    sendJson(res, 200, body)
   }
 
   /**

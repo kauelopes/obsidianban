@@ -19,6 +19,7 @@ import type {
   ReorderResult,
   SetProjectRepoResult,
   Sprint,
+  WorkflowAgentsStatus,
   WorkflowLogResult,
   WorkflowReadinessResult,
   WorkflowRunView,
@@ -27,6 +28,8 @@ import type {
   Epic,
   PlanningFinalizeResult,
   PlanningSessionView,
+  SprintPlanningFinalizeResult,
+  SprintPlanningSessionView,
 } from '@obsidiankan/types'
 import { type McpResult, toMcpResult } from './result.js'
 
@@ -203,6 +206,15 @@ export class KanbanClient {
 
   closeSprint(params: { sprint_id: string; rollover_to?: string | null }): Promise<McpResult<unknown>> {
     return this.call('kanban_close_sprint', params)
+  }
+
+  /** Enfileira uma sprint planning para ativar sozinha quando a ativa fechar. */
+  queueSprint(params: { sprint_id: string }): Promise<McpResult<Sprint>> {
+    return this.call('kanban_queue_sprint', params)
+  }
+
+  dequeueSprint(params: { sprint_id: string }): Promise<McpResult<Sprint>> {
+    return this.call('kanban_dequeue_sprint', params)
   }
 
   /** Mints an initial pm token, returned raw exactly once. */
@@ -406,6 +418,45 @@ export class KanbanClient {
     return this.call('kanban_planning_cancel', { session_id: sessionId })
   }
 
+  // ── Planejamento de sprint (wizard, projeto já existente) ──────────────────
+  // Mesmo contrato assíncrono do wizard KAD, uma sessão ativa por projeto.
+
+  sprintPlanningStart(project: string): Promise<McpResult<SprintPlanningSessionView>> {
+    return this.call('kanban_sprint_planning_start', { project })
+  }
+
+  sprintPlanningGet(sessionId: string): Promise<McpResult<SprintPlanningSessionView>> {
+    return this.call('kanban_sprint_planning_get', { session_id: sessionId })
+  }
+
+  sprintPlanningList(project?: string): Promise<McpResult<{ sessions: SprintPlanningSessionView[] }>> {
+    return this.call('kanban_sprint_planning_list', project ? { project } : {})
+  }
+
+  sprintPlanningAnswer(
+    sessionId: string,
+    step: string,
+    answer: unknown,
+  ): Promise<McpResult<SprintPlanningSessionView>> {
+    return this.call('kanban_sprint_planning_answer', { session_id: sessionId, step, answer })
+  }
+
+  sprintPlanningRefine(sessionId: string, feedback: string): Promise<McpResult<SprintPlanningSessionView>> {
+    return this.call('kanban_sprint_planning_refine', { session_id: sessionId, feedback })
+  }
+
+  sprintPlanningRetry(sessionId: string): Promise<McpResult<SprintPlanningSessionView>> {
+    return this.call('kanban_sprint_planning_retry', { session_id: sessionId })
+  }
+
+  sprintPlanningFinalize(sessionId: string): Promise<McpResult<SprintPlanningFinalizeResult>> {
+    return this.call('kanban_sprint_planning_finalize', { session_id: sessionId }, { timeoutMs: 30_000 })
+  }
+
+  sprintPlanningCancel(sessionId: string): Promise<McpResult<{ session_id: string; status: string }>> {
+    return this.call('kanban_sprint_planning_cancel', { session_id: sessionId })
+  }
+
   // ── Execução do sprint workflow ────────────────────────────────────────────
 
   /** Exige sprint ativa e target_repo definido no projeto — 409/400 senão. */
@@ -413,8 +464,14 @@ export class KanbanClient {
     return this.call('kanban_workflow_start', { sprint_id: sprintId })
   }
 
+  /** Parada imediata — SIGTERM no grupo, interrompe a rodada dev em voo. */
   workflowStop(sprintId: string): Promise<McpResult<WorkflowRunView>> {
     return this.call('kanban_workflow_stop', { sprint_id: sprintId })
+  }
+
+  /** Parada graciosa — deixa a rodada em voo terminar sozinha, sem iniciar outra. */
+  workflowRequestStop(sprintId: string): Promise<McpResult<WorkflowRunView>> {
+    return this.call('kanban_workflow_request_stop', { sprint_id: sprintId })
   }
 
   workflowStatus(
@@ -441,6 +498,32 @@ export class KanbanClient {
         error: {
           kind: 'offline',
           message: 'não foi possível ler o log do workflow',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /**
+   * GET /workflow/agents — mesmo modelo de getWorkflowLog (rota própria,
+   * loopback, sem token): status do processo + fase corrente + cards em
+   * andamento, para o painel de agentes no topo do board.
+   */
+  async getWorkflowAgentsStatus(
+    sprintId: string,
+    project?: string,
+  ): Promise<McpResult<WorkflowAgentsStatus>> {
+    const qs = new URLSearchParams({ sprint_id: sprintId })
+    if (project) qs.set('project', project)
+    try {
+      const res = await fetch(`${this.baseUrl}/workflow/agents?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler o status dos agentes',
           cause: err instanceof Error ? err.message : String(err),
         },
       }

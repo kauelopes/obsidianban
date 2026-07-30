@@ -1210,6 +1210,19 @@
   white-space: nowrap;
 }
 
+/* Separa visualmente um grupo secundário (ex. sprints encerradas) do
+   restante da tabela, sem escondê-lo — só sinaliza "isto aqui é histórico". */
+.table tr.divider-row td {
+  padding: var(--s-2) var(--s-4);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+  background: color-mix(in srgb, var(--fg-1) 4%, transparent);
+  border-bottom: 1px solid var(--rule);
+}
+
 /* ── Home ─────────────────────────────────────────────────────────────────── */
 
 /* Hub focado: uma coluna principal (projetos + uso) e uma lateral de decisão

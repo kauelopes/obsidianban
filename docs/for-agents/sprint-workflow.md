@@ -144,6 +144,28 @@ pendente de decisão.
 
 ---
 
+## Parar a sprint: graciosa vs imediata
+
+Duas tools distintas, dois sinais distintos, para dois cenários diferentes:
+
+| Tool | Sinal | O que acontece | Quando usar |
+|---|---|---|---|
+| `kanban_workflow_request_stop` | `SIGUSR1` só no pid do orquestrador (nunca no grupo) | Seta `stopRequested = true`; o `while` do loop principal checa essa flag **no topo de cada rodada**, antes de despachar a próxima — a rodada dev já em voo, se houver, **não é tocada** e termina normalmente (o dev agent chega em `done`/`review` e escreve o próprio log). O processo só encerra sozinho depois disso. | Padrão — deixa o card em andamento sair com histórico real do que foi feito, em vez de ficar `in_progress` sem nenhum log de fechamento. |
+| `kanban_workflow_stop` | `SIGTERM` no grupo inteiro (`-pid`) | Mata o orquestrador **e** o harness dev filho na hora, no meio do que estiverem fazendo. O card que estava sendo trabalhado fica `assigned_to` setado, no status em que estava (normalmente ainda `in_progress`), sem log de fechamento — e não é repescado sozinho, porque `kanban_pick_next` nunca devolve card já em `in_progress` (ver skill `kanban-dev-agent`). | Só quando a rodada travou de verdade (ver o aviso "sem atividade" em `GET /workflow/agents`) e esperar não resolve. |
+
+Por que a parada graciosa não usa o sinal de processo-grupo: se ela sinalizasse `-pid`
+igual a `kanban_workflow_stop`, o harness dev filho morreria no meio também — o
+`SIGUSR1` vai só pro pid do orquestrador porque a intenção é justamente **não**
+interromper a rodada em curso, só impedir que uma rodada nova comece depois dela.
+
+Consequência prática de uma parada imediata (ou de qualquer crash no meio de uma
+rodada): o card fica claimed e preso — nem o dev original nem uma rodada nova o
+recuperam sozinhos. Recuperação manual: `kanban_release_card` (por padrão já devolve
+pra `todo`) antes de rodar o workflow de novo, ou mover o card manualmente se já
+souber que o trabalho foi concluído.
+
+---
+
 ## Sequência de uma rodada (caminho feliz)
 
 ```mermaid
@@ -175,6 +197,11 @@ sequenceDiagram
     O->>S: logCardTokenSnapshot por snapshot<br/>(kanban_log_on_card, pm token)
     O->>O: próxima rodada
 ```
+
+Este é o caminho feliz — o passo 4 (`move in_progress`) assume que o modelo faz isso
+logo após o claim. Na prática ele às vezes pula direto para `done` no final; ver
+"Granularidade em tempo real e correção automática de status" abaixo para o fallback
+que o orquestrador aplica quando isso acontece.
 
 ---
 
@@ -224,6 +251,49 @@ quando eles divergem.
 O skill `kanban-dev-agent` (auto-carregado pelo harness) já traz o protocolo completo
 (`claim → in_progress → work → log → done/review`); o prompt só acrescenta a granularidade
 e a definição de parada.
+
+---
+
+## Granularidade em tempo real e correção automática de status — `logToolActivity`
+
+`parseDevStream` só roda sobre o `stdout` acumulado, uma vez, no `close` do processo —
+então, até então, o log de uma rodada só ganhava linha nova quando a rodada INTEIRA
+terminava. Para um card que demora (comando longo, muitas edições), isso deixava
+vários minutos sem nenhuma atividade visível no log, mesmo com o agente trabalhando
+normalmente — e qualquer painel que derive "está travado?" a partir do log (ver
+`WorkflowManager.currentPhase`) acusava falso-positivo.
+
+`logToolActivity` faz um segundo parse, incremental, sobre o mesmo stream NDJSON —
+linha a linha, assim que cada chunk chega — sem substituir `parseDevStream` (que
+continua sendo a única fonte de `cardSnapshots`/`usage`). A cada `tool_use` do modelo,
+grava uma linha compacta:
+
+```
+  ▶ tool: kanban_move_card(id=card-042, to_status=in_progress)
+```
+
+e ao ver o `tool_result` correspondente:
+
+```
+  ◀ tool: kanban_move_card
+```
+
+Granularidade média — uma linha por tool call, não o stream inteiro — e o log volta a
+crescer durante a rodada, não só no fim dela. Como efeito colateral usado
+deliberadamente: cada linha carrega um timestamp (`[ISO] ...`), então dá para derivar
+"qual tool está em voo agora, desde quando" só olhando o tail do log, sem heartbeat
+nenhum no processo filho (ver `deriveLastTool` em `workflow-runner.ts` — reporta a
+última tool call vista, em voo ou já concluída, com `status: running|done|error`).
+
+**Correção automática de status.** O mesmo parse detecta quando um `kanban_claim_card`
+teve sucesso e, independente do que o modelo faz depois, confirma via `kanban_get_card`
+e chama `kanban_move_card` para `in_progress` sozinho (best-effort — uma falha aqui só
+loga um aviso, nunca derruba a rodada). Existe porque o modelo às vezes claima um card,
+faz o trabalho inteiro, e só move o status uma vez no final — direto de `todo` para
+`done` — deixando o card parecendo parado no board durante todo o tempo em que estava,
+de fato, sendo trabalhado. O prompt (`buildDevPrompt`) e o skill `kanban-dev-agent`
+continuam instruindo o modelo a mover para `in_progress` logo após o claim — isto é
+um fallback para quando esse passo é esquecido, não uma licença para ignorá-lo.
 
 ---
 

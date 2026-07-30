@@ -81,7 +81,19 @@ beforeAll(async () => {
     sse,
     paths,
   )
-  server = new HttpServer({ port: 0, state, validator, idempotency, sse, metrics, activity, mcp: mcpStub, workflow })
+  server = new HttpServer({
+    port: 0,
+    state,
+    validator,
+    idempotency,
+    sse,
+    metrics,
+    activity,
+    mcp: mcpStub,
+    workflow,
+    cardsRepo: repo,
+    paths,
+  })
 
   server.registerTool('kanban_create_card', (p, c) =>
     cardService.create(p as Record<string, unknown>, c),
@@ -548,5 +560,17 @@ describe('GET /workflow/log', () => {
 
   it('404 para sprint sem execução nem log', async () => {
     expect((await httpGet(port, '/workflow/log?sprint_id=nunca-rodou')).status).toBe(404)
+  })
+})
+
+describe('GET /workflow/agents', () => {
+  it('retorna fase idle e cards vazios quando não há execução em memória', async () => {
+    const res = await httpGet(port, '/workflow/agents?sprint_id=wf1')
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ sprint_id: 'wf1', run: null, phase: 'idle', in_progress_cards: [] })
+  })
+
+  it('400 sem sprint_id', async () => {
+    expect((await httpGet(port, '/workflow/agents')).status).toBe(400)
   })
 })

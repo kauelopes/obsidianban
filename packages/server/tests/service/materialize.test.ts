@@ -84,7 +84,15 @@ beforeEach(async () => {
   const epicsSvc = new EpicService(paths, audit, sse)
   sprints = new SprintService(paths, repo, writer, audit, sse)
   const cards = new CardService(paths, repo, writer, audit, sse)
-  deps = { paths, admin, sprints, cards, epics: epicsSvc, saveSession: (s) => store.save(s) }
+  deps = {
+    paths,
+    admin,
+    sprints,
+    cards,
+    epics: epicsSvc,
+    modelLabel: 'claude-test',
+    saveSession: (s) => store.save(s),
+  }
   planning = new PlanningService(store, inertRunner, repo, sse, 'claude-test', createMaterializer(deps))
 })
 

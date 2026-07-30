@@ -40,6 +40,7 @@ function renderBoard(cards: readonly CardSummary[], columns = ['backlog', 'todo'
         moveHint={() => null}
         onCreateCard={noop}
         onOpenSprints={noop}
+          onPlanSprint={noop}
         onOpenProject={noop}
         sprintFilter={{}}
         onSprintFilter={noop}
@@ -106,6 +107,7 @@ describe('Board', () => {
           moveHint={() => null}
           onCreateCard={noop}
           onOpenSprints={noop}
+          onPlanSprint={noop}
           onOpenProject={noop}
           sprintFilter={{}}
           onSprintFilter={noop}
@@ -138,6 +140,7 @@ describe('Board', () => {
           moveHint={() => null}
           onCreateCard={noop}
           onOpenSprints={noop}
+          onPlanSprint={noop}
           onOpenProject={noop}
           sprintFilter={{}}
           onSprintFilter={noop}
@@ -164,6 +167,7 @@ describe('Board', () => {
           moveHint={() => null}
           onCreateCard={noop}
           onOpenSprints={noop}
+          onPlanSprint={noop}
           onOpenProject={noop}
           sprintFilter={{}}
           onSprintFilter={noop}
@@ -212,6 +216,7 @@ describe('Board', () => {
           moveHint={() => 'bloqueado por 2 card(s)'}
           onCreateCard={noop}
           onOpenSprints={noop}
+          onPlanSprint={noop}
           onOpenProject={noop}
           sprintFilter={{}}
           onSprintFilter={noop}

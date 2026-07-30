@@ -419,3 +419,104 @@ describe('SprintService.logWorkflowUsage', () => {
     ).rejects.toBeInstanceOf(HttpError)
   })
 })
+
+describe('SprintService.enqueueSprint / dequeueSprint', () => {
+  it('marca uma sprint planning como enfileirada', async () => {
+    await setupTestProject(paths, 'test-project')
+    const sprint = await sprintService.createSprint({ project: 'test-project', name: 'S1' }, MGR)
+    expect(sprint.queued_at).toBeNull()
+
+    const queued = await sprintService.enqueueSprint({ sprint_id: sprint.id }, MGR)
+    expect(queued.queued_at).toBeTruthy()
+  })
+
+  it('é idempotente — enfileirar de novo não muda a posição', async () => {
+    await setupTestProject(paths, 'test-project')
+    const sprint = await sprintService.createSprint({ project: 'test-project', name: 'S1' }, MGR)
+    const first = await sprintService.enqueueSprint({ sprint_id: sprint.id }, MGR)
+    const second = await sprintService.enqueueSprint({ sprint_id: sprint.id }, MGR)
+    expect(second.queued_at).toBe(first.queued_at)
+  })
+
+  it('recusa enfileirar sprint que não está em planning', async () => {
+    const activeSprint = await setupActiveSprint()
+    await expect(
+      sprintService.enqueueSprint({ sprint_id: activeSprint.id }, MGR),
+    ).rejects.toMatchObject({ status: 400 })
+  })
+
+  it('dequeueSprint remove da fila sem mudar o status', async () => {
+    await setupTestProject(paths, 'test-project')
+    const sprint = await sprintService.createSprint({ project: 'test-project', name: 'S1' }, MGR)
+    await sprintService.enqueueSprint({ sprint_id: sprint.id }, MGR)
+
+    const dequeued = await sprintService.dequeueSprint({ sprint_id: sprint.id }, MGR)
+    expect(dequeued.queued_at).toBeNull()
+    expect(dequeued.status).toBe('planning')
+  })
+})
+
+describe('SprintService.closeSprint — avanço automático da fila', () => {
+  it('ativa a sprint mais antiga da fila ao fechar a sprint ativa', async () => {
+    const activeSprint = await setupActiveSprint()
+    const first = await sprintService.createSprint({ project: 'test-project', name: 'Fila 1' }, MGR)
+    const second = await sprintService.createSprint({ project: 'test-project', name: 'Fila 2' }, MGR)
+    // Enfileira na ordem inversa da criação para provar que quem manda é
+    // queued_at (ordem de enfileiramento), não a ordem de criação.
+    await sprintService.enqueueSprint({ sprint_id: second.id }, MGR)
+    await sprintService.enqueueSprint({ sprint_id: first.id }, MGR)
+
+    const result = await sprintService.closeSprint({ sprint_id: activeSprint.id }, MGR)
+    expect(result.started_next).toEqual({ sprint_id: second.id, project: 'test-project' })
+
+    const { sprints } = await sprintService.listSprints({ project: 'test-project', status: 'all' }, MGR)
+    const activated = sprints.find((s) => s.id === second.id)!
+    expect(activated.status).toBe('active')
+    expect(activated.queued_at).toBeNull()
+    // A que ficou pra trás continua planning e na fila.
+    expect(sprints.find((s) => s.id === first.id)!.status).toBe('planning')
+  })
+
+  it('sem sprint na fila, fechar não ativa nada e started_next fica ausente', async () => {
+    const activeSprint = await setupActiveSprint()
+    const result = await sprintService.closeSprint({ sprint_id: activeSprint.id }, MGR)
+    expect(result.started_next).toBeUndefined()
+  })
+})
+
+describe('SprintService.autoCloseIfComplete', () => {
+  it('não faz nada quando a sprint não está ativa', async () => {
+    await setupTestProject(paths, 'test-project')
+    const sprint = await sprintService.createSprint({ project: 'test-project', name: 'S1' }, MGR)
+    expect(await sprintService.autoCloseIfComplete(sprint.id, MGR)).toBeNull()
+  })
+
+  it('não fecha quando algum card não está done', async () => {
+    const activeSprint = await setupActiveSprint()
+    await cardService.create(
+      { ...BASE_CARD, title: 'Todo', type: 'task', project: 'test-project', sprint_id: activeSprint.id, status: 'todo' },
+      MGR,
+    )
+    expect(await sprintService.autoCloseIfComplete(activeSprint.id, MGR)).toBeNull()
+    const { sprints } = await sprintService.listSprints({ project: 'test-project', status: 'active' }, MGR)
+    expect(sprints.map((s) => s.id)).toContain(activeSprint.id)
+  })
+
+  it('fecha sozinha quando 100% dos cards estão done, e ativa a fila', async () => {
+    const activeSprint = await setupActiveSprint()
+    await cardService.create(
+      { ...BASE_CARD, title: 'Done', type: 'task', project: 'test-project', sprint_id: activeSprint.id, status: 'done' },
+      MGR,
+    )
+    const next = await sprintService.createSprint({ project: 'test-project', name: 'Fila 1' }, MGR)
+    await sprintService.enqueueSprint({ sprint_id: next.id }, MGR)
+
+    const result = await sprintService.autoCloseIfComplete(activeSprint.id, MGR)
+    expect(result).not.toBeNull()
+    expect(result!.started_next).toEqual({ sprint_id: next.id, project: 'test-project' })
+
+    const { sprints } = await sprintService.listSprints({ project: 'test-project', status: 'all' }, MGR)
+    expect(sprints.find((s) => s.id === activeSprint.id)!.status).toBe('closed')
+    expect(sprints.find((s) => s.id === next.id)!.status).toBe('active')
+  })
+})

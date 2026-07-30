@@ -7,8 +7,14 @@ import { badRequest, conflict, notFound } from './errors.js'
 import { checkWorkflowReadiness } from './workflow-readiness.js'
 import type { SSEEventBus } from '../server/sse.js'
 import type { Paths } from '../config.js'
-import type { WorkflowLogResult, WorkflowRunStatus, WorkflowRunView } from '@obsidiankan/types'
-import { WORKFLOW_LOG_CHUNK_MAX } from '../util/constants.js'
+import type {
+  WorkflowLastTool,
+  WorkflowLogResult,
+  WorkflowPhase,
+  WorkflowRunStatus,
+  WorkflowRunView,
+} from '@obsidiankan/types'
+import { WORKFLOW_LOG_CHUNK_MAX, WORKFLOW_PHASE_TAIL_BYTES } from '../util/constants.js'
 
 export interface WorkflowConfig {
   scriptPath: string
@@ -56,6 +62,7 @@ const SPRINT_ID_RE = /^[A-Za-z0-9_-]+$/
  */
 export class WorkflowManager {
   private readonly runs = new Map<string, Run>()
+  private onFinished: ((view: WorkflowRunView) => void) | null = null
 
   constructor(
     private readonly cfg: WorkflowConfig,
@@ -65,6 +72,15 @@ export class WorkflowManager {
 
   get autoLaunch(): boolean {
     return this.cfg.autoLaunch
+  }
+
+  /**
+   * Chamado (fire-and-forget) toda vez que uma execução termina — saída
+   * normal, crash ou stop(). Quem registra decide se vale a pena reagir (ex.
+   * checar se a sprint pode fechar sozinha); o hook nunca bloqueia finalize().
+   */
+  setOnFinished(hook: (view: WorkflowRunView) => void): void {
+    this.onFinished = hook
   }
 
   isRunning(sprintId: string): boolean {
@@ -138,6 +154,7 @@ export class WorkflowManager {
       started_at: new Date().toISOString(),
       ended_at: null,
       exit_code: null,
+      stopping_gracefully: false,
     }
     const run: Run = { view, child, logPath, stopping: false }
     this.runs.set(sprintId, run)
@@ -169,6 +186,30 @@ export class WorkflowManager {
     } catch (err) {
       logger.warn({ err, sprint: sprintId, pid: run.view.pid }, 'workflow: kill failed — marking stopped')
       this.finalize(run, 'stopped', null)
+    }
+    return run.view
+  }
+
+  /**
+   * Parada graciosa: sinaliza só o orquestrador (SIGUSR1 no pid dele, nunca
+   * no grupo) para não iniciar mais nenhuma rodada — a rodada dev em
+   * andamento (se houver) termina sozinha, com o card indo pra done/review e
+   * o log que o próprio agente escreve, em vez de ser interrompida no meio.
+   * Idempotente: repetir a chamada não reenvia o sinal.
+   */
+  requestGracefulStop(sprintId: string): WorkflowRunView {
+    const run = this.runs.get(sprintId)
+    if (!run) throw notFound()
+    if (run.view.status !== 'running' || !run.child) {
+      throw conflict({ error: 'workflow_not_running', sprint_id: sprintId, status: run.view.status })
+    }
+    if (!run.view.stopping_gracefully) {
+      run.view.stopping_gracefully = true
+      try {
+        run.child.kill('SIGUSR1')
+      } catch (err) {
+        logger.warn({ err, sprint: sprintId }, 'workflow: falha ao enviar sinal de parada graciosa')
+      }
     }
     return run.view
   }
@@ -206,6 +247,39 @@ export class WorkflowManager {
     return { sprint_id: sprintId, run: run?.view ?? null, size: from + length, data }
   }
 
+  /**
+   * Fase corrente do orquestrador (triagem / dev / ocioso entre rodadas),
+   * derivada do tail do log — não há heartbeat no processo filho, mas
+   * sprint-workflow.ts sempre imprime marcadores ▶/◀ ao entrar/sair de cada
+   * fase, e a orquestração é sequencial (uma fase por vez).
+   */
+  async currentPhase(sprintId: string): Promise<{
+    phase: WorkflowPhase
+    lastActivityAt: string | null
+    lastTool: WorkflowLastTool | null
+  }> {
+    const run = this.runs.get(sprintId)
+    const logPath = run?.logPath ?? path.join(this.cfg.logDir, `sprint-${sprintId}.log`)
+    const stat = await fs.stat(logPath).catch(() => null)
+    if (!stat) return { phase: 'idle', lastActivityAt: null, lastTool: null }
+
+    const length = Math.min(stat.size, WORKFLOW_PHASE_TAIL_BYTES)
+    let tail = ''
+    if (length > 0) {
+      const fh = await fs.open(logPath, 'r')
+      try {
+        const buf = Buffer.alloc(length)
+        await fh.read(buf, 0, length, stat.size - length)
+        tail = buf.toString('utf8')
+      } finally {
+        await fh.close()
+      }
+    }
+    const phase = derivePhase(tail)
+    const lastTool = deriveLastTool(tail, phase)
+    return { phase, lastActivityAt: stat.mtime.toISOString(), lastTool }
+  }
+
   private finalize(run: Run, status: WorkflowRunStatus, code: number | null): void {
     if (run.view.status !== 'running') return
     run.view.status = status
@@ -222,6 +296,11 @@ export class WorkflowManager {
         exit_code: code,
       },
     })
+    try {
+      this.onFinished?.(run.view)
+    } catch (err) {
+      logger.warn({ err, sprint: run.view.sprint_id }, 'workflow: onFinished hook threw')
+    }
   }
 
   /**
@@ -252,4 +331,70 @@ export class WorkflowManager {
     }
     return { pm, dev }
   }
+}
+
+/**
+ * A orquestração é sequencial (uma fase por vez), então a fase corrente é
+ * simplesmente qual dos quatro marcadores apareceu por último no tail do log:
+ * um "▶" mais recente que seu "◀" correspondente e que o outro par de
+ * marcadores indica a fase em andamento; um "◀" mais recente indica o
+ * intervalo ocioso entre rodadas.
+ */
+function derivePhase(tail: string): WorkflowPhase {
+  const markers: Array<{ phase: WorkflowPhase | null; pos: number }> = [
+    { phase: 'dev', pos: tail.lastIndexOf('▶ DEV:') },
+    { phase: null, pos: tail.lastIndexOf('◀ DEV done') },
+    { phase: 'triage', pos: tail.lastIndexOf('▶ TRIAGE(llm)') },
+    { phase: null, pos: tail.lastIndexOf('◀ TRIAGE(llm) done') },
+  ]
+  const latest = markers.reduce((best, cur) => (cur.pos > best.pos ? cur : best))
+  return latest.pos < 0 ? 'idle' : (latest.phase ?? 'idle')
+}
+
+const TOOL_START_MARKER = '▶ tool: '
+const TOOL_END_MARKER = '◀ tool: '
+const TOOL_ERROR_SUFFIX = ' (erro)'
+
+/** Linha completa (com timestamp) contendo `markerPos`, ou null se malformada. */
+function toolLineAt(
+  tail: string,
+  markerPos: number,
+  marker: string,
+): { rest: string; at: string } | null {
+  const lineStart = tail.lastIndexOf('\n', markerPos) + 1
+  const lineEndIdx = tail.indexOf('\n', markerPos)
+  const line = tail.slice(lineStart, lineEndIdx < 0 ? tail.length : lineEndIdx)
+  const tsMatch = /^\[([^\]]+)\]/.exec(line)
+  const nameStart = line.indexOf(marker)
+  if (!tsMatch || nameStart < 0) return null
+  return { rest: line.slice(nameStart + marker.length), at: tsMatch[1]! }
+}
+
+/**
+ * Última tool call vista no tail do log — em voo ou já concluída, sempre que
+ * houver alguma. `at` vem do prefixo `[ISO timestamp]` que log() grava em toda
+ * linha; para uma chamada em voo é o mesmo instante em que o log parou de
+ * crescer, então a UI calcula "rodando há Xmin" com a mesma conta do aviso de
+ * idle. Uma chamada "running" só é confiável dentro da fase 'dev' — evita
+ * apontar uma tool em voo fantasma se o round terminou sem o `◀ tool:`
+ * correspondente (ex. crash no meio de uma chamada).
+ */
+function deriveLastTool(tail: string, phase: WorkflowPhase): WorkflowLastTool | null {
+  const lastStart = tail.lastIndexOf(TOOL_START_MARKER)
+  const lastEnd = tail.lastIndexOf(TOOL_END_MARKER)
+  if (lastStart < 0 && lastEnd < 0) return null
+
+  if (lastStart > lastEnd) {
+    if (phase !== 'dev') return null
+    const parsed = toolLineAt(tail, lastStart, TOOL_START_MARKER)
+    if (!parsed) return null
+    const name = parsed.rest.split('(')[0]!.trim()
+    return { name, at: parsed.at, status: 'running' }
+  }
+
+  const parsed = toolLineAt(tail, lastEnd, TOOL_END_MARKER)
+  if (!parsed) return null
+  const isError = parsed.rest.endsWith(TOOL_ERROR_SUFFIX)
+  const name = (isError ? parsed.rest.slice(0, -TOOL_ERROR_SUFFIX.length) : parsed.rest).trim()
+  return { name, at: parsed.at, status: isError ? 'error' : 'done' }
 }

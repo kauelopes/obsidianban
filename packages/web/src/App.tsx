@@ -22,11 +22,13 @@ import { Metrics } from './metrics/Metrics.js'
 import { ThemeContext } from './markdown/Markdown.js'
 import { PlanEntry, PlanWizard } from './plan/PlanWizard.js'
 import { usePlanningSummary } from './plan/usePlanningSummary.js'
+import { SprintPlanEntry, SprintPlanWizard } from './sprint-plan/SprintPlanWizard.js'
 import { CreateCard } from './ui/CreateCard.js'
 import { CreateProject } from './ui/CreateProject.js'
 import { PageHeader } from './ui/PageHeader.js'
 import { ProjectPanel } from './ui/ProjectPanel.js'
 import { SprintPanel } from './ui/SprintPanel.js'
+import { AgentsStatusBar } from './ui/AgentsStatusBar.js'
 import { ThemeToggle, useTheme } from './ui/theme.js'
 import { TokenGate, useToken } from './TokenGate.js'
 
@@ -287,6 +289,9 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
           arquivados
         </label>
       </PageHeader>
+      {project && knownProjects.includes(project) && (
+        <AgentsStatusBar client={client} project={project} sprints={sprintsFor(project)} />
+      )}
       {board.error && (
         <p className="banner">
           {board.error}
@@ -313,6 +318,7 @@ function BoardPage({ client, onLogout }: { client: KanbanClient; onLogout: () =>
           moveHint={moveHint}
           onCreateCard={setCreatingIn}
           onOpenSprints={setSprintsIn}
+          onPlanSprint={(project) => navigate(`/projetos/${project}/planejar-sprint`)}
           onOpenProject={setProjectIn}
           sprintFilter={board.sprintFilter}
           onSprintFilter={(project, sprintId) =>
@@ -405,6 +411,22 @@ export function App() {
             element={
               <Shell client={client} onLogout={clearToken}>
                 <PlanWizard client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/projetos/:project/planejar-sprint"
+            element={
+              <Shell client={client} onLogout={clearToken}>
+                <SprintPlanEntry client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/planejar-sprint/:sessionId"
+            element={
+              <Shell client={client} onLogout={clearToken}>
+                <SprintPlanWizard client={client} />
               </Shell>
             }
           />
