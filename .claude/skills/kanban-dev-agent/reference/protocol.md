@@ -1,6 +1,6 @@
 # Dev Agent — Wire Protocol Reference
 
-Runtime detail for the 8 tools a dev token can call. Load this when you need
+Runtime detail for the 12 tools a dev token can call. Load this when you need
 exact params or hit an error you don't recognize.
 
 ## Error envelope
@@ -44,6 +44,10 @@ result with no duplicate side effect — use it whenever the network may drop.
 | `kanban_log_on_card` | `id`, `version`, `log_entry` | `input_tokens`, `output_tokens`, `model`, `request_id` | Appends a timestamped entry to `# Agent Log`. Markdown + mermaid ok. |
 | `kanban_release_card` | `id`, `version` | `revert_to_status` | Defaults to moving the card back to `todo` so `pick_next` sees it; pass `null` to keep status. |
 | `kanban_defer_card` | `id`, `version`, `blocked_by`, `log_entry` | `input_tokens`, `output_tokens`, `model`, `request_id` | Use when this card depends on ANOTHER card (even one in `review`) instead of moving to `review`. Merges `blocked_by`, logs the reason, clears `assigned_to`, and returns the card to `todo` if it was in a started column — atomically. |
+| `kanban_start_job` | `id`, `version`, `command` | `description` | Starts `command` as a durable server-side job, running in the project's `target_repo`. Logs the command on the card first (this is where the version check happens), then parks the card on `assigned_to: "job:<job_id>"` (kept/moved to `in_progress`). Returns the job's `JobView` (`status: "running"`). Do not wait for it — call `kanban_pick_next` next. 409 `job_already_running` if the card already has one in flight. |
+| `kanban_get_job` | `job_id` | `log_offset` | Returns `{ job_id, job }` (`JobView`, incl. live `stalled` flag) — or, if `log_offset` is passed (byte offset, start at 0), a log slice `{ job_id, job, data, size }`; pass the returned `size` back as the next offset to keep reading. 404 if the job id is unknown. |
+| `kanban_list_jobs` | — | `card_id`, `sprint_id`, `status` (`running`\|`succeeded`\|`failed`\|`timeout`\|`stopped`\|`lost`) | Returns `{ jobs: JobView[] }`, newest first. No filters returns every job. |
+| `kanban_stop_job` | `job_id` | `reason` | SIGTERM (then SIGKILL after a grace period) to the job's process group. Finalizes as `stopped`, logs the stopping actor (and `reason`, if given) on the card's Agent Log, and hands the card back to `todo`. 409 `job_not_running` if it already finished. |
 
 ## `pick_next` reasons (when `card` is null)
 

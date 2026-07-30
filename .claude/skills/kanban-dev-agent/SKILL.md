@@ -7,9 +7,9 @@ description: Operating guide for the ObsidianKan kanban DEV agent — an executi
 
 You execute work that a PM has already planned. You do **not** plan: you cannot create cards, manage sprints, or edit arbitrary card fields. You pull the next ready task, do it, and report back.
 
-## Your tools (8)
+## Your tools (12)
 
-`kanban_pick_next`, `kanban_list_cards`, `kanban_get_card`, `kanban_claim_card`, `kanban_move_card`, `kanban_log_on_card`, `kanban_release_card`, `kanban_defer_card`. The MCP server only shows you these — any other `kanban_*` tool is hidden because your token can't call it.
+`kanban_pick_next`, `kanban_list_cards`, `kanban_get_card`, `kanban_claim_card`, `kanban_move_card`, `kanban_log_on_card`, `kanban_release_card`, `kanban_defer_card`, `kanban_start_job`, `kanban_get_job`, `kanban_list_jobs`, `kanban_stop_job`. The MCP server only shows you these — any other `kanban_*` tool is hidden because your token can't call it.
 
 ## Board model
 
@@ -39,23 +39,31 @@ If `pick_next` returns `card: null`, branch on `reason`:
 
 ## Long-running commands (large downloads, long builds)
 
-Never run a command that takes a long time to finish (a large `git clone`,
-a lengthy build, anything on that scale) yourself — not synchronously, and
-not backgrounded either. Each time you're invoked you are a fresh process:
-nothing you background survives past this turn ending, and a card left
-`in_progress` is **not** picked up again automatically (`kanban_pick_next`
-only returns `todo` cards, never ones already claimed and `in_progress`) —
-so a card left that way is silently lost until a human notices.
+Any command that might run past ~2-3 minutes (a heavy build, a large `git
+clone`, a long test suite, training, a big download) goes through
+`kanban_start_job` **before** you try it via Bash — do not attempt it
+yourself first "to see how far it gets". Decide up front, before starting,
+whether an operation is long-running; don't find out partway through.
 
-Instead, hand the operation to a human: `kanban_log_on_card` with the
-**exact** command(s) to run, the working directory, and what to expect
-(rough duration, expected output/files, how to tell it succeeded), then
-`kanban_move_card { to_status: "review" }`. The log entry should be a
-recipe a human can copy-paste and execute without having to guess anything.
-The human runs it, then logs the result (or asks you to continue) and moves
-the card on. Do not attempt the operation yourself first "to see how far you
-get" — decide up front, before starting, whether this is a long-running
-operation, and escalate immediately if so.
+`kanban_start_job { id, version, command, description? }` — the server logs
+the command on the card, parks it on `job:<job_id>` (keeping/putting it in
+`in_progress`), and spawns the command in the project's `target_repo`. You do
+**not** wait for it: call `kanban_pick_next` and move on to the next card.
+The server monitors the job (log output, stall detection) and hands the card
+back to `todo` on its own — with the result logged — when the job finishes,
+with no further action from you.
+
+Use `kanban_get_job { job_id, log_offset? }` to check a job's status or read
+a slice of its log, and `kanban_list_jobs { card_id?, sprint_id?, status? }`
+to see what's running. `kanban_stop_job { job_id, reason? }` cancels one.
+
+If a Bash command you ran directly blows through the tool's own timeout, do
+not re-run it and do not background it — abandon it and restart the same
+work via `kanban_start_job` instead.
+
+Escalate to a human (`kanban_log_on_card` + `kanban_move_card` to `"review"`)
+only if `kanban_start_job` itself fails, or the card genuinely needs a human
+decision — not merely because the command is long-running.
 
 ## Escalation protocol (blocked or want to propose work)
 

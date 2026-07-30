@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { TOOL_CATALOG, type ToolCategory, type ToolMeta } from '../src/server/tool-catalog.ts'
 
-const CATEGORY_ORDER: ToolCategory[] = ['Cards', 'Workflow', 'Projetos', 'Planejamento', 'Auth', 'Sprints']
+const CATEGORY_ORDER: ToolCategory[] = ['Cards', 'Workflow', 'Jobs', 'Projetos', 'Planejamento', 'Auth', 'Sprints']
 
 /** Escape characters that would break a markdown table cell. */
 function cell(text: string): string {
