@@ -12,7 +12,7 @@ import type { SSEEventBus } from '../server/sse.js'
 import type { Paths } from '../config.js'
 import { loadProjectMetaOrNull } from '../vault/layout.js'
 import type { JobStatus, JobView, LogKind } from '@obsidiankan/types'
-import { WORKFLOW_LOG_CHUNK_MAX } from '../util/constants.js'
+import { WORKFLOW_LOG_CHUNK_MAX, JOB_STOP_WAIT_TIMEOUT_MS_DEFAULT } from '../util/constants.js'
 
 export interface JobConfig {
   logDir: string
@@ -28,6 +28,12 @@ export interface JobConfig {
   envAllowlist: string[]
   /** Máximo de tentativas de "wake" do workflow por sprint (em memória — ver Task 7). */
   maxWakesPerSprint: number
+  /**
+   * Backstop de stop()/dispose(): quanto esperar pelo finalize (evento
+   * `close` do filho após o SIGKILL) antes de devolver o melhor estado
+   * conhecido em vez de travar para sempre.
+   */
+  stopWaitTimeoutMs: number
 }
 
 /**
@@ -52,6 +58,7 @@ export function loadJobConfig(env: NodeJS.ProcessEnv, paths: Paths): JobConfig {
     maxConcurrent: num('JOB_MAX_CONCURRENT', 1),
     envAllowlist: allowlist,
     maxWakesPerSprint: num('JOB_MAX_WAKES_PER_SPRINT', 5),
+    stopWaitTimeoutMs: num('JOB_STOP_WAIT_TIMEOUT_MS', JOB_STOP_WAIT_TIMEOUT_MS_DEFAULT),
   }
 }
 
@@ -111,6 +118,14 @@ interface Run {
   runtimeTimer: NodeJS.Timeout | null
   killTimer: NodeJS.Timeout | null
   deathPoll: NodeJS.Timeout | null
+  /**
+   * Resolve com o JobView terminal quando finalize() completa para este run.
+   * Permite a stop()/dispose() esperarem a finalização de fato (hand-back do
+   * card incluso) em vez de retornar assim que o kill é disparado — sem
+   * reimplementar finalize, só observando seu término.
+   */
+  finalizedP: Promise<JobView>
+  resolveFinalized: (view: JobView) => void
 }
 
 /** Env fixa e mínima do filho — nada de process.env espalhado (segurança). */
@@ -207,12 +222,21 @@ export class JobManager {
    */
   async dispose(): Promise<void> {
     clearInterval(this.watchdog)
+    const pendingCloses: Run[] = []
     for (const run of this.runs.values()) {
       if (run.runtimeTimer) clearTimeout(run.runtimeTimer)
       if (run.killTimer) clearTimeout(run.killTimer)
       if (run.deathPoll) clearInterval(run.deathPoll)
+      // Kill já disparado (stop() ou o backstop de runtime) mas o `close` do
+      // filho ainda não chegou — trackFinalize ainda não rodou, então este
+      // run não está em pendingFinalizes. Sem isto, o shutdown segue adiante
+      // e o finalize (com o hand-back do card) acontece depois, órfão.
+      if ((run.stopping || run.timedOut) && run.record.status === 'running') pendingCloses.push(run)
     }
-    await Promise.allSettled([...this.pendingFinalizes])
+    await Promise.allSettled([
+      ...this.pendingFinalizes,
+      ...pendingCloses.map((run) => this.waitForFinalize(run)),
+    ])
   }
 
   /** Supervisão: `assigned_to` = `job:<id>` com o job de fato rodando? */
@@ -372,6 +396,8 @@ export class JobManager {
     })
     record.pid = child.pid ?? null
 
+    let resolveFinalized!: (view: JobView) => void
+    const finalizedP = new Promise<JobView>((resolve) => { resolveFinalized = resolve })
     const run: Run = {
       record,
       child,
@@ -388,6 +414,8 @@ export class JobManager {
       runtimeTimer: null,
       killTimer: null,
       deathPoll: null,
+      finalizedP,
+      resolveFinalized,
     }
     this.runs.set(jobId, run)
 
@@ -462,7 +490,28 @@ export class JobManager {
     run.stoppedBy = actor
     this.killGroup(run)
     if (run.readopted) this.armDeathPoll(run)
-    return this.toView(run)
+    // Espera o finalize de fato acontecer (store terminal + hand-back do
+    // card), não só o kill signal — senão o chamador vê `status: 'running'`
+    // por um job que já foi morto. Backstop: nunca trava o chamador.
+    return this.waitForFinalize(run)
+  }
+
+  /**
+   * Corre run.finalizedP contra um timeout — devolve o JobView terminal se o
+   * finalize completar a tempo, senão o melhor estado conhecido no momento
+   * (ainda 'running' na memória — o close pode não ter chegado). Usado por
+   * stop() (aguardar antes de responder) e dispose() (aguardar antes do
+   * shutdown) — nenhum dos dois pode travar para sempre.
+   */
+  private waitForFinalize(run: Run): Promise<JobView> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(this.toView(run)), this.cfg.stopWaitTimeoutMs)
+      timer.unref()
+      void run.finalizedP.then((view) => {
+        clearTimeout(timer)
+        resolve(view)
+      })
+    })
   }
 
   /**
@@ -607,6 +656,8 @@ export class JobManager {
     const stat = await fs.stat(logPath).catch(() => null)
     const lastOutputAtMs = stat ? stat.mtimeMs : startedAtMs
 
+    let resolveFinalized!: (view: JobView) => void
+    const finalizedP = new Promise<JobView>((resolve) => { resolveFinalized = resolve })
     const run: Run = {
       record,
       child: null,
@@ -623,6 +674,8 @@ export class JobManager {
       runtimeTimer: null,
       killTimer: null,
       deathPoll: null,
+      finalizedP,
+      resolveFinalized,
     }
 
     if (this.isPidAlive(record.pid)) {
@@ -848,6 +901,10 @@ export class JobManager {
     if (status === 'succeeded' || status === 'failed' || status === 'timeout') {
       await this.maybeWakeWorkflow(record)
     }
+
+    // Resolve ANTES de sair de `runs`: quem espera (stop()/dispose()) só
+    // precisa do JobView terminal, já com o hand-back do card concluído acima.
+    run.resolveFinalized(this.toView(run))
 
     // Registro terminal sai da memória — status()/listForCard leem do store.
     this.runs.delete(record.job_id)

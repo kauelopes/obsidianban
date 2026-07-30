@@ -91,6 +91,7 @@ function makeManager(
     maxConcurrent: 3,
     envAllowlist: [],
     maxWakesPerSprint: 5,
+    stopWaitTimeoutMs: 5_000,
     ...overrides,
   }
   const m = new JobManager(cfg, store, cardService, sse, audit, workflow, paths)
@@ -193,6 +194,7 @@ describe('loadJobConfig', () => {
       maxConcurrent: 1,
       envAllowlist: [],
       maxWakesPerSprint: 5,
+      stopWaitTimeoutMs: 15_000,
     })
   })
 
@@ -206,6 +208,7 @@ describe('loadJobConfig', () => {
         JOB_MAX_CONCURRENT: '1',
         JOB_ENV_ALLOWLIST: 'FOO, BAR ,',
         JOB_MAX_WAKES_PER_SPRINT: '2',
+        JOB_STOP_WAIT_TIMEOUT_MS: '3000',
       },
       p,
     )
@@ -217,6 +220,7 @@ describe('loadJobConfig', () => {
       maxConcurrent: 1,
       envAllowlist: ['FOO', 'BAR'],
       maxWakesPerSprint: 2,
+      stopWaitTimeoutMs: 3000,
     })
   })
 })
@@ -330,6 +334,54 @@ describe('JobManager', () => {
     const after = await cardService.get({ id: card.id }, MGR)
     expect(after.body).toContain('Stopped by human:kaue')
   })
+
+  it('stop() só retorna depois do finalize: JobView já terminal (status/ended_at) e card já em todo', async () => {
+    const jobId = nextJobId()
+    const { sprintId, card } = await setupSprintAndCard(jobId)
+    const m = makeManager()
+
+    await m.start(startParams(jobId, card.id, sprintId, 'sleep 30'))
+    const stopped = await m.stop(jobId, 'human:kaue')
+
+    // Sem waitFor: se stop() voltasse assim que o kill signal fosse
+    // disparado (comportamento antigo), a JobView ainda diria 'running' e o
+    // card ainda estaria parado em job:<id> — a asserção falharia sem espera.
+    expect(stopped.status).toBe('stopped')
+    expect(stopped.ended_at).toBeTruthy()
+
+    const after = await cardService.get({ id: card.id }, MGR)
+    expect(after.status).toBe('todo')
+    expect(after.assigned_to).toBeNull()
+  })
+
+  it('stop() respeita o timeout de segurança: nunca trava, devolve o melhor estado conhecido', async () => {
+    // Timeout de teste alto: o SIGKILL de limpeza só chega depois de
+    // KILL_GRACE_MS (10s, fixo em job-runner.ts) — não relacionado ao
+    // stopWaitTimeoutMs injetado, que é o próprio comportamento sob teste.
+    const jobId = nextJobId()
+    const { sprintId, card } = await setupSprintAndCard(jobId)
+    // stopWaitTimeoutMs bem menor que o tempo real de morte do processo — o
+    // shell (o filho direto rastreado pelo 'close') ignora SIGTERM via trap,
+    // então o SIGKILL só chega após KILL_GRACE_MS (10s, fixo), muito depois
+    // do timeout de segurança injetado.
+    const m = makeManager({ stopWaitTimeoutMs: 50 })
+
+    await m.start(
+      startParams(jobId, card.id, sprintId, `trap '' TERM; while true; do sleep 0.1; done`),
+    )
+    const t0 = Date.now()
+    const stopped = await m.stop(jobId, 'human:kaue')
+    const elapsedMs = Date.now() - t0
+
+    // Retornou rápido (timeout de segurança), não esperou os ~10s do KILL_GRACE.
+    expect(elapsedMs).toBeLessThan(3_000)
+    // Finalize ainda não rodou — melhor estado conhecido é 'running' na memória.
+    expect(stopped.status).toBe('running')
+
+    // O finalize de fato acontece depois (SIGKILL do killTimer) — limpeza.
+    await waitFor(async () => (await m.status(jobId))?.status === 'stopped', 15_000)
+    await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).status === 'todo', 15_000)
+  }, 20_000)
 
   it('env do filho é construído do zero: segredos jamais vazam; allowlist passa', async () => {
     process.env['MY_JOB_EXTRA'] = 'extra-value-ok'

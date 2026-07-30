@@ -91,6 +91,7 @@ beforeEach(async () => {
     maxConcurrent: 3,
     envAllowlist: [],
     maxWakesPerSprint: 5,
+    stopWaitTimeoutMs: 5_000,
   }
   jobs = new JobManager(cfg, store, cards, sse, audit, noopWorkflow, paths)
   handlers = createJobToolHandlers({ paths, cards, jobs })
@@ -197,6 +198,7 @@ describe('kanban_start_job', () => {
       maxConcurrent: 1,
       envAllowlist: [],
       maxWakesPerSprint: 5,
+      stopWaitTimeoutMs: 5_000,
     }
     const limitedJobs = new JobManager(cfg, store, cards, new SSEEventBus(), audit, noopWorkflow, paths)
     const limitedHandlers = createJobToolHandlers({ paths, cards, jobs: limitedJobs })
@@ -299,13 +301,16 @@ describe('kanban_stop_job', () => {
       DEV,
     )) as JobView
     expect(stopped.job_id).toBe(view.job_id)
+    // stop() só retorna depois do finalize: sem isto a tool devolveria
+    // status: 'running' para um job já morto (bug fixado).
+    expect(stopped.status).toBe('stopped')
+    expect(stopped.ended_at).toBeTruthy()
 
-    await waitFor(async () => (await jobs.status(view.job_id))?.status === 'stopped')
-    await waitFor(async () => {
-      const c = await cards.get({ id: card.id }, MGR)
-      return c.status === 'todo'
-    })
+    // Hand-back já concluído — sem waitFor: se stop() voltasse cedo demais,
+    // esta leitura pegaria o card ainda parado em job:<id>.
     const after = await cards.get({ id: card.id }, MGR)
+    expect(after.status).toBe('todo')
+    expect(after.assigned_to).toBeNull()
     expect(after.body).toContain('no longer needed')
     expect(after.body).toContain(DEV.actor)
   })

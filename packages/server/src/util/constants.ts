@@ -21,6 +21,12 @@ export const WORKFLOW_PHASE_TAIL_BYTES = 64 * 1024
 // como estagnado (dev agent morto/travado) em kanban_list_escalations.
 export const STALE_IN_PROGRESS_MS = 15 * 60 * 1000
 
+// ── Jobs ─────────────────────────────────────────────────────────────────────
+// Backstop de JobManager.stop()/dispose(): quanto esperar pelo finalize
+// (evento `close` do filho após o SIGKILL) antes de devolver o melhor estado
+// conhecido em vez de travar o chamador (ou o shutdown) para sempre.
+export const JOB_STOP_WAIT_TIMEOUT_MS_DEFAULT = 15_000
+
 // ── HTTP shutdown ─────────────────────────────────────────────────────────────
 // Backstop de HttpServer.stop(): conexões abertas (streams SSE incluídos) são
 // encerradas ativamente em vez de esperadas — mas se o close() do Node ainda
