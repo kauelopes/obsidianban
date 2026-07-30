@@ -182,6 +182,55 @@ describe('kanban_start_job', () => {
       handlers['kanban_start_job']!({ id: 'card-nope1234', version: 1, command: 'echo x' }, DEV),
     ).rejects.toBeInstanceOf(HttpError)
   })
+
+  // Regressão: com maxConcurrent=1, o limite virou o caminho comum. Antes da
+  // pré-checagem, cada tentativa bloqueada logava "Started..." no card,
+  // estacionava-o em job:<id> e só então descobria o limite dentro de
+  // jobs.start() — deixando duas entradas de log ("Started..." + "failed to
+  // start — card released") para um job que nunca existiu.
+  it('job_limit_reached: o card não recebe nenhuma entrada de log nem é estacionado', async () => {
+    const cfg: JobConfig = {
+      logDir: path.join(paths.vault, '.kanban', 'job-logs'),
+      stallThresholdMs: 60_000,
+      stallPollMs: 60_000,
+      maxRuntimeMs: 60_000,
+      maxConcurrent: 1,
+      envAllowlist: [],
+      maxWakesPerSprint: 5,
+    }
+    const limitedJobs = new JobManager(cfg, store, cards, new SSEEventBus(), audit, noopWorkflow, paths)
+    const limitedHandlers = createJobToolHandlers({ paths, cards, jobs: limitedJobs })
+
+    const { sprintId, card } = await setupProject(paths.vault)
+    const otherCard = await cards.create(
+      { ...TOKEN, title: 'Other', type: 'task', project: 'test-project', sprint_id: sprintId },
+      MGR,
+    )
+
+    const running = (await limitedHandlers['kanban_start_job']!(
+      { id: card.id, version: card.version, command: 'sleep 5' },
+      DEV,
+    )) as JobView
+
+    const before = await cards.get({ id: otherCard.id }, MGR)
+    await expect(
+      limitedHandlers['kanban_start_job']!(
+        { id: otherCard.id, version: otherCard.version, command: 'echo x' },
+        DEV,
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ error: 'job_limit_reached' }),
+    })
+
+    // Nem log nem parking: version, body, status e assigned_to intocados.
+    const after = await cards.get({ id: otherCard.id }, MGR)
+    expect(after).toEqual(before)
+
+    await limitedJobs.stop(running.job_id, 'human:test')
+    await waitFor(async () => (await limitedJobs.status(running.job_id))?.status === 'stopped')
+    await limitedJobs.dispose()
+  })
 })
 
 describe('kanban_get_job / kanban_list_jobs', () => {

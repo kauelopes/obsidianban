@@ -37,12 +37,15 @@ export function createJobToolHandlers({ paths, cards, jobs }: JobToolDeps): Reco
      * Contract (ordem crítica, do plano):
      *   1. validate the card (existence + caller visibility) and resolve the
      *      project's target_repo — same source kanban_workflow_start uses;
-     *   2. log the full command on the card FIRST (this is also where the
+     *   2. cheap pre-check of the same limit rules JobManager.start() applies
+     *      (job_already_running, job_limit_reached) — BEFORE touching the
+     *      card, so the common case (limit reached) leaves no log entry;
+     *   3. log the full command on the card (this is also where the
      *      version check happens — standard 409 on mismatch). If the log
      *      fails, nothing was spawned;
-     *   3. park the card on the job (`assigned_to: job:<id>`, in_progress —
+     *   4. park the card on the job (`assigned_to: job:<id>`, in_progress —
      *      moved there if needed, system claims);
-     *   4. spawn via JobManager.start. If the spawn fails, best-effort revert
+     *   5. spawn via JobManager.start. If the spawn fails, best-effort revert
      *      of the parking so the card is not stranded on a job that never ran.
      */
     kanban_start_job: async (p, c) => {
@@ -68,7 +71,16 @@ export function createJobToolHandlers({ paths, cards, jobs }: JobToolDeps): Reco
       const cwd = meta.target_repo
       const jobId = generateJobId()
 
-      // (a) Log the command on the card — validates `version` (409 padrão) and
+      // (a) Pré-checagem barata das MESMAS regras de limite que start()
+      // aplica (job_already_running, job_limit_reached) — ANTES de tocar o
+      // card. Com maxConcurrent=1 por sprint, o limite virou o caminho comum:
+      // sem isto, toda tentativa bloqueada deixava duas entradas de log no
+      // card ("Started..." + "failed to start — card released") para um job
+      // que nunca existiu. Não fecha a corrida sozinha — start() ainda faz a
+      // checagem autoritativa (síncrona, com reserva) logo abaixo.
+      jobs.assertCanStart(id, card.sprint_id)
+
+      // (c) Log the command on the card — validates `version` (409 padrão) and
       // guarantees the card carries the job's full command before any spawn.
       const logged = await cards.logOnCard(
         {
@@ -83,7 +95,7 @@ export function createJobToolHandlers({ paths, cards, jobs }: JobToolDeps): Reco
         c,
       )
 
-      // (b) Park the card on the job. System claims (precedente SYSTEM_CLAIMS):
+      // (d) Park the card on the job. System claims (precedente SYSTEM_CLAIMS):
       // a dev may call this straight from `todo` with a claim, so the card is
       // moved to in_progress together when needed.
       const parked = await cards.update(
@@ -96,7 +108,7 @@ export function createJobToolHandlers({ paths, cards, jobs }: JobToolDeps): Reco
         JOB_SYSTEM_CLAIMS,
       )
 
-      // (c) Spawn last. On failure, revert the parking (best effort) so the
+      // (e) Spawn last. On failure, revert the parking (best effort) so the
       // card does not stay assigned to a job that never existed.
       try {
         return await jobs.start({

@@ -264,6 +264,20 @@ export class JobManager {
     return views.sort((a, b) => b.started_at.localeCompare(a.started_at))
   }
 
+  /**
+   * Pré-checagem barata das MESMAS regras de limite aplicadas em start()
+   * (job_already_running, job_limit_reached), sem reservar nada. Uso
+   * pretendido: o handler de kanban_start_job chama isto ANTES de logar o
+   * comando e estacionar o card no job — assim o caminho comum (limite
+   * atingido) não deixa duas entradas de log num card para um job que nunca
+   * existiu. Não substitui a checagem síncrona dentro de start(): entre esta
+   * chamada e o start() real ainda cabe uma corrida — quem fecha a corrida é
+   * a reserva síncrona via pendingStarts, que continua vivendo em start().
+   */
+  assertCanStart(cardId: string, sprintId: string): void {
+    this.checkLimits(cardId, sprintId)
+  }
+
   async start(params: JobStartParams): Promise<JobView> {
     const { jobId, cardId, sprintId } = params
     if (!JOB_ID_RE.test(jobId)) throw badRequest('invalid_field', { field: 'job_id' })
@@ -271,10 +285,26 @@ export class JobManager {
       throw conflict({ error: 'job_already_exists', job_id: jobId })
     }
 
-    // Limites: 1 job running por card; maxConcurrent por sprint. Contam tanto
-    // os runs quanto os starts ainda em voo (pendingStarts) — checks e reserva
-    // acontecem SINCRONAMENTE, antes de qualquer await, para dois start()
-    // concorrentes não passarem ambos.
+    // Checks e reserva acontecem SINCRONAMENTE, antes de qualquer await, para
+    // dois start() concorrentes não passarem ambos (ver checkLimits).
+    this.checkLimits(cardId, sprintId)
+
+    this.pendingStarts.set(jobId, { cardId, sprintId })
+    try {
+      return await this.doStart(params)
+    } finally {
+      // O run já está em `runs` (sucesso) ou o start falhou — a reserva sai.
+      this.pendingStarts.delete(jobId)
+    }
+  }
+
+  /**
+   * Limites: 1 job running por card; maxConcurrent por sprint. Contam tanto
+   * os runs quanto os starts ainda em voo (pendingStarts). Chamado por
+   * start() (autoritativo, síncrono antes da reserva) e por assertCanStart()
+   * (pré-checagem, sem reserva).
+   */
+  private checkLimits(cardId: string, sprintId: string): void {
     for (const r of this.runs.values()) {
       if (r.record.status !== 'running') continue
       if (r.record.card_id === cardId) {
@@ -301,14 +331,6 @@ export class JobManager {
         sprint_id: sprintId,
         max_concurrent: this.cfg.maxConcurrent,
       })
-    }
-
-    this.pendingStarts.set(jobId, { cardId, sprintId })
-    try {
-      return await this.doStart(params)
-    } finally {
-      // O run já está em `runs` (sucesso) ou o start falhou — a reserva sai.
-      this.pendingStarts.delete(jobId)
     }
   }
 
