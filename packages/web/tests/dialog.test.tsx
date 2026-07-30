@@ -58,4 +58,24 @@ describe('Dialog', () => {
     expect(titleId).toBeTruthy()
     expect(document.getElementById(titleId!)?.textContent).toBe('Título do diálogo')
   })
+
+  it('aplica a classe wide quando o prop wide é passado', () => {
+    const { container } = render(
+      <Dialog title="Título largo" onClose={() => {}} wide>
+        <div />
+      </Dialog>,
+    )
+    const dialog = container.querySelector('.dialog') as HTMLElement
+    expect(dialog.classList.contains('wide')).toBe(true)
+  })
+
+  it('não aplica a classe wide por padrão', () => {
+    const { container } = render(
+      <Dialog title="Título normal" onClose={() => {}}>
+        <div />
+      </Dialog>,
+    )
+    const dialog = container.querySelector('.dialog') as HTMLElement
+    expect(dialog.classList.contains('wide')).toBe(false)
+  })
 })

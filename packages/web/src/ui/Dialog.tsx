@@ -11,11 +11,13 @@ export function Dialog({
   onClose,
   children,
   footer,
+  wide = false,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
   footer?: ReactNode
+  wide?: boolean
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -32,7 +34,7 @@ export function Dialog({
     <div className="overlay" onClick={onClose}>
       <div
         ref={dialogRef}
-        className="dialog"
+        className={`dialog${wide ? ' wide' : ''}`}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal
