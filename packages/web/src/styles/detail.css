@@ -829,6 +829,78 @@
   margin-right: auto;
 }
 
+/* ── Ajustes do projeto: navegação por abas ──────────────────────────────── */
+
+.settings-layout {
+  display: flex;
+  gap: var(--s-6);
+  align-items: flex-start;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  flex: 0 0 160px;
+}
+
+.settings-nav button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+}
+
+.settings-nav button:hover:not(:disabled) {
+  background: var(--ink-2);
+  color: var(--fg-0);
+}
+
+.settings-nav button.active {
+  background: var(--ink-2);
+  border-color: var(--rule-strong);
+  color: var(--fg-0);
+  font-weight: 600;
+}
+
+.settings-nav button.danger-tab {
+  color: var(--alert);
+}
+
+.settings-nav button.danger-tab.active {
+  background: var(--alert-weak);
+  border-color: color-mix(in srgb, var(--alert) 45%, var(--rule));
+}
+
+.settings-content {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .settings-layout {
+    flex-direction: column;
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    flex: 0 0 auto;
+    width: 100%;
+    gap: var(--s-3);
+    overflow-x: auto;
+    padding-bottom: var(--s-3);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .settings-nav button {
+    width: auto;
+    white-space: nowrap;
+  }
+}
+
 /* ── Ações do card ────────────────────────────────────────────────────────── */
 
 .card-actions {
