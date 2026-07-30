@@ -28,33 +28,44 @@ function renderPanel(client: KanbanClient = stubClient()) {
 }
 
 describe('ProjectPanel', () => {
-  it('renderiza os 5 blocos com títulos, na ordem esperada', () => {
-    const { container } = renderPanel()
-    const headings = [...container.querySelectorAll('.panel-section > h3')].map(
-      (h) => h.textContent,
-    )
-    expect(headings).toEqual([
+  it('renderiza as 5 abas na sidebar, na ordem esperada', () => {
+    renderPanel()
+    const nav = screen.getByRole('navigation')
+    const labels = [...nav.querySelectorAll('button')].map((b) => b.textContent)
+    expect(labels).toEqual([
       'Workflow',
-      'Planejamento do projeto',
-      'Agentes e tokens',
+      'Planejamento',
+      'Agentes',
       'Arquivamento',
-      'Zona destrutiva',
+      'Deletar projeto',
     ])
   })
 
-  it('a zona destrutiva é o último bloco e tem sua própria classe', () => {
-    const { container } = renderPanel()
-    const sections = container.querySelectorAll('.panel-section')
-    const last = sections[sections.length - 1]!
-    expect(last.classList.contains('panel-section--danger')).toBe(true)
-    expect(last.querySelector('button.danger')?.textContent).toBe('Deletar')
+  it('abre na aba Workflow por padrão', () => {
+    renderPanel()
+    expect(screen.getByText('Repositório do workflow')).toBeTruthy()
+    expect(screen.queryByText('Metas do projeto')).toBeNull()
+  })
+
+  it('clicar numa aba troca o conteúdo exibido', () => {
+    renderPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Planejamento' }))
+    expect(screen.getByText('Metas do projeto')).toBeTruthy()
+    expect(screen.queryByText('Repositório do workflow')).toBeNull()
+  })
+
+  it('a aba Deletar projeto tem classe própria de risco', () => {
+    renderPanel()
+    const dangerTab = screen.getByRole('button', { name: 'Deletar projeto' })
+    expect(dangerTab.classList.contains('danger-tab')).toBe(true)
   })
 
   it('deletar continua bloqueado até o nome do projeto ser digitado corretamente', () => {
     renderPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Deletar projeto' }))
     const deleteButton = screen.getByRole('button', { name: 'Deletar' }) as HTMLButtonElement
     expect(deleteButton.disabled).toBe(true)
-    const input = screen.getByPlaceholderText('digite “teste” para confirmar')
+    const input = screen.getByPlaceholderText('digite "teste" para confirmar')
     fireEvent.change(input, { target: { value: 'errado' } })
     expect(deleteButton.disabled).toBe(true)
     fireEvent.change(input, { target: { value: 'teste' } })

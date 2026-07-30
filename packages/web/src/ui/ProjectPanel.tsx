@@ -4,6 +4,16 @@ import type { KanbanClient } from '../api/client.js'
 import { errorText, type McpResult } from '../api/result.js'
 import { Dialog } from './Dialog.js'
 
+const TABS = [
+  { key: 'workflow', label: 'Workflow' },
+  { key: 'planning', label: 'Planejamento' },
+  { key: 'agents', label: 'Agentes' },
+  { key: 'archive', label: 'Arquivamento' },
+  { key: 'danger', label: 'Deletar projeto', danger: true },
+] as const
+
+type TabKey = (typeof TABS)[number]['key']
+
 /**
  * Ajustes do projeto — o único lugar da UI para as quatro tools de admin de
  * projeto e para mintar tokens de agente.
@@ -34,6 +44,7 @@ export function ProjectPanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<TabKey>('workflow')
 
   async function setRepoPath(target: string | null) {
     setBusy(true)
@@ -80,118 +91,151 @@ export function ProjectPanel({
   }
 
   return (
-    <Dialog title={`Ajustes — ${project}`} onClose={onClose}>
-      {error && <p className="banner">{error}</p>}
-      {note && <p className="field-help">{note}</p>}
-
-      <section className="panel-section">
-        <h3>Workflow</h3>
-        <div className="form">
-          <label>
-            <span>Repositório do workflow</span>
-            <input
-              className="mono"
-              value={repo}
-              placeholder="/caminho/absoluto/para/o/repo"
-              onChange={(e) => setRepo(e.target.value)}
-            />
-            <span className="field-help">
-              É o diretório de trabalho do sprint workflow. Ao definir, o servidor instala as
-              skills, escreve os configs e gera os tokens de pm e dev que faltarem — eles
-              aparecem abaixo uma única vez.
-            </span>
-          </label>
-          <div className="form-row">
+    <Dialog title={`Ajustes — ${project}`} onClose={onClose} wide>
+      <div className="settings-layout">
+        <nav className="settings-nav" aria-label="Seções de ajuste">
+          {TABS.map((t) => (
             <button
-              className="primary"
-              disabled={busy || !repo.trim()}
-              onClick={() => setRepoPath(repo.trim())}
+              key={t.key}
+              type="button"
+              className={[activeTab === t.key && 'active', 'danger' in t && t.danger && 'danger-tab']
+                .filter(Boolean)
+                .join(' ')}
+              onClick={() => setActiveTab(t.key)}
             >
-              Definir repositório
+              {t.label}
             </button>
-            <button disabled={busy} onClick={() => setRepoPath(null)}>
-              Remover repositório
-            </button>
-          </div>
+          ))}
+        </nav>
+
+        <div className="settings-content">
+          {error && <p className="banner">{error}</p>}
+          {note && <p className="field-help">{note}</p>}
+
+          {activeTab === 'workflow' && (
+            <section className="panel-section">
+              <h3>Workflow</h3>
+              <div className="form">
+                <label>
+                  <span>Repositório do workflow</span>
+                  <input
+                    className="mono"
+                    value={repo}
+                    placeholder="/caminho/absoluto/para/o/repo"
+                    onChange={(e) => setRepo(e.target.value)}
+                  />
+                  <span className="field-help">
+                    É o diretório de trabalho do sprint workflow. Ao definir, o servidor instala
+                    as skills, escreve os configs e gera os tokens de pm e dev que faltarem — eles
+                    aparecem abaixo uma única vez.
+                  </span>
+                </label>
+                <div className="form-row">
+                  <button
+                    className="primary"
+                    disabled={busy || !repo.trim()}
+                    onClick={() => setRepoPath(repo.trim())}
+                  >
+                    Definir repositório
+                  </button>
+                  <button disabled={busy} onClick={() => setRepoPath(null)}>
+                    Remover repositório
+                  </button>
+                </div>
+              </div>
+
+              {readiness && <Readiness r={readiness} />}
+            </section>
+          )}
+
+          {activeTab === 'planning' && (
+            <section className="panel-section">
+              <h3>Planejamento do projeto</h3>
+              <GoalsSection client={client} project={project} onChanged={onChanged} setError={setError} />
+              <EpicsSection client={client} project={project} onChanged={onChanged} setError={setError} />
+            </section>
+          )}
+
+          {activeTab === 'agents' && (
+            <section className="panel-section">
+              <h3>Agentes e tokens</h3>
+              <div className="form">
+                <label>
+                  <span>Novo token de agente</span>
+                  <div className="form-row">
+                    <input
+                      value={actor}
+                      placeholder="actor (ex. dev-claude)"
+                      onChange={(e) => setActor(e.target.value)}
+                    />
+                    <select
+                      aria-label="Tipo de agente"
+                      value={agentType}
+                      onChange={(e) => setAgentType(e.target.value === 'pm' ? 'pm' : 'dev')}
+                    >
+                      <option value="dev">dev — só log</option>
+                      <option value="pm">pm — acesso completo</option>
+                    </select>
+                    <button disabled={busy || !actor.trim()} onClick={mint}>
+                      Gerar token
+                    </button>
+                  </div>
+                  <span className="field-help">
+                    O CLI <code>kanban-token</code> grava sempre <code>agent_type: pm</code>; esta
+                    é a única via para um token dev de verdade.
+                  </span>
+                </label>
+              </div>
+
+              {minted && <TokenOnce t={minted} />}
+            </section>
+          )}
+
+          {activeTab === 'archive' && (
+            <section className="panel-section">
+              <h3>Arquivamento</h3>
+              <div className="form-row">
+                <button disabled={busy} onClick={() => void client.archiveProject({ project }).then(onChanged)}>
+                  Arquivar projeto
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => void client.unarchiveProject({ project }).then(onChanged)}
+                >
+                  Desarquivar
+                </button>
+              </div>
+            </section>
+          )}
+
+          {activeTab === 'danger' && (
+            <section className="panel-section panel-section--danger">
+              <h3>Zona destrutiva</h3>
+              <label>
+                <span>Deletar projeto — permanente</span>
+                <div className="form-row">
+                  <input
+                    className="mono"
+                    value={confirmText}
+                    placeholder={`digite "${project}" para confirmar`}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                  />
+                  <button
+                    className="danger"
+                    disabled={busy || confirmText !== project}
+                    onClick={removeProject}
+                  >
+                    Deletar
+                  </button>
+                </div>
+                <span className="field-help">
+                  Apaga a pasta do projeto e todos os seus cards. Não há desfazer.
+                </span>
+              </label>
+            </section>
+          )}
         </div>
-
-        {readiness && <Readiness r={readiness} />}
-      </section>
-
-      <section className="panel-section">
-        <h3>Planejamento do projeto</h3>
-        <GoalsSection client={client} project={project} onChanged={onChanged} setError={setError} />
-        <EpicsSection client={client} project={project} onChanged={onChanged} setError={setError} />
-      </section>
-
-      <section className="panel-section">
-        <h3>Agentes e tokens</h3>
-        <div className="form">
-          <label>
-            <span>Novo token de agente</span>
-            <div className="form-row">
-              <input
-                value={actor}
-                placeholder="actor (ex. dev-claude)"
-                onChange={(e) => setActor(e.target.value)}
-              />
-              <select
-                aria-label="Tipo de agente"
-                value={agentType}
-                onChange={(e) => setAgentType(e.target.value === 'pm' ? 'pm' : 'dev')}
-              >
-                <option value="dev">dev — só log</option>
-                <option value="pm">pm — acesso completo</option>
-              </select>
-              <button disabled={busy || !actor.trim()} onClick={mint}>
-                Gerar token
-              </button>
-            </div>
-            <span className="field-help">
-              O CLI <code>kanban-token</code> grava sempre <code>agent_type: pm</code>; esta é a
-              única via para um token dev de verdade.
-            </span>
-          </label>
-        </div>
-
-        {minted && <TokenOnce t={minted} />}
-      </section>
-
-      <section className="panel-section">
-        <h3>Arquivamento</h3>
-        <div className="form-row">
-          <button disabled={busy} onClick={() => void client.archiveProject({ project }).then(onChanged)}>
-            Arquivar projeto
-          </button>
-          <button
-            disabled={busy}
-            onClick={() => void client.unarchiveProject({ project }).then(onChanged)}
-          >
-            Desarquivar
-          </button>
-        </div>
-      </section>
-
-      <section className="panel-section panel-section--danger">
-        <h3>Zona destrutiva</h3>
-        <label>
-          <span>Deletar projeto — permanente</span>
-          <div className="form-row">
-            <input
-              className="mono"
-              value={confirmText}
-              placeholder={`digite “${project}” para confirmar`}
-              onChange={(e) => setConfirmText(e.target.value)}
-            />
-            <button className="danger" disabled={busy || confirmText !== project} onClick={removeProject}>
-              Deletar
-            </button>
-          </div>
-          <span className="field-help">
-            Apaga a pasta do projeto e todos os seus cards. Não há desfazer.
-          </span>
-        </label>
-      </section>
+      </div>
     </Dialog>
   )
 }
