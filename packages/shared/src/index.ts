@@ -753,11 +753,9 @@ export interface PlanningFinalizeResult {
   repo_copy_ok: boolean | null
 }
 
-export type SprintStepId = 'capacity' | 'goal' | 'tasks' | 'risks' | 'review'
+export type SprintStepId = 'goal' | 'tasks' | 'risks' | 'review'
 
 export interface SprintPlanningContextView {
-  project_epics: Array<{ id: string; name: string; objective: string | null }>
-  suggested_capacity: { avg_cards_per_sprint: number; sample_sprints: number } | null
   target_repo: string | null
 }
 
@@ -769,7 +767,6 @@ export interface SprintPlanningContextView {
 export interface SprintPlanningSessionView {
   session_id: string
   project: string
-  epic_id: string | null
   status: PlanningStatus
   current_step: SprintStepId
   context: SprintPlanningContextView
@@ -785,7 +782,6 @@ export interface SprintPlanningFinalizeResult {
   session_id: string
   project: string
   sprint_id: string
-  epic_linked: boolean
   new_cards_created: number
   new_cards_failed: Array<{ index: number; error: string }>
 }
