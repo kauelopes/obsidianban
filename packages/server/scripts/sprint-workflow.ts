@@ -754,9 +754,19 @@ export function findOrphanedCards(
 // blocker-cleared cards (log → clear assignee → move to todo), applied to
 // orphaned in_progress cards instead. Failure on one card is logged and
 // skipped — it must never abort the sweep of the rest, nor the sprint loop.
+// Called from a top-level `finally` (see main) so it must never throw itself —
+// a throw here would replace/mask whatever error caused the abort (e.g. the
+// 3-consecutive-dev-failures error) instead of just failing to sweep.
 async function sweepOrphanedInProgress(sprintId: string): Promise<void> {
-  const { body } = await callTool('kanban_get_sprint', { sprint_id: sprintId }, PM_TOKEN)
-  const cards = Array.isArray(asRecord(body)['cards']) ? (asRecord(body)['cards'] as Array<Record<string, unknown>>) : []
+  let cards: Array<Record<string, unknown>>
+  try {
+    const { body } = await callTool('kanban_get_sprint', { sprint_id: sprintId }, PM_TOKEN)
+    cards = Array.isArray(asRecord(body)['cards']) ? (asRecord(body)['cards'] as Array<Record<string, unknown>>) : []
+  } catch (err) {
+    log(`  ⚠ sweep: failed to read sprint board: ${(err as Error).message}`)
+    return
+  }
+
   const orphans = findOrphanedCards(cards)
   if (orphans.length === 0) return
 
@@ -945,7 +955,9 @@ process.on('SIGUSR1', () => {
   log('⏸ sinal de parada graciosa recebido — termina a rodada atual, sem iniciar outra')
 })
 
-async function main(): Promise<void> {
+// Exported (only) so tests can drive it directly with mocked fetch/spawn —
+// isMainModule below still gates the real auto-run.
+export async function main(): Promise<void> {
   if (KANBAN_URL !== 'http://127.0.0.1:9375') {
     log(`note: KANBAN_URL=${KANBAN_URL} — ensure ${DEV_MCP_CONFIG} 'url' matches, or the dev harness won't reach the server.`)
   }
@@ -970,68 +982,78 @@ async function main(): Promise<void> {
   let consecutiveDevFailures = 0
   // Triagem LLM que falhou (créditos, chave) fica desligada pelo resto da run.
   let llmTriageDown = false
-  while (round++ < MAX_ROUNDS) {
-    // Parada graciosa (WorkflowManager.requestGracefulStop) só sinaliza este
-    // processo, nunca o grupo — a rodada dev já em voo (se houver) termina
-    // normalmente; só a PRÓXIMA rodada não chega a começar.
-    if (stopRequested) {
-      log('parada graciosa solicitada — nenhuma rodada nova será iniciada.')
-      break
-    }
-    log(`\n=== round ${round} ===`)
+  // try/finally em vez de só uma chamada após o loop: uma saída por exceção
+  // (ex.: o throw abaixo após 3 falhas dev consecutivas — o cenário que este
+  // task existe para cobrir, incluindo o novo timeout do 1c — ou qualquer
+  // outro erro não tratado dentro do loop) pularia um `await` colocado só
+  // depois do `while`. O finally garante a varredura em QUALQUER saída.
+  try {
+    while (round++ < MAX_ROUNDS) {
+      // Parada graciosa (WorkflowManager.requestGracefulStop) só sinaliza este
+      // processo, nunca o grupo — a rodada dev já em voo (se houver) termina
+      // normalmente; só a PRÓXIMA rodada não chega a começar.
+      if (stopRequested) {
+        log('parada graciosa solicitada — nenhuma rodada nova será iniciada.')
+        break
+      }
+      log(`\n=== round ${round} ===`)
 
-    // 1. Triage review before dispatching more dev work.
-    const review = await reviewCards()
-    if (review.length > 0) {
-      const ambiguous = await deterministicTriage(review, await statusMap(sprintId))
-      const resolvedByCode = review.length - ambiguous.length
-      if (ambiguous.length > 0 && !llmTriageDown) {
-        llmTriageDown = !(await triageReviewLLM(ambiguous, sprintId))
+      // 1. Triage review before dispatching more dev work.
+      const review = await reviewCards()
+      if (review.length > 0) {
+        const ambiguous = await deterministicTriage(review, await statusMap(sprintId))
+        const resolvedByCode = review.length - ambiguous.length
+        if (ambiguous.length > 0 && !llmTriageDown) {
+          llmTriageDown = !(await triageReviewLLM(ambiguous, sprintId))
+          continue
+        }
+        if (resolvedByCode > 0) continue
+        // Review preso e sem triagem LLM: segue para o dev se houver card pronto;
+        // o `continue` aqui seria um loop infinito de triagem impotente.
+      }
+
+      // 2. Dispatch a dev if there is a ready card.
+      if (await hasReadyCard()) {
+        const run = await runDev(sprintId)
+        if (run.isError) {
+          if (++consecutiveDevFailures >= 3) {
+            throw new Error(`DEV failed ${consecutiveDevFailures} rounds in a row — aborting. Last error: ${run.result.slice(0, 300)}`)
+          }
+        } else {
+          consecutiveDevFailures = 0
+        }
+        for (const snapshot of run.cardSnapshots) {
+          await logCardTokenSnapshot(snapshot, run.contextWindow)
+          log(`  📐 card ${snapshot.cardId} (${snapshot.outcome}): context=${snapshot.contextInputTokens + snapshot.contextCacheReadTokens + snapshot.contextCacheCreationTokens} out=${snapshot.cardOutputTokens}`)
+        }
+        if (run.cardSnapshots.length === 0 && !run.isError) {
+          log('  (nenhum card fechou neste round — sem snapshot pra registrar)')
+        }
+        // runClaudeDev resolved — every dev of this round is gone. Any card left
+        // in_progress without a job:* assignee is orphaned; sweep it back to todo.
+        await sweepOrphanedInProgress(sprintId)
         continue
       }
-      if (resolvedByCode > 0) continue
-      // Review preso e sem triagem LLM: segue para o dev se houver card pronto;
-      // o `continue` aqui seria um loop infinito de triagem impotente.
-    }
 
-    // 2. Dispatch a dev if there is a ready card.
-    if (await hasReadyCard()) {
-      const run = await runDev(sprintId)
-      if (run.isError) {
-        if (++consecutiveDevFailures >= 3) {
-          throw new Error(`DEV failed ${consecutiveDevFailures} rounds in a row — aborting. Last error: ${run.result.slice(0, 300)}`)
-        }
+      // 3. No ready card left. Sem triagem LLM, review pode ter sobras — avisa.
+      const leftover = await reviewCards()
+      if (leftover.length > 0) {
+        log(`sprint drained COM PENDÊNCIAS: ${leftover.length} card(s) em review aguardando triagem humana.`)
       } else {
-        consecutiveDevFailures = 0
+        log('sprint drained: review empty and no ready cards in todo.')
       }
-      for (const snapshot of run.cardSnapshots) {
-        await logCardTokenSnapshot(snapshot, run.contextWindow)
-        log(`  📐 card ${snapshot.cardId} (${snapshot.outcome}): context=${snapshot.contextInputTokens + snapshot.contextCacheReadTokens + snapshot.contextCacheCreationTokens} out=${snapshot.cardOutputTokens}`)
-      }
-      if (run.cardSnapshots.length === 0 && !run.isError) {
-        log('  (nenhum card fechou neste round — sem snapshot pra registrar)')
-      }
-      // runClaudeDev resolved — every dev of this round is gone. Any card left
-      // in_progress without a job:* assignee is orphaned; sweep it back to todo.
-      await sweepOrphanedInProgress(sprintId)
-      continue
+      break
     }
 
-    // 3. No ready card left. Sem triagem LLM, review pode ter sobras — avisa.
-    const leftover = await reviewCards()
-    if (leftover.length > 0) {
-      log(`sprint drained COM PENDÊNCIAS: ${leftover.length} card(s) em review aguardando triagem humana.`)
-    } else {
-      log('sprint drained: review empty and no ready cards in todo.')
-    }
-    break
+    if (round > MAX_ROUNDS) log(`stopped: hit MAX_ROUNDS=${MAX_ROUNDS} safeguard.`)
+  } finally {
+    // Final drain sweep: covers EVERY loop exit — graceful stop, drained-
+    // with-nothing-ready, MAX_ROUNDS, and (the case that motivated this task)
+    // an exception thrown out of the loop, such as the 3-consecutive-dev-
+    // failures abort below — so no orphaned in_progress card is left behind
+    // when the process ends, regardless of how it ends.
+    await sweepOrphanedInProgress(sprintId)
   }
-
-  if (round > MAX_ROUNDS) log(`stopped: hit MAX_ROUNDS=${MAX_ROUNDS} safeguard.`)
-  // Final drain sweep: covers loop exits that didn't go through a runDev
-  // round (graceful stop, drained-with-nothing-ready, MAX_ROUNDS) so no
-  // orphaned in_progress card is left behind when the process ends.
-  await sweepOrphanedInProgress(sprintId)
   await printSprintSummary(sprintId)
 }
 
