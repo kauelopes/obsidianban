@@ -65,7 +65,7 @@ describe('ProjectPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Deletar projeto' }))
     const deleteButton = screen.getByRole('button', { name: 'Deletar' }) as HTMLButtonElement
     expect(deleteButton.disabled).toBe(true)
-    const input = screen.getByPlaceholderText('digite "teste" para confirmar')
+    const input = screen.getByPlaceholderText('digite “teste” para confirmar')
     fireEvent.change(input, { target: { value: 'errado' } })
     expect(deleteButton.disabled).toBe(true)
     fireEvent.change(input, { target: { value: 'teste' } })

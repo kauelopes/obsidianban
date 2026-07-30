@@ -217,7 +217,7 @@ export function ProjectPanel({
                   <input
                     className="mono"
                     value={confirmText}
-                    placeholder={`digite "${project}" para confirmar`}
+                    placeholder={`digite “${project}” para confirmar`}
                     onChange={(e) => setConfirmText(e.target.value)}
                   />
                   <button
