@@ -49,7 +49,7 @@ export function loadJobConfig(env: NodeJS.ProcessEnv, paths: Paths): JobConfig {
     stallThresholdMs: num('JOB_STALL_THRESHOLD_MS', 1_200_000),
     stallPollMs: num('JOB_STALL_POLL_MS', 60_000),
     maxRuntimeMs: num('JOB_MAX_RUNTIME_MS', 43_200_000),
-    maxConcurrent: num('JOB_MAX_CONCURRENT', 3),
+    maxConcurrent: num('JOB_MAX_CONCURRENT', 1),
     envAllowlist: allowlist,
     maxWakesPerSprint: num('JOB_MAX_WAKES_PER_SPRINT', 5),
   }
@@ -294,6 +294,10 @@ export class JobManager {
     if (runningInSprint >= this.cfg.maxConcurrent) {
       throw conflict({
         error: 'job_limit_reached',
+        message:
+          this.cfg.maxConcurrent === 1
+            ? 'a job is already running in this sprint — wait for it to finish before starting another'
+            : `${runningInSprint} job(s) already running in this sprint (max ${this.cfg.maxConcurrent}) — wait for one to finish before starting another`,
         sprint_id: sprintId,
         max_concurrent: this.cfg.maxConcurrent,
       })

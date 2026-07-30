@@ -190,7 +190,7 @@ describe('loadJobConfig', () => {
       stallThresholdMs: 1_200_000,
       stallPollMs: 60_000,
       maxRuntimeMs: 43_200_000,
-      maxConcurrent: 3,
+      maxConcurrent: 1,
       envAllowlist: [],
       maxWakesPerSprint: 5,
     })
