@@ -11,10 +11,9 @@ export interface SprintStepMeta {
   screen: PlanningScreenType
 }
 
-/** As 5 etapas — poucas o bastante para um stepper linear, sem agrupar em fases. */
+/** As 4 etapas — poucas o bastante para um stepper linear, sem agrupar em fases. */
 export const SPRINT_STEPS: readonly SprintStepMeta[] = [
-  { id: 'capacity', title: 'Capacidade', screen: 'form' },
-  { id: 'goal', title: 'Objetivo', screen: 'choice' },
+  { id: 'goal', title: 'Objetivo', screen: 'form' },
   { id: 'tasks', title: 'Tarefas', screen: 'task_list' },
   { id: 'risks', title: 'Riscos', screen: 'form' },
   { id: 'review', title: 'Revisão', screen: 'confirm' },

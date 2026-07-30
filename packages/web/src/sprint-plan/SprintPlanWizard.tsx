@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type {
-  PlanningChoicePayload,
   PlanningConfirmPayload,
   PlanningFormPayload,
   PlanningTaskListPayload,
@@ -13,7 +12,7 @@ import { errorText, type McpResult } from '../api/result.js'
 import { Tile } from '../metrics/widgets.js'
 import { SPRINT_STEPS, sprintStepIndex, sprintStepMeta } from './steps-meta.js'
 import { useSprintPlanning } from './useSprintPlanning.js'
-import { StepChoice, StepConfirm, StepForm, StepTaskList } from '../plan/screens.js'
+import { StepConfirm, StepForm, StepTaskList } from '../plan/screens.js'
 
 /**
  * Wizard "Criar sprint com assistente": sem :sessionId retoma a sessão ativa
@@ -235,8 +234,6 @@ function StepScreen({
   switch (screen) {
     case 'form':
       return <StepForm payload={payload as PlanningFormPayload} busy={busy} onSubmit={onSubmit} />
-    case 'choice':
-      return <StepChoice payload={payload as PlanningChoicePayload} busy={busy} onSubmit={onSubmit} />
     case 'task_list':
       return (
         <StepTaskList
@@ -270,7 +267,6 @@ function FinalizeSummary({ r }: { r: SprintPlanningFinalizeResult }) {
         <section className="wizard-body">
           <div className="tiles">
             <Tile label="tarefas criadas" value={String(r.new_cards_created)} />
-            <Tile label="vinculada a épico" value={r.epic_linked ? 'sim' : 'não'} muted={!r.epic_linked} />
           </div>
           {r.new_cards_failed.length > 0 && (
             <p className="banner">
