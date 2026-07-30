@@ -22,6 +22,9 @@ export const SSE_EVENT_TYPES: readonly SSEEventType[] = [
   'PLANNING_FINALIZED',
   'WORKFLOW_STARTED',
   'WORKFLOW_EXITED',
+  'JOB_STARTED',
+  'JOB_STALLED',
+  'JOB_FINISHED',
 ]
 
 export interface BoardEvent {

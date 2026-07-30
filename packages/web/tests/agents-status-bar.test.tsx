@@ -92,6 +92,194 @@ describe('AgentsStatusBar — aviso de inatividade', () => {
   })
 })
 
+const NOT_RUNNING = {
+  ...RUN,
+  status: 'exited' as const,
+  pid: null,
+  ended_at: '2026-01-01T00:05:00.000Z',
+  exit_code: 0,
+}
+
+function mountAgentsPayload(payload: Record<string, unknown>) {
+  vi.stubGlobal('fetch', async (url: string) => {
+    if (url.includes('/workflow/agents')) {
+      return { status: 200, json: async () => payload } as Response
+    }
+    throw new Error(`unexpected fetch: ${url}`)
+  })
+  return render(
+    <AgentsStatusBar client={new KanbanClient({ token: 'tok' })} project="p1" sprints={[ACTIVE_SPRINT]} />,
+  )
+}
+
+describe('AgentsStatusBar — jobs em background bloqueiam "Executar agentes"', () => {
+  it('desabilita o botão e mostra a explicação quando há job running', async () => {
+    mountAgentsPayload({
+      sprint_id: 'sprint-1',
+      run: NOT_RUNNING,
+      phase: 'idle',
+      last_activity_at: null,
+      in_progress_cards: [],
+      jobs: [
+        {
+          job_id: 'job-1',
+          card_id: 'card-1',
+          sprint_id: 'sprint-1',
+          project: 'p1',
+          command: 'uv run pytest',
+          pid: 111,
+          status: 'running',
+          started_at: '2026-01-01T00:00:00.000Z',
+          last_output_at: '2026-01-01T00:00:00.000Z',
+          claimed_by: 'workflow:dev',
+          stalled: false,
+        },
+      ],
+    })
+
+    const button = await waitFor(() => screen.getByText('Executar agentes'))
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText(/job\(s\) em execução — aguardando/)).toBeTruthy()
+  })
+
+  it('sinaliza job stalled distintamente', async () => {
+    mountAgentsPayload({
+      sprint_id: 'sprint-1',
+      run: NOT_RUNNING,
+      phase: 'idle',
+      last_activity_at: null,
+      in_progress_cards: [],
+      jobs: [
+        {
+          job_id: 'job-1',
+          card_id: 'card-1',
+          sprint_id: 'sprint-1',
+          project: 'p1',
+          command: 'uv run pytest',
+          pid: 111,
+          status: 'running',
+          started_at: '2026-01-01T00:00:00.000Z',
+          last_output_at: '2026-01-01T00:00:00.000Z',
+          claimed_by: 'workflow:dev',
+          stalled: true,
+        },
+      ],
+    })
+
+    await waitFor(() => expect(screen.getByText(/job sem saída/)).toBeTruthy())
+  })
+
+  it('habilita o botão quando o único job é terminal (succeeded)', async () => {
+    mountAgentsPayload({
+      sprint_id: 'sprint-1',
+      run: NOT_RUNNING,
+      phase: 'idle',
+      last_activity_at: null,
+      in_progress_cards: [],
+      jobs: [
+        {
+          job_id: 'job-1',
+          card_id: 'card-1',
+          sprint_id: 'sprint-1',
+          project: 'p1',
+          command: 'uv run pytest',
+          pid: null,
+          status: 'succeeded',
+          started_at: '2026-01-01T00:00:00.000Z',
+          ended_at: '2026-01-01T00:01:00.000Z',
+          exit_code: 0,
+          last_output_at: '2026-01-01T00:00:59.000Z',
+          claimed_by: 'workflow:dev',
+        },
+      ],
+    })
+
+    const button = await waitFor(() => screen.getByText('Executar agentes'))
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByText(/job\(s\) em execução/)).toBeNull()
+  })
+
+  it('payload legado sem `jobs` não quebra — botão habilitado', async () => {
+    mountAgentsPayload({
+      sprint_id: 'sprint-1',
+      run: NOT_RUNNING,
+      phase: 'idle',
+      last_activity_at: null,
+      in_progress_cards: [],
+    })
+
+    const button = await waitFor(() => screen.getByText('Executar agentes'))
+    expect((button as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('reage a JOB_FINISHED via SSE — reconsulta e libera o botão sem esperar o poll', async () => {
+    let running = true
+    let sseHandler: ((ev: MessageEvent) => void) | undefined
+    class FakeEventSource {
+      static CLOSED = 2
+      readyState = 1
+      onopen: (() => void) | null = null
+      onerror: (() => void) | null = null
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
+        if (type === 'JOB_FINISHED') sseHandler = listener as (ev: MessageEvent) => void
+      }
+      removeEventListener() {}
+      close() {}
+    }
+    const originalEventSource = window.EventSource
+    // @ts-expect-error stub replaces the inert EventSource from tests/setup.ts
+    window.EventSource = FakeEventSource
+
+    vi.stubGlobal('fetch', async (url: string) => {
+      if (url.includes('/workflow/agents')) {
+        return {
+          status: 200,
+          json: async () => ({
+            sprint_id: 'sprint-1',
+            run: NOT_RUNNING,
+            phase: 'idle',
+            last_activity_at: null,
+            in_progress_cards: [],
+            jobs: running
+              ? [
+                  {
+                    job_id: 'job-1',
+                    card_id: 'card-1',
+                    sprint_id: 'sprint-1',
+                    project: 'p1',
+                    command: 'uv run pytest',
+                    pid: 111,
+                    status: 'running',
+                    started_at: '2026-01-01T00:00:00.000Z',
+                    last_output_at: '2026-01-01T00:00:00.000Z',
+                    claimed_by: 'workflow:dev',
+                    stalled: false,
+                  },
+                ]
+              : [],
+          }),
+        } as Response
+      }
+      throw new Error(`unexpected fetch: ${url}`)
+    })
+
+    render(
+      <AgentsStatusBar client={new KanbanClient({ token: 'tok' })} project="p1" sprints={[ACTIVE_SPRINT]} />,
+    )
+
+    const button = await waitFor(() => screen.getByText('Executar agentes'))
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+
+    running = false
+    await act(async () => {
+      sseHandler?.({ data: '' } as MessageEvent)
+    })
+
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
+    window.EventSource = originalEventSource
+  })
+})
+
 describe('AgentsStatusBar — parar (graciosa vs imediata)', () => {
   it('clicar em Parar pede a parada graciosa; depois disso vira Parada imediata', async () => {
     let stoppingGracefully = false

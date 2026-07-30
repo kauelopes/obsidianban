@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  JobView,
   Sprint,
   WorkflowAgentsStatus,
   WorkflowInProgressCard,
@@ -7,6 +8,7 @@ import type {
   WorkflowRunView,
 } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
+import { subscribe } from '../api/events.js'
 import { errorText } from '../api/result.js'
 import { Dialog } from './Dialog.js'
 
@@ -85,6 +87,21 @@ function ActiveAgentsBar({
     return () => clearInterval(timer)
   }, [poll])
 
+  // Um job pode terminar (e devolver o card + religar o workflow) entre dois
+  // polls de 3s — sem isto o botão "Executar agentes" ficaria bloqueado por
+  // até 3s a mais depois do término real.
+  useEffect(() => {
+    return subscribe((ev) => {
+      switch (ev.type) {
+        case 'JOB_STARTED':
+        case 'JOB_STALLED':
+        case 'JOB_FINISHED':
+          void poll()
+          break
+      }
+    })
+  }, [poll])
+
   async function exec(fn: () => Promise<Awaited<ReturnType<typeof client.workflowStart>>>) {
     setBusy(true)
     const res = await fn()
@@ -100,6 +117,11 @@ function ActiveAgentsBar({
   const idleMs = running && lastActivity !== null ? Date.now() - lastActivity : 0
   const idle = idleMs > IDLE_WARN_MS
   const inProgress = status?.in_progress_cards ?? []
+  // Payload antigo (sem `jobs`) não deve quebrar — trata como "nenhum job".
+  const jobs: readonly JobView[] = status?.jobs ?? []
+  const runningJobs = jobs.filter((j) => j.status === 'running')
+  const stalledJobs = runningJobs.filter((j) => j.stalled)
+  const hasRunningJob = runningJobs.length > 0
 
   return (
     <div className="agents-bar">
@@ -143,6 +165,23 @@ function ActiveAgentsBar({
           parando após esta rodada…
         </span>
       )}
+      {hasRunningJob && (
+        <span
+          className="pill"
+          title="Comando de longa duração em execução fora da sessão do dev agent — quando terminar, o servidor devolve o card sozinho e religa o workflow. Iniciar agentes agora criaria um orquestrador em cima de trabalho já em curso."
+        >
+          {runningJobs.length} job(s) em execução — aguardando
+        </span>
+      )}
+      {stalledJobs.map((j) => (
+        <span
+          key={j.job_id}
+          className="pill wf-idle"
+          title={`Job sem saída há mais tempo que o esperado (card ${j.card_id}, comando: ${j.command})`}
+        >
+          ⚠️ job sem saída — {j.card_id}
+        </span>
+      ))}
       <div className="spacer" />
       <button className="ghost" onClick={() => setOpen(true)}>
         detalhes
@@ -150,7 +189,12 @@ function ActiveAgentsBar({
       {!running && (
         <button
           className="primary"
-          disabled={busy}
+          disabled={busy || hasRunningJob}
+          title={
+            hasRunningJob
+              ? 'Bloqueado: há job(s) de longa duração em execução nesta sprint — aguarde terminarem (o card volta sozinho e o workflow religa).'
+              : undefined
+          }
           onClick={() => exec(() => client.workflowStart(sprintId))}
         >
           Executar agentes
@@ -184,6 +228,7 @@ function ActiveAgentsBar({
           run={run}
           inProgressCards={inProgress}
           busy={busy}
+          hasRunningJob={hasRunningJob}
           onClose={() => setOpen(false)}
           onStart={() => exec(() => client.workflowStart(sprintId))}
           onRequestStop={() => exec(() => client.workflowRequestStop(sprintId))}
@@ -200,6 +245,7 @@ function AgentsDrawer({
   run,
   inProgressCards,
   busy,
+  hasRunningJob,
   onClose,
   onStart,
   onRequestStop,
@@ -210,6 +256,7 @@ function AgentsDrawer({
   run: WorkflowRunView | null
   inProgressCards: readonly WorkflowInProgressCard[]
   busy: boolean
+  hasRunningJob: boolean
   onClose: () => void
   onStart: () => void
   onRequestStop: () => void
@@ -252,7 +299,16 @@ function AgentsDrawer({
         )}
         <div className="spacer" />
         {!running && (
-          <button className="primary" disabled={busy} onClick={onStart}>
+          <button
+            className="primary"
+            disabled={busy || hasRunningJob}
+            title={
+              hasRunningJob
+                ? 'Bloqueado: há job(s) de longa duração em execução nesta sprint — aguarde terminarem (o card volta sozinho e o workflow religa).'
+                : undefined
+            }
+            onClick={onStart}
+          >
             Executar agentes
           </button>
         )}
