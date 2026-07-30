@@ -631,7 +631,7 @@ export type PlanningStatus =
   | 'error'
   | 'cancelled'
 
-export type PlanningScreenType = 'form' | 'choice' | 'list' | 'diagram' | 'confirm'
+export type PlanningScreenType = 'form' | 'choice' | 'list' | 'diagram' | 'confirm' | 'task_list'
 
 export interface PlanningFormField {
   id: string
@@ -648,6 +648,18 @@ export interface PlanningChoicePayload {
 }
 export interface PlanningListItem { id: string; title: string; detail?: string }
 export interface PlanningListPayload { intro?: string; items: PlanningListItem[] }
+export interface PlanningTaskItem {
+  id: string
+  title: string
+  type: 'task' | 'feature' | 'bug' | 'chore'
+  body?: string
+  priority?: 'low' | 'medium' | 'high' | 'critical'
+  tags?: string[]
+}
+export interface PlanningTaskListPayload {
+  intro?: string
+  tasks: PlanningTaskItem[]
+}
 export interface PlanningDiagramPayload { mermaid: string; caption?: string }
 export interface PlanningConfirmPayload { markdown: string }
 
