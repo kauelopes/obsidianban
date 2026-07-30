@@ -779,14 +779,33 @@ button.ghost:hover:not(:disabled) {
   margin: 0 0 var(--s-5);
 }
 
-/* Linha de meta no painel do projeto. */
+/* Linha de meta no painel do projeto. Título de tamanho variável e um grupo
+ * fixo de controles (data + botões) — sem nowrap, o título comprido empurra
+ * "Remover" pra segunda linha em algumas metas e não em outras, quebrando o
+ * alinhamento vertical dos botões entre linhas. */
+.goal-row {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
 .goal-row .goal-title {
   flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--t-sm);
 }
 
 .goal-row .goal-title.muted {
   color: var(--fg-2);
+}
+
+.goal-row .goal-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  flex: 0 0 auto;
 }
 
 .banner {

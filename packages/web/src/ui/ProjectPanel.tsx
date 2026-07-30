@@ -46,6 +46,15 @@ export function ProjectPanel({
   const [note, setNote] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('workflow')
 
+  useEffect(() => {
+    void client.listProjects({ include_archived: true }).then((res) => {
+      if (res.ok) {
+        const target = res.data.projects.find((p) => p.project === project)?.target_repo
+        if (target) setRepo(target)
+      }
+    })
+  }, [client, project])
+
   async function setRepoPath(target: string | null) {
     setBusy(true)
     setError(null)
@@ -312,29 +321,31 @@ function GoalsSection({
       {goals.length === 0 && <p className="field-help">Nenhuma meta ainda.</p>}
       {goals.map((g) => (
         <div className="form-row goal-row" key={g.id}>
-          <span className={`goal-title${g.status !== 'open' ? ' muted' : ''}`}>
+          <span className={`goal-title${g.status !== 'open' ? ' muted' : ''}`} title={g.title}>
             {g.status === 'done' ? '✓ ' : g.status === 'dropped' ? '× ' : ''}
             {g.title}
           </span>
-          <input
-            type="date"
-            aria-label={`Prazo de ${g.title}`}
-            value={g.target_date ?? ''}
-            disabled={busy || g.status !== 'open'}
-            onChange={(e) => void patch(g.id, { target_date: e.target.value || null })}
-          />
-          {g.status === 'open' ? (
-            <button disabled={busy} onClick={() => void patch(g.id, { status: 'done' })}>
-              Concluir
+          <div className="goal-actions">
+            <input
+              type="date"
+              aria-label={`Prazo de ${g.title}`}
+              value={g.target_date ?? ''}
+              disabled={busy || g.status !== 'open'}
+              onChange={(e) => void patch(g.id, { target_date: e.target.value || null })}
+            />
+            {g.status === 'open' ? (
+              <button disabled={busy} onClick={() => void patch(g.id, { status: 'done' })}>
+                Concluir
+              </button>
+            ) : (
+              <button disabled={busy} onClick={() => void patch(g.id, { status: 'open' })}>
+                Reabrir
+              </button>
+            )}
+            <button className="danger" disabled={busy} onClick={() => void remove(g.id)}>
+              Remover
             </button>
-          ) : (
-            <button disabled={busy} onClick={() => void patch(g.id, { status: 'open' })}>
-              Reabrir
-            </button>
-          )}
-          <button className="danger" disabled={busy} onClick={() => void remove(g.id)}>
-            Remover
-          </button>
+          </div>
         </div>
       ))}
       <label>

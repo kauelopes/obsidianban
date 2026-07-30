@@ -62,6 +62,29 @@ describe('ProjectPanel', () => {
     expect(dangerTab.classList.contains('danger-tab')).toBe(true)
   })
 
+  it('pré-preenche o campo de repositório quando o projeto já tem um definido', async () => {
+    const client = stubClient({
+      listProjects: () =>
+        Promise.resolve({
+          ok: true as const,
+          data: {
+            projects: [
+              {
+                project: 'teste',
+                columns: [],
+                archived: false,
+                goals: [],
+                target_repo: '/home/dev/meu-repo',
+              },
+            ],
+          },
+        }),
+    })
+    renderPanel(client)
+    const input = await screen.findByPlaceholderText('/caminho/absoluto/para/o/repo')
+    expect((input as HTMLInputElement).value).toBe('/home/dev/meu-repo')
+  })
+
   it('deletar continua bloqueado até o nome do projeto ser digitado corretamente', () => {
     renderPanel()
     fireEvent.click(screen.getByRole('button', { name: 'Deletar projeto' }))
