@@ -130,6 +130,16 @@ const CARD_LOG_TAIL_LINES = 5
  */
 export class JobManager {
   private readonly runs = new Map<string, Run>()
+  /**
+   * Reservas síncronas de start() em voo: os checks de limite são síncronos,
+   * mas runs.set só acontece depois de vários awaits — sem a reserva, dois
+   * start() concorrentes para o mesmo card passariam ambos pelos limites e
+   * ambos spawnariam. A reserva entra ANTES do primeiro await e sai (finally)
+   * quando o run já está em `runs` ou o start falhou.
+   */
+  private readonly pendingStarts = new Map<string, { cardId: string; sprintId: string }>()
+  /** Finalizes em voo — drenados no dispose() para o shutdown não estrandar cards. */
+  private readonly pendingFinalizes = new Set<Promise<void>>()
   private readonly watchdog: NodeJS.Timeout
   private tickInFlight = false
 
@@ -162,16 +172,29 @@ export class JobManager {
         logger.warn({ err, job: record.job_id }, 'jobs: rehydration failed for job — skipping')
       }
     }
+    // Janela de crash entre o save terminal e o completeJob: um card ainda
+    // apontando para um job já terminal ficaria estrandado para sempre (a
+    // reidratação acima só olha jobs running). Refaz o hand-back — idempotente:
+    // completeJob só reverte se o card seguir exatamente no job.
+    await this.reconcileTerminalJobs().catch((err) => {
+      logger.warn({ err }, 'jobs: terminal-job reconciliation failed — continuing boot')
+    })
   }
 
-  /** Encerra timers (testes / shutdown). Não mata jobs — eles são duráveis. */
-  dispose(): void {
+  /**
+   * Encerra timers e DRENA os finalizes em voo (testes / shutdown gracioso).
+   * Não mata jobs — eles são duráveis; mas um finalize que já começou termina
+   * de escrever store + card antes de retornarmos, fechando a janela em que o
+   * job ficaria terminal no store com o card ainda preso em `job:<id>`.
+   */
+  async dispose(): Promise<void> {
     clearInterval(this.watchdog)
     for (const run of this.runs.values()) {
       if (run.runtimeTimer) clearTimeout(run.runtimeTimer)
       if (run.killTimer) clearTimeout(run.killTimer)
       if (run.deathPoll) clearInterval(run.deathPoll)
     }
+    await Promise.allSettled([...this.pendingFinalizes])
   }
 
   /** Supervisão: `assigned_to` = `job:<id>` com o job de fato rodando? */
@@ -208,20 +231,32 @@ export class JobManager {
   }
 
   async start(params: JobStartParams): Promise<JobView> {
-    const { jobId, cardId, sprintId, project, command, description, cwd, claimedBy } = params
+    const { jobId, cardId, sprintId } = params
     if (!JOB_ID_RE.test(jobId)) throw badRequest('invalid_field', { field: 'job_id' })
-    if (this.runs.has(jobId)) throw conflict({ error: 'job_already_exists', job_id: jobId })
+    if (this.runs.has(jobId) || this.pendingStarts.has(jobId)) {
+      throw conflict({ error: 'job_already_exists', job_id: jobId })
+    }
 
-    // Limites: 1 job running por card; maxConcurrent por sprint.
+    // Limites: 1 job running por card; maxConcurrent por sprint. Contam tanto
+    // os runs quanto os starts ainda em voo (pendingStarts) — checks e reserva
+    // acontecem SINCRONAMENTE, antes de qualquer await, para dois start()
+    // concorrentes não passarem ambos.
     for (const r of this.runs.values()) {
       if (r.record.status !== 'running') continue
       if (r.record.card_id === cardId) {
         throw conflict({ error: 'job_already_running', card_id: cardId, job_id: r.record.job_id })
       }
     }
-    const runningInSprint = [...this.runs.values()].filter(
-      (r) => r.record.status === 'running' && r.record.sprint_id === sprintId,
-    ).length
+    for (const [pendingId, p] of this.pendingStarts) {
+      if (p.cardId === cardId) {
+        throw conflict({ error: 'job_already_running', card_id: cardId, job_id: pendingId })
+      }
+    }
+    const runningInSprint =
+      [...this.runs.values()].filter(
+        (r) => r.record.status === 'running' && r.record.sprint_id === sprintId,
+      ).length +
+      [...this.pendingStarts.values()].filter((p) => p.sprintId === sprintId).length
     if (runningInSprint >= this.cfg.maxConcurrent) {
       throw conflict({
         error: 'job_limit_reached',
@@ -230,6 +265,17 @@ export class JobManager {
       })
     }
 
+    this.pendingStarts.set(jobId, { cardId, sprintId })
+    try {
+      return await this.doStart(params)
+    } finally {
+      // O run já está em `runs` (sucesso) ou o start falhou — a reserva sai.
+      this.pendingStarts.delete(jobId)
+    }
+  }
+
+  private async doStart(params: JobStartParams): Promise<JobView> {
+    const { jobId, cardId, sprintId, project, command, description, cwd, claimedBy } = params
     const cwdOk = await fs.stat(cwd).then((s) => s.isDirectory(), () => false)
     if (!cwdOk) throw badRequest('job_cwd_missing', { cwd })
 
@@ -300,7 +346,7 @@ export class JobManager {
     child.stderr!.on('data', onData)
     child.on('error', (err) => {
       logger.error({ err, job: jobId }, 'jobs: child process error')
-      void readyP.then(() => this.finalize(run, 'failed', null))
+      void readyP.then(() => this.trackFinalize(run, 'failed', null))
     })
     child.on('close', (code) => {
       const status: JobStatus = run.timedOut
@@ -310,14 +356,20 @@ export class JobManager {
           : code === 0
             ? 'succeeded'
             : 'failed'
-      void readyP.then(() => this.finalize(run, status, code))
+      void readyP.then(() => this.trackFinalize(run, status, code))
     })
     child.unref()
 
     this.armRuntimeBackstop(run, this.cfg.maxRuntimeMs)
 
-    await this.store.save(record) // agora com pid
-    markReady()
+    // markReady em finally: se o save do pid falhar, os handlers close/error
+    // (gateados em readyP) NÃO podem ficar presos para sempre — o filho já
+    // está rodando e precisa ser finalizável nesta sessão.
+    try {
+      await this.store.save(record) // agora com pid
+    } finally {
+      markReady()
+    }
 
     logger.info({ job: jobId, card: cardId, pid: child.pid, log: logPath, cwd }, 'jobs: launched')
     this.sse.emit({
@@ -445,7 +497,7 @@ export class JobManager {
       logger.warn({ err, job: run.record.job_id, pid }, 'jobs: SIGTERM failed')
       // Grupo já não existe — trate como morto pelo caminho corrente.
       const status: JobStatus = run.timedOut ? 'timeout' : run.stopping ? 'stopped' : 'lost'
-      void this.finalize(run, status, null)
+      void this.trackFinalize(run, status, null)
       return
     }
     run.killTimer = setTimeout(() => {
@@ -473,7 +525,7 @@ export class JobManager {
       if (!this.isPidAlive(run.record.pid)) {
         if (run.deathPoll) clearInterval(run.deathPoll)
         const status: JobStatus = run.timedOut ? 'timeout' : run.stopping ? 'stopped' : 'lost'
-        void this.finalize(run, status, null)
+        void this.trackFinalize(run, status, null)
       }
     }, DEATH_POLL_MS)
     run.deathPoll.unref()
@@ -524,7 +576,7 @@ export class JobManager {
     // Processo morreu com o servidor fora do ar — exit code irrecuperável.
     this.runs.set(record.job_id, run)
     logger.warn({ job: record.job_id, pid: record.pid }, 'jobs: job process died while server was down — finalizing as lost')
-    await this.finalize(run, 'lost', null)
+    await this.trackFinalize(run, 'lost', null)
   }
 
   /**
@@ -551,7 +603,7 @@ export class JobManager {
           }
           if (!this.isPidAlive(run.record.pid)) {
             const status: JobStatus = run.timedOut ? 'timeout' : run.stopping ? 'stopped' : 'lost'
-            await this.finalize(run, status, null)
+            await this.trackFinalize(run, status, null)
             continue
           }
         }
@@ -614,10 +666,63 @@ export class JobManager {
   }
 
   /**
+   * Único ponto de entrada para o finalize: registra a promise em
+   * pendingFinalizes para o dispose() poder drenar — um shutdown no meio de um
+   * finalize esperaria a escrita do card, em vez de deixar o job terminal no
+   * store com o card ainda preso em `job:<id>`.
+   */
+  private trackFinalize(run: Run, status: JobStatus, code: number | null): Promise<void> {
+    const p = this.finalize(run, status, code).catch((err) => {
+      logger.error({ err, job: run.record.job_id }, 'jobs: finalize failed')
+    })
+    this.pendingFinalizes.add(p)
+    void p.finally(() => this.pendingFinalizes.delete(p))
+    return p
+  }
+
+  /**
+   * Reconciliação pós-boot da janela de crash entre o save terminal e o
+   * completeJob: para cada card cujo assigned_to ainda aponte um job TERMINAL
+   * do store, refaz o hand-back (entrada de fechamento + reversão condicional).
+   */
+  private async reconcileTerminalJobs(): Promise<void> {
+    const all = await this.store.list()
+    const terminal = new Map(all.filter((j) => j.status !== 'running').map((j) => [j.job_id, j]))
+    if (terminal.size === 0) return
+
+    for (const cardId of new Set([...terminal.values()].map((j) => j.card_id))) {
+      const card = await this.cards.get({ id: cardId }, JOB_SYSTEM_CLAIMS).catch(() => null)
+      const assigned = card?.assigned_to
+      if (!card || !assigned?.startsWith('job:')) continue
+      const record = terminal.get(assigned.slice('job:'.length))
+      if (!record || this.runs.has(record.job_id)) continue
+
+      logger.warn(
+        { job: record.job_id, card: cardId, status: record.status },
+        'jobs: card still parked on a terminal job — replaying hand-back',
+      )
+      const entry =
+        (await this.buildCompletionEntry(record, record.status, record.exit_code ?? null, null)) +
+        '\n\n_(hand-back replayed after server restart — the original completion write was interrupted)_'
+      try {
+        await this.cards.completeJob(cardId, {
+          expectedStatus: 'in_progress',
+          expectedAssignedTo: assigned,
+          logEntry: entry,
+          logKind: record.status === 'succeeded' || record.status === 'stopped' ? 'progress' : 'escalate',
+        })
+      } catch (err) {
+        logger.warn({ err, job: record.job_id, card: cardId }, 'jobs: hand-back replay failed')
+      }
+    }
+  }
+
+  /**
    * Caminho único de término (exit/error/timeout/stop/lost): fecha o registro
    * no store, emite JOB_FINISHED (SSE) + audit (JOB_KILLED para stop manual,
    * JOB_FINISHED para o resto) e devolve o card a `todo` via completeJob —
    * que só reverte se o card ainda estiver exatamente in_progress + job:<id>.
+   * Sempre chamado via trackFinalize (drenável no dispose).
    */
   private async finalize(run: Run, status: JobStatus, code: number | null): Promise<void> {
     if (run.finalizing || run.record.status !== 'running') return
@@ -669,7 +774,7 @@ export class JobManager {
       await this.cards.completeJob(record.card_id, {
         expectedStatus: 'in_progress',
         expectedAssignedTo: `job:${record.job_id}`,
-        logEntry: await this.buildCompletionEntry(run, status, code),
+        logEntry: await this.buildCompletionEntry(record, status, code, run.stoppedBy),
         logKind: status === 'succeeded' || status === 'stopped' ? 'progress' : 'escalate',
       })
     } catch (err) {
@@ -680,9 +785,17 @@ export class JobManager {
     this.runs.delete(record.job_id)
   }
 
-  /** Resumo curto para o log do card: status, exit code, duração, tail do log. */
-  private async buildCompletionEntry(run: Run, status: JobStatus, code: number | null): Promise<string> {
-    const record = run.record
+  /**
+   * Resumo curto para o log do card: status, exit code, duração, tail do log.
+   * Recebe o record (não o Run) para servir também ao replay da reconciliação
+   * pós-boot, quando não há mais Run em memória.
+   */
+  private async buildCompletionEntry(
+    record: JobRecord,
+    status: JobStatus,
+    code: number | null,
+    stoppedBy: string | null,
+  ): Promise<string> {
     const startedMs = Date.parse(record.started_at) || Date.now()
     const endedMs = Date.parse(record.ended_at ?? '') || Date.now()
     const durationMin = Math.max(0, Math.round((endedMs - startedMs) / 60_000))
@@ -690,13 +803,14 @@ export class JobManager {
       `Job \`${record.job_id}\` finished — status **${status}**, ` +
         `exit code ${code ?? 'n/a'}, duration ~${durationMin} min.`,
     ]
-    if (status === 'stopped' && run.stoppedBy) lines.push(`Stopped by ${run.stoppedBy}.`)
+    if (status === 'stopped' && stoppedBy) lines.push(`Stopped by ${stoppedBy}.`)
     if (status === 'timeout') lines.push(`Killed by the max-runtime backstop (${Math.round(this.cfg.maxRuntimeMs / 3_600_000)}h).`)
     if (status === 'lost') lines.push('Process died while the server was down — exit code unknown.')
 
-    const stat = await fs.stat(run.logPath).catch(() => null)
+    const logPath = path.join(this.cfg.logDir, `${record.job_id}.log`)
+    const stat = await fs.stat(logPath).catch(() => null)
     if (stat && stat.size > 0) {
-      const slice = await readLogSlice(run.logPath, Math.max(0, stat.size - CARD_LOG_TAIL_BYTES)).catch(() => null)
+      const slice = await readLogSlice(logPath, Math.max(0, stat.size - CARD_LOG_TAIL_BYTES)).catch(() => null)
       const tail = slice?.data.trimEnd().split('\n').slice(-CARD_LOG_TAIL_LINES).join('\n')
       if (tail) lines.push('', 'Last output:', '```', tail, '```')
     }

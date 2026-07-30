@@ -55,7 +55,9 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  for (const m of managers) m.dispose()
+  // dispose() agora drena finalizes em voo — nenhum completeJob vaza além do
+  // teste para morrer em ENOENT depois do cleanupVault.
+  for (const m of managers) await m.dispose()
   for (const k of SECRET_KEYS) {
     if (savedEnv[k] === undefined) delete process.env[k]
     else process.env[k] = savedEnv[k]
@@ -264,6 +266,9 @@ describe('JobManager', () => {
     expect(stalledView?.status).toBe('running') // watchdog NÃO mata o processo
 
     await waitFor(async () => (await m.status(jobId))?.status === 'succeeded')
+    // Higiene: espera a entrada de fechamento chegar ao card antes do afterEach
+    // limpar o vault — o completeJob não pode vazar além do teste.
+    await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).body.includes('finished'))
     const after = await cardService.get({ id: card.id }, MGR)
     expect(after.body).toContain('has produced no output')
   }, 15_000)
@@ -340,6 +345,69 @@ describe('JobManager', () => {
 
     await m.stop(jobId, 'human:kaue')
     await waitFor(async () => (await m.status(jobId))?.status === 'stopped')
+  })
+
+  it('starts concorrentes para o mesmo card: só um passa (reserva síncrona)', async () => {
+    const jobId = nextJobId()
+    const otherId = nextJobId()
+    const { sprintId, card } = await setupSprintAndCard(jobId)
+    const m = makeManager()
+
+    // Ambos os start() entram antes de qualquer runs.set — sem a reserva
+    // síncrona, os dois passariam pelos limites e os dois spawnariam.
+    const [a, b] = await Promise.allSettled([
+      m.start(startParams(jobId, card.id, sprintId, 'sleep 0.5')),
+      m.start(startParams(otherId, card.id, sprintId, 'sleep 0.5')),
+    ])
+    const outcomes = [a, b].map((r) => r.status)
+    expect(outcomes.filter((s) => s === 'fulfilled')).toHaveLength(1)
+    const rejected = [a, b].find((r) => r.status === 'rejected') as PromiseRejectedResult
+    expect(rejected.reason).toMatchObject({
+      status: 409,
+      body: expect.objectContaining({ error: 'job_already_running' }),
+    })
+    expect(m.listRunning()).toHaveLength(1)
+
+    const winner = m.listRunning()[0]!.job_id
+    await m.stop(winner, 'human:kaue')
+    await waitFor(async () => (await m.status(winner))?.status === 'stopped')
+  })
+
+  it('falha ao persistir o pid não trava o finalize (markReady em finally)', async () => {
+    const jobId = nextJobId()
+    const { sprintId, card } = await setupSprintAndCard(jobId)
+    const m = makeManager()
+
+    // O segundo save (o do pid) explode; o filho já está rodando.
+    const realSave = store.save.bind(store)
+    let calls = 0
+    vi.spyOn(store, 'save').mockImplementation(async (job: JobRecord) => {
+      calls += 1
+      if (calls === 2) throw new Error('disk full')
+      return realSave(job)
+    })
+
+    await expect(m.start(startParams(jobId, card.id, sprintId, 'echo done'))).rejects.toThrow('disk full')
+
+    // Sem o markReady em finally, o close ficaria preso em readyP para sempre.
+    await waitFor(async () => (await m.status(jobId))?.status === 'succeeded')
+    await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).status === 'todo')
+  })
+
+  it('dispose() drena o finalize em voo: card entregue antes do shutdown', async () => {
+    const jobId = nextJobId()
+    const { sprintId, card } = await setupSprintAndCard(jobId)
+    const m = makeManager()
+
+    await m.start(startParams(jobId, card.id, sprintId, 'echo done'))
+    // Job terminal no store = finalize em voo (o save terminal precede o
+    // completeJob). O dispose deve esperar a escrita do card terminar.
+    await waitFor(async () => (await m.status(jobId))?.status === 'succeeded')
+    await m.dispose()
+
+    const after = await cardService.get({ id: card.id }, MGR)
+    expect(after.status).toBe('todo')
+    expect(after.body).toContain(`Job \`${jobId}\` finished`)
   })
 
   it('start valida job_id e cwd', async () => {
@@ -454,8 +522,67 @@ describe('JobManager', () => {
       await m.stop(jobId, 'human:kaue')
       await waitFor(async () => (await m.status(jobId))?.status === 'stopped')
       await waitFor(() => !pidAlive(alive.pid ?? null))
+      await waitFor(async () => (await cardService.get({ id: card.id }, MGR)).status === 'todo')
+    })
+
+    it('job TERMINAL no store com card ainda preso em job:<id> → refaz o hand-back', async () => {
+      // Simula crash entre o save terminal e o completeJob: o job já está
+      // 'succeeded' no store, mas o card segue in_progress + job:<id>.
+      const jobId = nextJobId()
+      const { sprintId, card } = await setupSprintAndCard(jobId)
+      const now = new Date().toISOString()
+      const record: JobRecord = {
+        job_id: jobId,
+        card_id: card.id,
+        sprint_id: sprintId,
+        project: 'test-project',
+        command: 'echo done',
+        pid: null,
+        status: 'succeeded',
+        started_at: now,
+        ended_at: now,
+        exit_code: 0,
+        last_output_at: now,
+        claimed_by: 'agent:dev-agent',
+      }
+      await store.save(record)
+
+      const m = makeManager()
+      await m.init()
+
       const after = await cardService.get({ id: card.id }, MGR)
       expect(after.status).toBe('todo')
+      expect(after.assigned_to).toBeNull()
+      expect(after.body).toContain(`Job \`${jobId}\` finished`)
+      expect(after.body).toContain('hand-back replayed after server restart')
+    })
+
+    it('reconciliação não mexe em card já entregue (hand-back idempotente)', async () => {
+      // Job terminal cujo card já foi devolvido: init() não escreve nada.
+      const jobId = nextJobId()
+      const { sprintId, card } = await setupSprintAndCard() // card sem assignment
+      const now = new Date().toISOString()
+      await store.save({
+        job_id: jobId,
+        card_id: card.id,
+        sprint_id: sprintId,
+        project: 'test-project',
+        command: 'echo done',
+        pid: null,
+        status: 'succeeded',
+        started_at: now,
+        ended_at: now,
+        exit_code: 0,
+        last_output_at: now,
+        claimed_by: 'agent:dev-agent',
+      })
+
+      const m = makeManager()
+      await m.init()
+
+      const after = await cardService.get({ id: card.id }, MGR)
+      expect(after.version).toBe(card.version)
+      expect(after.body).not.toContain('hand-back replayed')
     })
 
     it('erro de reidratação não derruba o boot', async () => {
