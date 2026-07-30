@@ -32,6 +32,8 @@
 //                            provisioned in TARGET_REPO by workflow-readiness)
 //   DEV_SETTINGS             override path to the dev settings (same default)
 //   SPRINT_MAX_ROUNDS        loop safeguard (default 50)
+//   DEV_ROUND_TIMEOUT_MINUTES max wall-clock time for one dev harness spawn
+//                            before it's killed and the round fails (default 45)
 //   RATE_LIMIT_WAIT_SECONDS  seconds to wait when credits run out (default 300).
 //                            For the triage path the API retry-after header takes
 //                            precedence when present. For the dev harness path the
@@ -47,6 +49,7 @@ import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import Anthropic, { RateLimitError } from '@anthropic-ai/sdk'
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod'
@@ -68,6 +71,17 @@ const PM_TOKEN = required('KANBAN_PM_TOKEN')
 const TARGET_REPO = path.resolve(process.env.TARGET_REPO ?? process.cwd())
 const MODEL = 'claude-opus-4-8'
 const MAX_ROUNDS = Number(process.env.SPRINT_MAX_ROUNDS ?? 50)
+// How long a single dev harness spawn (runClaudeDev) is allowed to run before
+// it's killed and the round is reported as a failure — see runClaudeDev.
+// Extracted as a pure function of the raw env value so it's unit-testable
+// without importing the whole module's side effects.
+export function devRoundTimeoutMs(minutesEnv: string | undefined): number {
+  const minutes = Number(minutesEnv ?? 45)
+  return (Number.isFinite(minutes) && minutes > 0 ? minutes : 45) * 60_000
+}
+const DEV_ROUND_TIMEOUT_MS = devRoundTimeoutMs(process.env.DEV_ROUND_TIMEOUT_MINUTES)
+// Grace period between SIGTERM and SIGKILL once the round timeout fires.
+const DEV_KILL_GRACE_MS = 15_000
 const RATE_LIMIT_WAIT_MS = Number(process.env.RATE_LIMIT_WAIT_SECONDS ?? 300) * 1000
 const RATE_LIMIT_MAX_RETRIES = Number(process.env.RATE_LIMIT_MAX_RETRIES ?? 10)
 // Cards a dev works per spawn. 1 → one card per round (exact per-card cost);
@@ -322,12 +336,31 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
     // DEV_USE_API_KEY=true restaura o comportamento antigo.
     const env: NodeJS.ProcessEnv = { ...process.env, KANBAN_DEV_TOKEN: DEV_TOKEN }
     if (process.env.DEV_USE_API_KEY !== 'true') delete env.ANTHROPIC_API_KEY
+    // NÃO usar detached: true — isso faria o child virar líder do seu próprio
+    // grupo de processos e escapar do kill(-pid) que WorkflowManager.stop usa
+    // pra derrubar a árvore inteira num stop forçado. Matar só child.pid (via
+    // child.kill abaixo) é o trade-off certo: no caminho raro em que o dev
+    // spawna netos de longa duração, eles podem sobreviver ao SIGKILL do pai.
     const child = spawn('claude', args, {
       cwd: TARGET_REPO,
       env,
     })
     let stdout = ''
     let stderr = ''
+    let exited = false
+    let timedOut = false
+    let killGraceTimer: NodeJS.Timeout | null = null
+    const timeoutTimer = setTimeout(() => {
+      timedOut = true
+      log(`⚠ dev round exceeded ${Math.round(DEV_ROUND_TIMEOUT_MS / 60_000)}min — sending SIGTERM (pid ${child.pid})`)
+      child.kill('SIGTERM')
+      killGraceTimer = setTimeout(() => {
+        if (!exited) {
+          log('  dev round did not exit after SIGTERM — sending SIGKILL')
+          child.kill('SIGKILL')
+        }
+      }, DEV_KILL_GRACE_MS)
+    }, DEV_ROUND_TIMEOUT_MS)
     // Granularidade média sem despejar o stream inteiro: uma linha de log por
     // tool call, em tempo real — sem isto, o log só ganha uma linha nova
     // quando o round INTEIRO termina (o parse de parseDevStream é feito uma
@@ -348,10 +381,20 @@ function runClaudeDev(prompt: string): Promise<DevRun> {
       }
     })
     child.stderr.on('data', (d) => (stderr += d.toString()))
-    child.on('error', (err) =>
-      resolve(failedRun(`spawn error: ${err.message} (is the 'claude' CLI on PATH?)`)),
-    )
+    child.on('error', (err) => {
+      exited = true
+      clearTimeout(timeoutTimer)
+      if (killGraceTimer) clearTimeout(killGraceTimer)
+      resolve(failedRun(`spawn error: ${err.message} (is the 'claude' CLI on PATH?)`))
+    })
     child.on('close', () => {
+      exited = true
+      clearTimeout(timeoutTimer)
+      if (killGraceTimer) clearTimeout(killGraceTimer)
+      if (timedOut) {
+        resolve(failedRun(`dev round timed out after ${Math.round(DEV_ROUND_TIMEOUT_MS / 60_000)}min`))
+        return
+      }
       try {
         resolve({ ...parseDevStream(stdout), stderrTail: stderr.slice(-2000) })
       } catch {
@@ -689,6 +732,72 @@ async function deterministicTriage(
   return remaining
 }
 
+// ── Orphan sweep (defense against a dev harness that died mid-round) ────────
+// Pure decision, no I/O: kanban_pick_next only ever returns "todo" cards, so
+// once a dev round is over (runClaudeDev resolved — every dev of that round
+// is gone), any "in_progress" card whose assigned_to does NOT start with the
+// `job:` prefix has no owner left and is orphaned by definition. Cards
+// assigned to `job:*` belong to the future JobManager and are untouchable —
+// that prefix is this plan's contract, not a heuristic.
+// Deterministic: no TTL, no heartbeat, no time-based guessing.
+export function findOrphanedCards(
+  cards: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return cards.filter((c) => {
+    if (c['status'] !== 'in_progress') return false
+    const assignedTo = c['assigned_to']
+    return !(typeof assignedTo === 'string' && assignedTo.startsWith('job:'))
+  })
+}
+
+// Same 3-step return-to-todo sequence deterministicTriage uses for
+// blocker-cleared cards (log → clear assignee → move to todo), applied to
+// orphaned in_progress cards instead. Failure on one card is logged and
+// skipped — it must never abort the sweep of the rest, nor the sprint loop.
+async function sweepOrphanedInProgress(sprintId: string): Promise<void> {
+  const { body } = await callTool('kanban_get_sprint', { sprint_id: sprintId }, PM_TOKEN)
+  const cards = Array.isArray(asRecord(body)['cards']) ? (asRecord(body)['cards'] as Array<Record<string, unknown>>) : []
+  const orphans = findOrphanedCards(cards)
+  if (orphans.length === 0) return
+
+  log(`⚠ sweep: ${orphans.length} orphaned in_progress card(s) — returning to todo`)
+  for (const summary of orphans) {
+    const id = String(summary['id'])
+    try {
+      const card = asRecord((await callTool('kanban_get_card', { id }, PM_TOKEN)).body)
+      if (typeof card['version'] !== 'number') {
+        log(`  ⚠ sweep: card ${id} not found on reread — skipping`)
+        continue
+      }
+      await callTool('kanban_log_on_card', {
+        id, version: Number(card['version']),
+        log_entry: 'Dev round ended with this card still in_progress — returned to todo by the workflow.',
+        request_id: randomUUID(),
+      }, PM_TOKEN)
+
+      // Reread — the log call above bumps the version.
+      const claimed = asRecord((await callTool('kanban_get_card', { id }, PM_TOKEN)).body)
+      if (claimed['assigned_to'] != null) {
+        await callTool('kanban_update_card', {
+          id, version: Number(claimed['version']), assigned_to: null, request_id: randomUUID(),
+        }, PM_TOKEN)
+      }
+
+      const after = asRecord((await callTool('kanban_get_card', { id }, PM_TOKEN)).body)
+      const moved = await callTool('kanban_move_card', {
+        id, version: Number(after['version']), to_status: 'todo', request_id: randomUUID(),
+      }, PM_TOKEN)
+      if (moved.status === 200) {
+        log(`  ✓ sweep: ${id} → todo (orphaned)`)
+      } else {
+        log(`  ⚠ sweep: move of ${id} failed (${moved.status}: ${JSON.stringify(moved.body).slice(0, 120)})`)
+      }
+    } catch (err) {
+      log(`  ⚠ sweep: failed for ${id}: ${(err as Error).message}`)
+    }
+  }
+}
+
 const TRIAGE_SYSTEM = `You are the PM triaging the kanban "review" column. For each card given, read its # Agent Log with kanban_get_card and decide ONE of:
 - CLOSE: the work is genuinely complete → kanban_move_card to "done".
 - RETURN: the blocker is resolvable → fix it (e.g. kanban_update_card to clear blocked_by) and kanban_move_card to "todo".
@@ -902,6 +1011,9 @@ async function main(): Promise<void> {
       if (run.cardSnapshots.length === 0 && !run.isError) {
         log('  (nenhum card fechou neste round — sem snapshot pra registrar)')
       }
+      // runClaudeDev resolved — every dev of this round is gone. Any card left
+      // in_progress without a job:* assignee is orphaned; sweep it back to todo.
+      await sweepOrphanedInProgress(sprintId)
       continue
     }
 
@@ -916,6 +1028,10 @@ async function main(): Promise<void> {
   }
 
   if (round > MAX_ROUNDS) log(`stopped: hit MAX_ROUNDS=${MAX_ROUNDS} safeguard.`)
+  // Final drain sweep: covers loop exits that didn't go through a runDev
+  // round (graceful stop, drained-with-nothing-ready, MAX_ROUNDS) so no
+  // orphaned in_progress card is left behind when the process ends.
+  await sweepOrphanedInProgress(sprintId)
   await printSprintSummary(sprintId)
 }
 
@@ -938,7 +1054,14 @@ function log(msg: string): void {
   }
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(1)
-})
+// Only auto-run when executed directly (node --import tsx scripts/sprint-workflow.ts
+// or spawned by WorkflowRunner) — never on import, so unit tests can pull the
+// pure helpers above (findOrphanedCards, devRoundTimeoutMs) without triggering
+// a real sprint run.
+const isMainModule = process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMainModule) {
+  main().catch((err) => {
+    console.error(err)
+    process.exit(1)
+  })
+}
