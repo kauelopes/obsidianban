@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
+import http from 'node:http'
 import path from 'node:path'
 import type { Paths } from '../../src/config.js'
 import { HttpServer } from '../../src/server/http.js'
@@ -24,6 +25,7 @@ import type { McpHttpManager } from '../../src/server/mcp-http.js'
 import { WorkflowManager } from '../../src/services/workflow-runner.js'
 import { JobStore } from '../../src/jobs/store.js'
 import { JobManager } from '../../src/services/job-runner.js'
+import { HTTP_SHUTDOWN_TIMEOUT_MS } from '../../src/util/constants.js'
 
 let paths: Paths
 let server: HttpServer
@@ -636,5 +638,59 @@ describe('GET /workflow/agents', () => {
       const status = await jobManager.status('job-httptest')
       expect(status?.status).toBe('stopped')
     })
+  })
+})
+
+// Regressão: HttpServer.stop() usava server.close() puro, que no Node só
+// resolve quando TODA conexão aberta termina sozinha — e um stream SSE
+// (/events) fica aberto indefinidamente por design. Em produção isso travou
+// o shutdown até o SIGKILL, pulando o jobs.dispose() do drenamento gracioso.
+// Instância própria (isolada do server principal do arquivo) para não
+// interferir com os outros describes.
+describe('HttpServer.stop() com uma conexão SSE aberta', () => {
+  it('resolve mesmo com um cliente /events conectado, sem esperar o stream fechar sozinho', async () => {
+    const shutdownPaths = await createTempVault()
+    const db = createTestDb()
+    const repo = createTestRepo(db)
+    const idempotency = new IdempotencyStore(shutdownPaths.idempotencyStore)
+    await idempotency.load()
+    const validator = new TokenValidator(shutdownPaths)
+    const sse = new SSEEventBus()
+    const metrics = new MetricsService(db)
+    const activity = new ActivityService(db, shutdownPaths, new GitActivityService())
+    const mcpStub = { handleRequest: vi.fn().mockResolvedValue(undefined) } as unknown as McpHttpManager
+    const state = { startedAt: Date.now(), vaultPath: shutdownPaths.vault, reconciling: false, db }
+
+    const shutdownServer = new HttpServer({
+      port: 0,
+      state,
+      validator,
+      idempotency,
+      sse,
+      metrics,
+      activity,
+      mcp: mcpStub,
+    })
+    await shutdownServer.start()
+    const shutdownPort = shutdownServer.getPort()!
+
+    // Abre uma conexão SSE de verdade e a mantém aberta — nunca chamamos
+    // res.destroy()/abort() no cliente, o ponto é o servidor derrubá-la.
+    const opened = await new Promise<http.IncomingMessage>((resolve, reject) => {
+      const req = http.get(`http://127.0.0.1:${shutdownPort}/events`, resolve)
+      req.on('error', reject)
+    })
+    expect(opened.statusCode).toBe(200)
+    expect(sse.size()).toBe(1)
+
+    const t0 = Date.now()
+    await shutdownServer.stop()
+    const elapsedMs = Date.now() - t0
+
+    // Bem abaixo do timeout de segurança (HTTP_SHUTDOWN_TIMEOUT_MS) — a
+    // conexão foi ativamente encerrada, não esperada.
+    expect(elapsedMs).toBeLessThan(HTTP_SHUTDOWN_TIMEOUT_MS)
+
+    await cleanupVault(shutdownPaths)
   })
 })

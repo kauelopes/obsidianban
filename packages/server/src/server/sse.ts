@@ -45,6 +45,23 @@ export class SSEEventBus {
     return this.clients.size
   }
 
+  /**
+   * Encerra todos os streams SSE ativos (shutdown do servidor). `res.end()`
+   * fecha a resposta de forma limpa — o `req.on('close')` de cada assinante
+   * dispara em seguida e remove o cliente via unsubscribe, então basta
+   * terminar as respostas aqui e limpar o registro.
+   */
+  closeAll(): void {
+    for (const c of this.clients) {
+      try {
+        c.res.end()
+      } catch {
+        // socket já pode estar morto — sem problema, estamos derrubando mesmo.
+      }
+    }
+    this.clients.clear()
+  }
+
   private send(res: ServerResponse, id: number, event: SSEEvent): void {
     try {
       res.write(

@@ -1,4 +1,5 @@
 import http, { type IncomingMessage, type ServerResponse } from 'node:http'
+import type { Socket } from 'node:net'
 import type Database from 'better-sqlite3'
 import type { TokenValidator } from '../auth/validator.js'
 import { extractBearer } from '../auth/validator.js'
@@ -9,7 +10,7 @@ import type { TokenClaims } from '@obsidiankan/types'
 import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
 import type { ActivityService } from '../services/activity.js'
-import { ACTIVITY_DAYS_DEFAULT, ACTIVITY_DAYS_MAX } from '../util/constants.js'
+import { ACTIVITY_DAYS_DEFAULT, ACTIVITY_DAYS_MAX, HTTP_SHUTDOWN_TIMEOUT_MS } from '../util/constants.js'
 import type { McpHttpManager } from './mcp-http.js'
 import type { StaticSite } from './static.js'
 import type { SessionToken } from '../auth/session.js'
@@ -58,6 +59,10 @@ interface ToolHandler {
 export class HttpServer {
   private server: http.Server | null = null
   private readonly tools = new Map<string, ToolHandler>()
+  // Rastreados para o shutdown poder derrubá-los sem esperar (ver stop()) —
+  // server.close() nativo do Node só resolve quando toda conexão aberta
+  // termina sozinha, e um stream SSE fica aberto indefinidamente por design.
+  private readonly sockets = new Set<Socket>()
 
   constructor(private readonly deps: HttpServerDeps) {}
 
@@ -75,15 +80,43 @@ export class HttpServer {
         sendJson(res, 500, { error: 'internal_error', message: (err as Error).message })
       })
     })
+    this.server.on('connection', (socket) => {
+      this.sockets.add(socket)
+      socket.on('close', () => this.sockets.delete(socket))
+    })
     await new Promise<void>((resolve) => this.server!.listen(this.deps.port, '127.0.0.1', resolve))
   }
 
+  /**
+   * Encerra conexões abertas em vez de esperar por elas — um cliente SSE
+   * conectado (stream aberto por design) faria o `server.close()` nativo do
+   * Node nunca resolver. Fecha os streams SSE de forma limpa primeiro, depois
+   * derruba qualquer socket restante (via API nativa quando disponível,
+   * senão pelo registro manual de `connection`). Um timeout de segurança
+   * garante que o shutdown segue adiante mesmo se algo travar.
+   */
   async stop(): Promise<void> {
     if (!this.server) return
-    await new Promise<void>((resolve, reject) =>
-      this.server!.close((err) => (err ? reject(err) : resolve())),
-    )
+    const server = this.server
     this.server = null
+
+    this.deps.sse.closeAll()
+
+    const closed = new Promise<void>((resolve, reject) => {
+      server.close((err) => (err ? reject(err) : resolve()))
+    })
+
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections()
+    } else {
+      for (const socket of this.sockets) socket.destroy()
+    }
+    this.sockets.clear()
+
+    await Promise.race([
+      closed,
+      new Promise<void>((resolve) => setTimeout(resolve, HTTP_SHUTDOWN_TIMEOUT_MS).unref()),
+    ])
   }
 
   getPort(): number | null {
