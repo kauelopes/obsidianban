@@ -11,19 +11,16 @@ export type SprintPlanningStatus =
   | 'error'
   | 'cancelled'
 
-export type SprintStepId = 'capacity' | 'goal' | 'tasks' | 'risks' | 'review'
+export type SprintStepId = 'goal' | 'tasks' | 'risks' | 'review'
 
 /** Contexto do projeto carregado uma única vez em start() — não refeito a cada turno. */
 export interface SprintPlanningContext {
-  project_epics: Array<{ id: string; name: string; objective: string | null }>
-  suggested_capacity: { avg_cards_per_sprint: number; sample_sprints: number } | null
   target_repo: string | null
 }
 
 /** Checkpoint da materialização — cada fase concluída registra o que criou. */
 export interface SprintMaterializationCheckpoint {
   sprint_created?: string
-  epic_linked?: boolean
   new_cards?: number
 }
 
@@ -35,8 +32,6 @@ export interface SprintPlanningStepOutput {
 export interface SprintPlanningSession {
   session_id: string                 // sprint-plan-{nanoid(8)}
   project: string                    // obrigatório desde a criação — não há sessão sem projeto
-  /** Setado quando a etapa "goal" escolhe um épico existente; null = objetivo ad-hoc. */
-  epic_id: string | null
   claude_session_id: string | null   // capturado no 1º turno; --resume nos seguintes
   status: SprintPlanningStatus
   current_step: SprintStepId
@@ -73,7 +68,6 @@ export function newSprintPlanningSession(
   return {
     session_id: generateSprintPlanningSessionId(),
     project,
-    epic_id: null,
     claude_session_id: null,
     status: 'awaiting_user',
     current_step: firstStep,

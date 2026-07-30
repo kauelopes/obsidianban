@@ -26,9 +26,11 @@ import { PlanningSessionStore } from './planning/session.js'
 import { ClaudeRunner, DEFAULT_TURN_TIMEOUT_MS } from './planning/claude-runner.js'
 import { StubRunner } from './planning/stub-runner.js'
 import { createMaterializer } from './planning/materialize.js'
+import { createStubMaterializer } from './planning/stub-materialize.js'
 import { SprintPlanningSessionStore } from './sprint-planning/session.js'
 import { SprintStubRunner } from './sprint-planning/stub-runner.js'
 import { createSprintMaterializer } from './sprint-planning/materialize.js'
+import { createStubSprintMaterializer } from './sprint-planning/stub-materialize.js'
 import { SprintPlanningService } from './services/sprint-planning.js'
 import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
@@ -137,15 +139,17 @@ async function main(): Promise<void> {
     repo,
     sse,
     planningModelLabel,
-    createMaterializer({
-      paths: config.paths,
-      admin,
-      sprints,
-      cards,
-      epics,
-      modelLabel: planningModelLabel,
-      saveSession: (s) => planningStore.save(s),
-    }),
+    planningStub
+      ? createStubMaterializer()
+      : createMaterializer({
+          paths: config.paths,
+          admin,
+          sprints,
+          cards,
+          epics,
+          modelLabel: planningModelLabel,
+          saveSession: (s) => planningStore.save(s),
+        }),
   )
 
   const sprintPlanningStore = new SprintPlanningSessionStore(config.paths)
@@ -164,14 +168,14 @@ async function main(): Promise<void> {
     sse,
     planningModelLabel,
     sprints,
-    epics,
-    createSprintMaterializer({
-      sprints,
-      cards,
-      epics,
-      modelLabel: planningModelLabel,
-      saveSession: (s) => sprintPlanningStore.save(s),
-    }),
+    planningStub
+      ? createStubSprintMaterializer()
+      : createSprintMaterializer({
+          sprints,
+          cards,
+          modelLabel: planningModelLabel,
+          saveSession: (s) => sprintPlanningStore.save(s),
+        }),
   )
   const queries = new QueryService(repo, config.paths, () => admin.getArchivedProjects())
   const history = new HistoryService(config.paths)

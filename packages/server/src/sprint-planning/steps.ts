@@ -2,8 +2,8 @@ import type { SprintPlanningSession, SprintStepId } from './session.js'
 import type { FinalSprint } from './structure-schema.js'
 import { validateFinalSprint } from './structure-schema.js'
 
-/** Este wizard usa 4 dos 5 tipos de tela do wizard de projeto — sem diagram. */
-export type SprintScreenType = 'form' | 'choice' | 'confirm' | 'task_list'
+/** Este wizard usa 3 dos tipos de tela do wizard de projeto — sem choice, sem diagram. */
+export type SprintScreenType = 'form' | 'confirm' | 'task_list'
 
 export interface SprintStepOutput {
   screen_payload: unknown
@@ -15,9 +15,13 @@ export interface SprintStepDef {
   id: SprintStepId
   title: string
   screen: SprintScreenType
+  /** false só para "goal": tela estática, sem turno de LLM (ver staticOutput). */
+  llm: boolean
   buildPrompt(session: SprintPlanningSession): string
   /** Valida o JSON do LLM; a mensagem do throw alimenta o retry corretivo. */
   parseOutput(raw: unknown): SprintStepOutput
+  /** Só presente quando llm=false — payload pronto, sem turno. */
+  staticOutput?(session: SprintPlanningSession): SprintStepOutput
 }
 
 // ── Contratos de payload por tipo de tela (mesma convenção do wizard de projeto,
@@ -25,8 +29,6 @@ export interface SprintStepDef {
 
 const FORM_CONTRACT =
   '{"screen_payload":{"fields":[{"id":"...","label":"...","help":"...(opcional)","value":"...(pré-preenchimento opcional)"}]}'
-const CHOICE_CONTRACT =
-  '{"screen_payload":{"question":"...","options":[{"id":"...","label":"...","description":"...(opcional)"}],"suggested":"id da opção sugerida (opcional)"}'
 const CONFIRM_CONTRACT = '{"screen_payload":{"markdown":"..."}'
 const TASK_LIST_CONTRACT =
   '{"screen_payload":{"intro":"...(opcional, breve texto de contexto, nada de markdown/tabela)"}'
@@ -34,7 +36,6 @@ const TASK_LIST_CONTRACT =
 function contract(screen: SprintScreenType, withStructure = false): string {
   const base = {
     form: FORM_CONTRACT,
-    choice: CHOICE_CONTRACT,
     confirm: CONFIRM_CONTRACT,
     task_list: TASK_LIST_CONTRACT,
   }[screen]
@@ -45,23 +46,15 @@ function contract(screen: SprintScreenType, withStructure = false): string {
   )
 }
 
-const INTRO = `Você é o facilitador de Sprint Planning do ObsidianKan. O projeto já existe — junto com o usuário, você vai definir o objetivo e a quebra em tarefas de UMA sprint nova, seguindo a prática de Sprint Planning (Scrum): capacidade → objetivo (why) → quebra em tarefas (what/how) → riscos → revisão.
+const INTRO = `Você é o facilitador de Sprint Planning do ObsidianKan. O projeto já existe — junto com o usuário, você vai definir a quebra em tarefas de UMA sprint nova a partir do objetivo que ele descreveu, seguindo a prática de Sprint Planning (Scrum): objetivo (why, já escrito pelo usuário) → quebra em tarefas (what/how) → riscos → revisão.
 
 O processo é um wizard: a cada turno eu te digo o contexto do projeto, o que o usuário respondeu, e qual a próxima etapa; você devolve APENAS JSON no contrato pedido — o texto vai direto para a interface, então capriche no conteúdo e seja específico à sprint (nada de genérico). Escreva em português brasileiro.`
 
 function contextBlock(session: SprintPlanningSession): string {
-  const ctx = session.context
   const parts = [`Projeto: ${session.project}`]
-  if (ctx.project_epics.length > 0) {
-    parts.push(`Épicos existentes: ${JSON.stringify(ctx.project_epics)}`)
-  }
-  parts.push(
-    ctx.suggested_capacity
-      ? `Histórico de velocidade: últimas ${ctx.suggested_capacity.sample_sprints} sprints fechadas concluíram em média ${ctx.suggested_capacity.avg_cards_per_sprint} cards — use como sugestão de capacidade, não pergunte do zero.`
-      : 'Sem histórico de sprints fechadas — pergunte a capacidade diretamente ao usuário.',
-  )
   // Re-enviado a cada turno: o --resume já carrega o contexto, mas repetir o
-  // estado mantém o turno correto mesmo se a sessão do harness se perder.
+  // estado mantém o turno correto mesmo se a sessão do harness se perder. É
+  // também aqui que o objetivo em texto livre da etapa "goal" chega à LLM.
   parts.push(`Estado atual (respostas do usuário por etapa):\n${JSON.stringify(session.answers, null, 2)}`)
   return parts.join('\n')
 }
@@ -99,22 +92,6 @@ function parseForm(raw: unknown): SprintStepOutput {
   return out
 }
 
-function parseChoice(raw: unknown): SprintStepOutput {
-  const { payload, out } = parseCommon(raw)
-  if (typeof payload['question'] !== 'string') throw new Error('screen_payload.question ausente')
-  const options = payload['options']
-  if (!Array.isArray(options) || options.length < 2) {
-    throw new Error('screen_payload.options deve ter ao menos 2 opções')
-  }
-  for (const o of options) {
-    const r = o as Record<string, unknown>
-    if (typeof r['id'] !== 'string' || typeof r['label'] !== 'string') {
-      throw new Error('cada option precisa de id e label string')
-    }
-  }
-  return out
-}
-
 function parseConfirm(raw: unknown): SprintStepOutput {
   const { payload, out } = parseCommon(raw)
   if (typeof payload['markdown'] !== 'string' || payload['markdown'].trim() === '') {
@@ -137,20 +114,49 @@ function parseTaskList(raw: unknown): SprintStepOutput {
   return { screen_payload: { ...(intro ? { intro } : {}), tasks }, structure }
 }
 
-const PARSERS: Record<'form' | 'choice' | 'confirm' | 'task_list', (raw: unknown) => SprintStepOutput> = {
+const PARSERS: Record<SprintScreenType, (raw: unknown) => SprintStepOutput> = {
   form: parseForm,
-  choice: parseChoice,
   confirm: parseConfirm,
   task_list: parseTaskList,
 }
 
+// ── Etapa "goal": texto livre, sem turno de LLM ─────────────────────────────
+
+function goalStaticOutput(): SprintStepOutput {
+  return {
+    screen_payload: {
+      fields: [
+        {
+          id: 'objective',
+          label: 'Objetivo da sprint',
+          help: 'Descreva o que você quer entregar nesta sprint — a IA vai propor os cards a partir disso.',
+        },
+      ],
+    },
+  }
+}
+
+const GOAL_STEP: SprintStepDef = {
+  id: 'goal',
+  title: 'Objetivo',
+  screen: 'form',
+  llm: false,
+  buildPrompt: () => {
+    throw new Error('etapa "goal" não usa turno de LLM')
+  },
+  parseOutput: () => {
+    throw new Error('etapa "goal" não usa turno de LLM')
+  },
+  staticOutput: goalStaticOutput,
+}
+
 // ── Sequência ────────────────────────────────────────────────────────────────
-// capacidade → objetivo (why) → tarefas (what/how, emite structure) → riscos → revisão.
+// objetivo (why, texto do usuário) → tarefas (what/how, emite structure) → riscos → revisão.
 
 function step(
   id: SprintStepId,
   title: string,
-  screen: 'form' | 'choice' | 'confirm' | 'task_list',
+  screen: 'form' | 'confirm' | 'task_list',
   task: string,
   opts: { withStructure?: boolean } = {},
 ): SprintStepDef {
@@ -158,6 +164,7 @@ function step(
     id,
     title,
     screen,
+    llm: true,
     buildPrompt: (session) =>
       `${turnPreamble(session)}\n\nPróxima etapa: "${title}" (tela ${screen}).\n${task}\n\n${contract(screen, opts.withStructure ?? false)}`,
     parseOutput: PARSERS[screen],
@@ -165,25 +172,14 @@ function step(
 }
 
 export const SPRINT_STEPS: SprintStepDef[] = [
-  step(
-    'capacity',
-    'Capacidade da sprint',
-    'form',
-    'Monte um form com um único campo "capacity" pré-preenchido com uma sugestão de quantas tarefas cabem nesta sprint, baseada no histórico de velocidade informado acima (ou peça diretamente se não houver histórico); inclua no "help" a justificativa da sugestão.',
-  ),
-  step(
-    'goal',
-    'Objetivo da sprint',
-    'choice',
-    'Pergunte a qual objetivo esta sprint se conecta. Ofereça como opções os épicos existentes do projeto (id = id do épico, label = nome do épico, description = objetivo do épico) mais uma opção extra com id "adhoc" para "objetivo novo, sem épico". Marque em "suggested" a opção mais coerente com o histórico do projeto, se houver indício.',
-  ),
+  GOAL_STEP,
   step(
     'tasks',
     'Quebra em tarefas',
     'task_list',
-    `Proponha o nome e o objetivo (goal) desta sprint e a quebra em tarefas executáveis por agentes de IA, dimensionada à capacidade confirmada. O usuário vai revisar e editar a lista diretamente (título, tipo, prioridade, corpo, tags) antes de confirmar — não monte markdown/tabela, só o campo "structure" com EXATAMENTE esta forma:
+    `O usuário descreveu o objetivo desta sprint na etapa anterior (campo "objective" em "Estado atual" acima). Proponha o nome e o objetivo (goal) desta sprint — fiel ao que o usuário descreveu — e a quebra em tarefas executáveis por agentes de IA. Você decide livremente quantas tarefas propor, dimensionando pela ambição do objetivo (3 a 8 é o normal, mas não é um teto rígido). O usuário vai revisar e editar a lista diretamente (título, tipo, prioridade, corpo, tags) antes de confirmar — não monte markdown/tabela, só o campo "structure" com EXATAMENTE esta forma:
 {"name":"<nome curto da sprint>","goal":"<frase-objetivo da sprint>","tasks":[{"title":"...","type":"task|feature|bug|chore","body":"# Spec\\n<o que fazer, critérios de aceite>","priority":"low|medium|high|critical","tags":["..."]}]}
-Cada task.body é a Spec que um agente dev vai executar sem mais contexto — seja específico. 3 a 8 tarefas. Em "screen_payload", inclua opcionalmente um "intro" com uma frase de contexto.`,
+Cada task.body é a Spec que um agente dev vai executar sem mais contexto — seja específico. Em "screen_payload", inclua opcionalmente um "intro" com uma frase de contexto.`,
     { withStructure: true },
   ),
   step(
@@ -196,7 +192,7 @@ Cada task.body é a Spec que um agente dev vai executar sem mais contexto — se
     'review',
     'Revisão final',
     'confirm',
-    'Apresente em markdown um resumo da sprint (objetivo, tarefas com tipo/prioridade, riscos, capacidade) para aprovação final antes de criar a sprint no board.',
+    'Apresente em markdown um resumo da sprint (objetivo, tarefas com tipo/prioridade, riscos) para aprovação final antes de criar a sprint no board.',
   ),
 ]
 

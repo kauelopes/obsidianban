@@ -5,7 +5,6 @@ import type { SSEEventBus } from '../server/sse.js'
 import type { TurnRunner } from '../planning/claude-runner.js'
 import { extractJson } from '../planning/json-extract.js'
 import type { SprintService } from './sprint.js'
-import type { EpicService } from './epic.js'
 import { loadProjectMetaOrNull } from '../vault/layout.js'
 import {
   SprintPlanningSessionStore,
@@ -29,9 +28,6 @@ import { requireString } from './validation.js'
 import { badRequest, conflict, HttpError } from './errors.js'
 import { logger } from '../util/logger.js'
 
-/** Quantas sprints fechadas recentes entram na média de velocidade sugerida. */
-const VELOCITY_SAMPLE = 3
-
 /**
  * Orquestra o wizard de criação de sprint: sessão persistida + turnos headless
  * do claude, uma por projeto (não uma única no servidor todo, como o wizard de
@@ -49,7 +45,6 @@ export class SprintPlanningService {
     private readonly sse: SSEEventBus,
     private readonly modelLabel: string,
     private readonly sprints: SprintService,
-    private readonly epics: EpicService,
     private readonly materializer: SprintMaterializer,
   ) {}
 
@@ -64,9 +59,15 @@ export class SprintPlanningService {
       throw conflict({ reason: 'sprint_planning_session_active', session_id: active[0].session_id })
     }
 
-    const context = await this.buildContext(project, claims)
+    const context = await this.buildContext(project)
     const first = SPRINT_STEPS[0]!
     const session = newSprintPlanningSession(project, context, first.id)
+    if (!first.llm) {
+      session.outputs[first.id] = first.staticOutput!(session)
+      session.status = 'awaiting_user'
+      await this.store.save(session)
+      return session
+    }
     return this.dispatchTurn(session, first, first.buildPrompt(session), claims)
   }
 
@@ -109,7 +110,6 @@ export class SprintPlanningService {
     if (answer === undefined) throw badRequest('invalid_field', { field: 'answer' })
 
     session.answers[session.current_step] = answer
-    if (session.current_step === 'goal') this.captureGoal(session, answer)
     if (session.current_step === 'tasks') this.captureTasks(session, answer)
 
     const next = nextSprintStep(session.current_step)
@@ -321,41 +321,9 @@ export class SprintPlanningService {
     return requireString(params, 'project')
   }
 
-  private async buildContext(project: string, claims: TokenClaims): Promise<SprintPlanningContext> {
-    const { epics } = await this.epics.listEpics({ project }, claims)
-    const projectEpics = epics.map((e) => ({ id: e.id, name: e.name, objective: e.objective }))
-
-    const { sprints: closed } = await this.sprints.listSprints({ project, status: 'closed' }, claims)
-    const recent = [...closed]
-      .sort((a, b) => (b.ended_at ?? '').localeCompare(a.ended_at ?? ''))
-      .slice(0, VELOCITY_SAMPLE)
-    let suggestedCapacity: SprintPlanningContext['suggested_capacity'] = null
-    if (recent.length > 0) {
-      const counts = await Promise.all(
-        recent.map(async (s) => {
-          const { aggregates } = await this.sprints.getSprint({ sprint_id: s.id }, claims)
-          return aggregates.cards_done
-        }),
-      )
-      const avg = Math.round(counts.reduce((a, b) => a + b, 0) / counts.length)
-      suggestedCapacity = { avg_cards_per_sprint: avg, sample_sprints: recent.length }
-    }
-
+  private async buildContext(project: string): Promise<SprintPlanningContext> {
     const meta = await loadProjectMetaOrNull(this.paths, project)
-    return {
-      project_epics: projectEpics,
-      suggested_capacity: suggestedCapacity,
-      target_repo: meta?.target_repo ?? null,
-    }
-  }
-
-  private captureGoal(session: SprintPlanningSession, answer: unknown): void {
-    if (typeof answer !== 'object' || answer === null) return
-    const a = answer as Record<string, unknown>
-    const choice = a['choice']
-    if (typeof choice === 'string' && choice !== 'adhoc') {
-      session.epic_id = choice
-    }
+    return { target_repo: meta?.target_repo ?? null }
   }
 
   /**

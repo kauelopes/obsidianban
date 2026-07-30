@@ -2,7 +2,6 @@ import type { TokenClaims } from '@obsidiankan/types'
 import { wizardActorTag } from '../planning/wizard-actor.js'
 import type { SprintService } from '../services/sprint.js'
 import type { CardService } from '../services/card.js'
-import type { EpicService } from '../services/epic.js'
 import type { SprintPlanningSession } from './session.js'
 import type { FinalSprint } from './structure-schema.js'
 
@@ -11,7 +10,6 @@ const BULK_BATCH = 100
 export interface SprintMaterializeDeps {
   sprints: SprintService
   cards: CardService
-  epics: EpicService
   /** Rótulo do modelo que roda os turnos do wizard — vira o actor `<modelo>:sprint-wizard`. */
   modelLabel: string
   /** Persiste a sessão após cada fase — é o checkpoint da retomada. */
@@ -21,7 +19,6 @@ export interface SprintMaterializeDeps {
 export interface SprintMaterializeResult {
   project: string
   sprint_id: string
-  epic_linked: boolean
   new_cards_created: number
   new_cards_failed: Array<{ index: number; error: string }>
 }
@@ -33,10 +30,10 @@ export type SprintMaterializer = (
 ) => Promise<SprintMaterializeResult>
 
 /**
- * Materializa a sprint final no board: cria a sprint (em planning), liga ao
- * épico escolhido (se houver) e cria as tarefas novas. Bem menor que o wizard
- * de projeto — sem criação de projeto/token, sem KAD. Mesmo padrão de
- * checkpoint idempotente (retomável após falha parcial).
+ * Materializa a sprint final no board: cria a sprint (em planning) e cria as
+ * tarefas novas. Bem menor que o wizard de projeto — sem criação de
+ * projeto/token, sem KAD. Mesmo padrão de checkpoint idempotente (retomável
+ * após falha parcial).
  */
 export function createSprintMaterializer(deps: SprintMaterializeDeps): SprintMaterializer {
   return async (session, structure, claims) => {
@@ -60,25 +57,7 @@ export function createSprintMaterializer(deps: SprintMaterializeDeps): SprintMat
     }
     const sprintId = cp.sprint_created!
 
-    // 2. Vínculo ao épico escolhido — sprint_ids do épico é substituição total
-    // (EpicService.updateEpic), então lemos o valor atual e acrescentamos em
-    // vez de sobrescrever os vínculos de outras sprints do mesmo épico.
-    let epicLinked = false
-    if (session.epic_id && !cp.epic_linked) {
-      const { epics } = await deps.epics.listEpics({ project }, wizardClaims)
-      const epic = epics.find((e) => e.id === session.epic_id)
-      if (epic) {
-        await deps.epics.updateEpic(
-          { project, id: epic.id, sprint_ids: [...epic.sprint_ids, sprintId] },
-          wizardClaims,
-        )
-      }
-      cp.epic_linked = true
-      await save()
-    }
-    epicLinked = cp.epic_linked === true
-
-    // 3. Tarefas novas, em lotes ≤100 — falha por card vira relatório
+    // 2. Tarefas novas, em lotes ≤100 — falha por card vira relatório
     let alreadyCreated = cp.new_cards ?? 0
     const failed: SprintMaterializeResult['new_cards_failed'] = []
     for (let i = alreadyCreated; i < structure.tasks.length; i += BULK_BATCH) {
@@ -108,7 +87,6 @@ export function createSprintMaterializer(deps: SprintMaterializeDeps): SprintMat
     return {
       project,
       sprint_id: sprintId,
-      epic_linked: epicLinked,
       new_cards_created: alreadyCreated,
       new_cards_failed: failed,
     }

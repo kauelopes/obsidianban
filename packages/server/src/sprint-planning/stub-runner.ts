@@ -56,15 +56,6 @@ export class SprintStubRunner implements TurnRunner {
         return {
           fields: [{ id: 'campo_a', label: `${def.title} — campo A`, help: 'stub', value: 'valor pré-preenchido A' }],
         }
-      case 'choice':
-        return {
-          question: `${def.title}: qual opção? (stub)`,
-          options: [
-            { id: 'adhoc', label: 'Objetivo novo, sem épico', description: 'opção sintética' },
-            { id: 'opcao-2', label: 'Opção 2', description: 'segunda opção sintética' },
-          ],
-          suggested: 'adhoc',
-        }
       case 'confirm':
         return {
           markdown: `## ${def.title} (stub)\n\nTexto sintético para a tela de confirmação.\n\n- ponto um\n- ponto dois`,
