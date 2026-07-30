@@ -9,7 +9,6 @@ import {
 } from '../../src/sprint-planning/session.js'
 import { createSprintMaterializer } from '../../src/sprint-planning/materialize.js'
 import { SprintService } from '../../src/services/sprint.js'
-import { EpicService } from '../../src/services/epic.js'
 import { CardService } from '../../src/services/card.js'
 import { AtomicWriter } from '../../src/writer/atomic.js'
 import { AuditLogger } from '../../src/audit/logger.js'
@@ -39,23 +38,17 @@ const inertRunner: TurnRunner = {
   cancel: () => {},
 }
 
-const EMPTY_CONTEXT: SprintPlanningContext = {
-  project_epics: [],
-  suggested_capacity: null,
-  target_repo: null,
-}
+const EMPTY_CONTEXT: SprintPlanningContext = { target_repo: null }
 
 let paths: Paths
 let store: SprintPlanningSessionStore
 let sprints: SprintService
-let epics: EpicService
 let cards: CardService
 let service: SprintPlanningService
 
-async function readySession(project: string, epicId: string | null = null): Promise<string> {
+async function readySession(project: string): Promise<string> {
   const s = newSprintPlanningSession(project, EMPTY_CONTEXT, 'review')
   s.status = 'awaiting_user'
-  s.epic_id = epicId
   s.answers['review'] = { approved: true }
   s.outputs['tasks'] = { screen_payload: { markdown: 'plano' }, structure: STRUCTURE }
   await store.save(s)
@@ -71,7 +64,6 @@ beforeEach(async () => {
   const sse = new SSEEventBus()
   const writer = new AtomicWriter(paths, repo)
   sprints = new SprintService(paths, repo, writer, audit, sse)
-  epics = new EpicService(paths, audit, sse)
   cards = new CardService(paths, repo, writer, audit, sse)
   service = new SprintPlanningService(
     paths,
@@ -81,8 +73,7 @@ beforeEach(async () => {
     sse,
     'claude-test',
     sprints,
-    epics,
-    createSprintMaterializer({ sprints, cards, epics, modelLabel: 'claude-test', saveSession: (s) => store.save(s) }),
+    createSprintMaterializer({ sprints, cards, modelLabel: 'claude-test', saveSession: (s) => store.save(s) }),
   )
   await setupTestProject(paths, 'proj')
 })
@@ -97,7 +88,6 @@ describe('kanban_sprint_planning_finalize', () => {
     const r = await service.finalize({ session_id: id }, mgr)
 
     expect(r.project).toBe('proj')
-    expect(r.epic_linked).toBe(false)
     expect(r.new_cards_created).toBe(2)
     expect(r.new_cards_failed).toEqual([])
 
@@ -111,23 +101,6 @@ describe('kanban_sprint_planning_finalize', () => {
 
     const session = await service.get({ session_id: id }, mgr)
     expect(session.status).toBe('done')
-  })
-
-  it('vincula ao épico escolhido acrescentando ao sprint_ids, sem apagar vínculos existentes', async () => {
-    const outraSprint = await sprints.createSprint({ project: 'proj', name: 'Sprint velha' }, mgr)
-    const { epic } = await epics.createEpic(
-      { project: 'proj', name: 'Épico A', objective: 'x', sprint_ids: [outraSprint.id] },
-      mgr,
-    )
-    const id = await readySession('proj', epic.id)
-    const r = await service.finalize({ session_id: id }, mgr)
-    expect(r.epic_linked).toBe(true)
-
-    const { epics: list } = await epics.listEpics({ project: 'proj' }, mgr)
-    const updated = list.find((e) => e.id === epic.id)!
-    expect(updated.sprint_ids).toContain(outraSprint.id)
-    expect(updated.sprint_ids).toContain(r.sprint_id)
-    expect(updated.sprint_ids).toHaveLength(2)
   })
 
   it('falha no meio → error com checkpoint; re-chamar retoma sem duplicar', async () => {
@@ -165,7 +138,7 @@ describe('kanban_sprint_planning_finalize', () => {
   })
 
   it('sessão sem structure é 409', async () => {
-    const s = newSprintPlanningSession('proj', EMPTY_CONTEXT, 'capacity')
+    const s = newSprintPlanningSession('proj', EMPTY_CONTEXT, 'goal')
     await store.save(s)
     await expect(service.finalize({ session_id: s.session_id }, mgr)).rejects.toMatchObject({
       status: 409,
