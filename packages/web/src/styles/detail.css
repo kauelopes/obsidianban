@@ -1662,6 +1662,20 @@
   grid-column: 1 / -1;
 }
 
+.wizard-task-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line, currentColor);
+  border-radius: var(--r-2, 6px);
+  margin-bottom: var(--s-3);
+}
+
+.wizard-task-item .form-row {
+  gap: var(--s-3);
+}
+
 /* CTA das telas geradas: o markdown pode ter páginas de altura — o botão de
  * aprovação acompanha o scroll em vez de morar no fim dele. */
 .wizard-cta {

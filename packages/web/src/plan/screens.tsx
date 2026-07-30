@@ -6,6 +6,8 @@ import type {
   PlanningFormPayload,
   PlanningListItem,
   PlanningListPayload,
+  PlanningTaskItem,
+  PlanningTaskListPayload,
 } from '@obsidiankan/types'
 import { Markdown } from '../markdown/Markdown.js'
 
@@ -165,8 +167,148 @@ export function StepList({
   )
 }
 
+const TASK_TYPES = ['task', 'feature', 'bug', 'chore'] as const
+const TASK_PRIORITIES = ['low', 'medium', 'high', 'critical'] as const
+
+export function StepTaskList({
+  payload,
+  busy,
+  onSubmit,
+  onRefine,
+}: {
+  payload: PlanningTaskListPayload
+  busy: boolean
+  onSubmit: (answer: { tasks: Array<Omit<PlanningTaskItem, 'id'>> }) => void
+  onRefine: (feedback: string) => void
+}) {
+  const [tasks, setTasks] = useState<PlanningTaskItem[]>(payload.tasks)
+  const patch = (i: number, p: Partial<PlanningTaskItem>) =>
+    setTasks((prev) => prev.map((t, j) => (j === i ? { ...t, ...p } : t)))
+  const addTag = (i: number, tag: string) =>
+    setTasks((prev) =>
+      prev.map((t, j) =>
+        j === i && !(t.tags ?? []).includes(tag) ? { ...t, tags: [...(t.tags ?? []), tag] } : t,
+      ),
+    )
+  const removeTag = (i: number, tag: string) =>
+    setTasks((prev) => prev.map((t, j) => (j === i ? { ...t, tags: (t.tags ?? []).filter((x) => x !== tag) } : t)))
+
+  return (
+    <div className="form">
+      {payload.intro && <p>{payload.intro}</p>}
+      {tasks.map((t, i) => (
+        <div key={t.id} className="wizard-task-item">
+          <input
+            aria-label="título da tarefa"
+            value={t.title}
+            onChange={(e) => patch(i, { title: e.target.value })}
+          />
+          <div className="form-row">
+            <label>
+              <span>Tipo</span>
+              <select value={t.type} onChange={(e) => patch(i, { type: e.target.value as PlanningTaskItem['type'] })}>
+                {TASK_TYPES.map((tp) => (
+                  <option key={tp} value={tp}>
+                    {tp}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Prioridade</span>
+              <select
+                value={t.priority ?? 'medium'}
+                onChange={(e) => patch(i, { priority: e.target.value as PlanningTaskItem['priority'] })}
+              >
+                {TASK_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <textarea
+            aria-label="corpo da tarefa"
+            rows={3}
+            value={t.body ?? ''}
+            onChange={(e) => patch(i, { body: e.target.value })}
+          />
+          <div className="chips">
+            {(t.tags ?? []).map((tag) => (
+              <span className="chip" key={tag}>
+                #{tag}
+                <button type="button" onClick={() => removeTag(i, tag)}>
+                  ×
+                </button>
+              </span>
+            ))}
+            <TagInput onAdd={(tag) => addTag(i, tag)} />
+          </div>
+          <button
+            className="danger"
+            aria-label={`remover ${t.title}`}
+            onClick={() => setTasks((prev) => prev.filter((_, j) => j !== i))}
+          >
+            remover
+          </button>
+        </div>
+      ))}
+      <div className="form-row">
+        <button
+          onClick={() =>
+            setTasks((prev) => [
+              ...prev,
+              { id: `nova-${prev.length + 1}`, title: '', type: 'task', priority: 'medium' },
+            ])
+          }
+        >
+          + adicionar tarefa
+        </button>
+        <div className="spacer" />
+      </div>
+      <RefineBox
+        busy={busy}
+        onRefine={onRefine}
+        placeholder="algo errado nas tarefas sugeridas? descreva e eu regenero"
+      />
+      <div className="form-row wizard-cta">
+        <div className="spacer" />
+        <button
+          className="primary"
+          disabled={busy || tasks.length === 0 || tasks.some((t) => !t.title.trim())}
+          onClick={() => onSubmit({ tasks: tasks.map(({ id: _id, ...rest }) => rest) })}
+        >
+          Confirmar e continuar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TagInput({ onAdd }: { onAdd: (tag: string) => void }) {
+  const [value, setValue] = useState('')
+  return (
+    <input
+      value={value}
+      placeholder="nova tag + Enter"
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          const t = value.trim().replace(/^#/, '')
+          if (t) {
+            onAdd(t)
+            setValue('')
+          }
+        }
+      }}
+    />
+  )
+}
+
 /** Caixa de correção compartilhada por diagram e confirm. */
-function RefineBox({
+export function RefineBox({
   busy,
   onRefine,
   placeholder,
