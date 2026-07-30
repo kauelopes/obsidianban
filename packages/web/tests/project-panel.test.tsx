@@ -52,6 +52,8 @@ describe('ProjectPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Planejamento' }))
     expect(screen.getByText('Metas do projeto')).toBeTruthy()
     expect(screen.queryByText('Repositório do workflow')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Planejamento' }).classList.contains('active')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Workflow' }).classList.contains('active')).toBe(false)
   })
 
   it('a aba Deletar projeto tem classe própria de risco', () => {

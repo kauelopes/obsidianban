@@ -52,7 +52,9 @@
 
   /* ── Larguras de página ──────────────────────────────────────────────── */
   /* Breakpoint de layout: 1280px (literal nas @media — var() não vale lá).
-     Abaixo dele tudo empilha; acima, a Home ganha coluna lateral. */
+     Abaixo dele tudo empilha; acima, a Home ganha coluna lateral.
+     Outro breakpoint, 640px, existe em detail.css para o layout de abas do
+     painel de ajustes (.settings-layout) — independente deste. */
   --w-read: 860px;   /* prosa: card detail, ajuda */
   --w-wide: 1360px;  /* hub: home, atividade, escalações, wizard */
   --w-board: 1600px; /* teto do gutter centrado do board */
