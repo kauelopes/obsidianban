@@ -663,7 +663,8 @@ export class JobManager {
       `Job \`${job_id}\` has produced no output for ~${silentMin} min ` +
         `(threshold ${Math.round(this.cfg.stallThresholdMs / 60_000)} min). ` +
         `The process is still running (pid ${pid ?? 'unknown'}) and was NOT killed — ` +
-        `check the job log and intervene if needed.`,
+        `likely causes: output buffered by a pipe (e.g. \`| tail\`) that withholds it until ` +
+        `the process exits, or a network wait. Check with \`kanban_get_job\` and intervene if needed.`,
       'escalate',
     )
     this.sse.emit({ type: 'JOB_STALLED', payload: { job_id, card_id, sprint_id, project } })

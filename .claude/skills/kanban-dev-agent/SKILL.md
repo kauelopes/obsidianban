@@ -57,6 +57,12 @@ Use `kanban_get_job { job_id, log_offset? }` to check a job's status or read
 a slice of its log, and `kanban_list_jobs { card_id?, sprint_id?, status? }`
 to see what's running. `kanban_stop_job { job_id, reason? }` cancels one.
 
+Do NOT use pipes that buffer output (`| tail`, `| head`, `| sort`) in a
+`kanban_start_job` command — they hide progress and make the server read
+silence as a possible hang. To cut volume, use the command's own flags
+instead (e.g. `pytest -q --tb=line`). The server keeps the whole log; read it
+by offset with `kanban_get_job`.
+
 If a Bash command you ran directly blows through the tool's own timeout, do
 not re-run it and do not background it — abandon it and restart the same
 work via `kanban_start_job` instead.
