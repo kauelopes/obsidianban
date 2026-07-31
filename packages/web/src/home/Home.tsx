@@ -358,7 +358,9 @@ function fmtDay(iso: string): string {
 
 /**
  * Uso agregado por provedor e por projeto. O custo é ESTIMADO por tabela local
- * de preços — modelos fora dela (human, unknown…) não entram na conta.
+ * de preços de lista da API (pay-per-token) — modelos fora dela (human,
+ * unknown…) não entram na conta. Não reflete plano de assinatura flat-rate
+ * (Claude Max etc.): os tokens ao lado são a medida sem essa distorção.
  */
 function Usage({ metrics }: { metrics: MetricsData }) {
   const providers = useMemo(() => {
@@ -390,7 +392,12 @@ function Usage({ metrics }: { metrics: MetricsData }) {
                 <th>provedor</th>
                 <th className="num">entrada</th>
                 <th className="num">saída</th>
-                <th className="num">custo estimado ≈</th>
+                <th
+                  className="num"
+                  title="Preço de lista da API pay-per-token — não é o que você paga num plano de assinatura (Claude Max etc.)"
+                >
+                  custo estimado ≈ (lista API)
+                </th>
               </tr>
             </thead>
             <tbody>

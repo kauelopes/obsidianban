@@ -157,7 +157,14 @@ export function TokenTable({
               <th className="num">saída</th>
               {showCache && <th className="num">cache leitura</th>}
               {showCache && <th className="num">cache escrita</th>}
-              {showCost && <th className="num">custo (US$)</th>}
+              {showCost && (
+                <th
+                  className="num"
+                  title="Preço de lista da API pay-per-token — não é o que você paga num plano de assinatura (Claude Max etc.)"
+                >
+                  custo (US$, lista API)
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>

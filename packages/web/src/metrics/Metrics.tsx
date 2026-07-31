@@ -143,7 +143,7 @@ export function Metrics({ client }: { client: KanbanClient }) {
                 muted={cacheTokens === 0}
               />
               <Tile
-                label="custo medido (US$)"
+                label="custo medido (US$, lista API)"
                 value={measured !== null ? measured.toFixed(4) : 'não reportado'}
                 muted={measured === null}
               />
@@ -156,7 +156,10 @@ export function Metrics({ client }: { client: KanbanClient }) {
                 {estimated !== null && (
                   <> A estimativa por tokens ficaria em US$ {estimated.toFixed(4)} — ela ignora
                   cache e operações sem medição, use-a só como referência.</>
-                )}
+                )}{' '}
+                Em ambos os casos o valor é o <strong>preço de lista da API</strong> (pay-per-token):
+                não reflete o que você paga num plano de assinatura como Claude Max, que é flat-rate.
+                Use os totais de tokens acima se quiser uma medida sem essa distorção.
               </p>
             ) : (
               estimated !== null && (
@@ -164,7 +167,10 @@ export function Metrics({ client }: { client: KanbanClient }) {
                   Custo <strong>estimado</strong> em US$ {estimated.toFixed(4)} — calculado a partir
                   dos tokens por modelo e de uma tabela de preços local, não medido (nenhuma
                   operação reportou <code>cost_usd</code> ainda). Modelos fora da tabela
-                  (<code>human</code>, <code>unknown</code>) não entram na conta.
+                  (<code>human</code>, <code>unknown</code>) não entram na conta. É{' '}
+                  <strong>preço de lista da API</strong>: não reflete um plano de assinatura
+                  flat-rate como Claude Max. Use os totais de tokens acima se quiser uma medida
+                  sem essa distorção.
                 </p>
               )
             )}
