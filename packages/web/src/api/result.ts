@@ -41,6 +41,19 @@ export type McpError = ConflictError | ValidationError | ServerError | OfflineEr
 
 export type McpResult<T> = { ok: true; data: T } | { ok: false; error: McpError }
 
+/**
+ * Most badRequest() calls on the server send {error, ...extras} with no
+ * top-level `message` — e.g. {error: 'invalid_field', field: 'answer.name',
+ * expected: '...'}. Render those extras instead of a generic fallback.
+ */
+function badRequestMessage(b: Record<string, unknown>): string {
+  const code = typeof b['error'] === 'string' ? b['error'] : 'invalid_request'
+  const details = Object.entries(b)
+    .filter(([k, v]) => k !== 'error' && typeof v === 'string')
+    .map(([k, v]) => `${k}: ${v}`)
+  return details.length > 0 ? `${code} (${details.join(', ')})` : code
+}
+
 export function toMcpResult<T>(status: number, body: unknown): McpResult<T> {
   if (status === 200) return { ok: true, data: body as T }
   const b = (body ?? {}) as Record<string, unknown>
@@ -66,7 +79,7 @@ export function toMcpResult<T>(status: number, body: unknown): McpResult<T> {
       error: {
         kind: 'validation',
         status: 400,
-        message: typeof b['message'] === 'string' ? b['message'] : 'invalid_request',
+        message: typeof b['message'] === 'string' ? b['message'] : badRequestMessage(b),
         disallowedFields: Array.isArray(b['disallowed_fields'])
           ? (b['disallowed_fields'] as string[])
           : [],
