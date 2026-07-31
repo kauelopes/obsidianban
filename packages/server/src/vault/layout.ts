@@ -17,6 +17,8 @@ export interface ProjectMeta {
   sprints?: Sprint[]
   /** Required for workflow auto-launch — absolute path to the git repo used as cwd when starting sprints. */
   target_repo?: string
+  /** Opt-in: cria branch de sprint ao iniciar e commita+mescla na main ao fechar (kanban_set_git_automation). */
+  git_automation?: boolean
   /** Metas de médio prazo — geridas por kanban_set_goal/kanban_delete_goal. */
   goals?: Goal[]
   /** Épicos (agrupamentos de sprints) — geridos por kanban_create_epic/kanban_update_epic. */

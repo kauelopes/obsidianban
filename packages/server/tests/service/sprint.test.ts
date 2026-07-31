@@ -520,3 +520,48 @@ describe('SprintService.autoCloseIfComplete', () => {
     expect(sprints.find((s) => s.id === next.id)!.status).toBe('active')
   })
 })
+
+describe('SprintService — hooks de lifecycle', () => {
+  it('chama onStart ao iniciar e onClose ao fechar, best-effort mesmo se o hook lançar', async () => {
+    const started: string[] = []
+    const closed: string[] = []
+    const hook = {
+      onStart: vi.fn(async ({ sprintId }: { sprintId: string }) => {
+        started.push(sprintId)
+        throw new Error('falha proposital do hook')
+      }),
+      onClose: vi.fn(async ({ sprintId }: { sprintId: string }) => {
+        closed.push(sprintId)
+      }),
+    }
+    const hookedService = new SprintService(paths, repo, writer, audit, sse, [hook])
+    await setupTestProject(paths, 'test-project')
+    const sprint = await hookedService.createSprint({ project: 'test-project', name: 'Sprint 1' }, MGR)
+
+    await hookedService.startSprint({ sprint_id: sprint.id }, MGR)
+    expect(started).toEqual([sprint.id])
+
+    await hookedService.closeSprint({ sprint_id: sprint.id }, MGR)
+    expect(closed).toEqual([sprint.id])
+  })
+
+  it('avanço automático de fila dispara onStart da próxima sprint sem cola extra', async () => {
+    const started: string[] = []
+    const hook = {
+      onStart: vi.fn(async ({ sprintId }: { sprintId: string }) => {
+        started.push(sprintId)
+      }),
+    }
+    const hookedService = new SprintService(paths, repo, writer, audit, sse, [hook])
+    await setupTestProject(paths, 'test-project')
+    const active = await hookedService.createSprint({ project: 'test-project', name: 'Ativa' }, MGR)
+    await hookedService.startSprint({ sprint_id: active.id }, MGR)
+    const next = await hookedService.createSprint({ project: 'test-project', name: 'Fila' }, MGR)
+    await hookedService.enqueueSprint({ sprint_id: next.id }, MGR)
+    started.length = 0 // ignora o onStart da sprint 'active'
+
+    const result = await hookedService.closeSprint({ sprint_id: active.id }, MGR)
+    expect(result.started_next).toEqual({ sprint_id: next.id, project: 'test-project' })
+    expect(started).toEqual([next.id])
+  })
+})

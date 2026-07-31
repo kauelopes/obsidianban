@@ -270,6 +270,36 @@ export class AdminService {
   }
 
   /**
+   * Liga/desliga a automação de git de sprint (branch ao iniciar, commit+merge
+   * ao fechar — GitLifecycleHook). Opt-in por projeto, manager-only.
+   */
+  async setGitAutomation(
+    params: Record<string, unknown>,
+    claims: TokenClaims,
+  ): Promise<{ project: string; git_automation: boolean }> {
+    if (claims.role !== 'manager') {
+      throw new HttpError(403, { error: 'forbidden', reason: 'manager_required' })
+    }
+    const project = requireMatch(params, 'project', SAFE_PROJECT, '[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}')
+    const enabled = params['enabled']
+    if (typeof enabled !== 'boolean') {
+      throw new HttpError(400, { error: 'invalid_field', field: 'enabled', expected: 'boolean' })
+    }
+    const meta = await loadProjectMetaOrNull(this.paths, project)
+    if (!meta) throw new HttpError(404, { error: 'not_found', project })
+    meta.git_automation = enabled
+    await saveProjectMeta(this.paths, project, meta)
+    await this.audit.log({
+      ts: new Date().toISOString(),
+      op: 'PROJECT_GIT_AUTOMATION_SET',
+      project,
+      actor: claims.actor,
+      reason: `git_automation=${enabled}`,
+    })
+    return { project, git_automation: enabled }
+  }
+
+  /**
    * Upsert de meta: sem `id` cria, com `id` edita. PM edita as metas do próprio
    * projeto porque planejar médio prazo É trabalho de PM; dev não.
    */

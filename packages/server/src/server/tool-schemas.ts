@@ -387,6 +387,16 @@ export const TOOL_SCHEMAS: Record<string, Schema> = {
     additionalProperties: false,
   },
 
+  kanban_set_git_automation: {
+    type: 'object',
+    required: ['project', 'enabled'],
+    properties: {
+      project: { type: 'string' },
+      enabled: { type: 'boolean', description: 'creates a sprint/<id> branch on sprint start and commits+merges it into main on sprint close. Requires target_repo to be set.' },
+    },
+    additionalProperties: false,
+  },
+
   kanban_set_goal: {
     type: 'object',
     required: [],

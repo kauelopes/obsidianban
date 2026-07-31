@@ -16,6 +16,11 @@ export const WORKFLOW_LOG_CHUNK_MAX = 64 * 1024
 // Quanto do fim do log é lido para derivar a fase atual (GET /workflow/agents).
 export const WORKFLOW_PHASE_TAIL_BYTES = 64 * 1024
 
+// ── Sprint git automation ────────────────────────────────────────────────────
+// Checkout/merge pode demorar mais que um simples `git log`, por isso maior
+// que GIT_LOG_TIMEOUT_MS.
+export const GIT_LIFECYCLE_TIMEOUT_MS = 15_000
+
 // ── Supervision ──────────────────────────────────────────────────────────────
 // Quanto tempo um card pode ficar em `in_progress` sem update antes de contar
 // como estagnado (dev agent morto/travado) em kanban_list_escalations.

@@ -17,6 +17,7 @@ import { parseCardFile } from '../cards/serialize.js'
 import { generateSprintId, requireString, optString, optInt, optUsageExtras } from './validation.js'
 import { badRequest, HttpError, notFound } from './errors.js'
 import { requirePmOrManager } from './guards.js'
+import type { SprintLifecycleHook } from './sprint-hooks.js'
 
 const MAX_NAME = 80
 const MAX_GOAL = 1000
@@ -38,7 +39,28 @@ export class SprintService {
     private readonly writer: AtomicWriter,
     private readonly audit: AuditLogger,
     private readonly sse: SSEEventBus,
+    private readonly hooks: SprintLifecycleHook[] = [],
   ) {}
+
+  /** Roda os hooks de lifecycle best-effort — uma falha não desfaz a transição já aplicada. */
+  private async runHooks(
+    kind: 'onStart' | 'onClose',
+    sprintId: string,
+    project: string,
+    meta: ProjectMeta,
+    claims: TokenClaims,
+  ): Promise<void> {
+    const ctx = { sprintId, project, meta, claims }
+    for (const hook of this.hooks) {
+      const fn = hook[kind]
+      if (!fn) continue
+      try {
+        await fn(ctx)
+      } catch (err) {
+        logger.warn({ err, sprintId, kind }, 'sprint: hook de lifecycle falhou')
+      }
+    }
+  }
 
   async createSprint(
     params: Record<string, unknown>,
@@ -157,6 +179,7 @@ export class SprintService {
       reason: `sprint_id=${sprintId} promoted_to_todo=${promotedToTodo.length}`,
     })
     this.sse.emit({ type: 'SPRINT_STARTED', payload: { sprint_id: sprintId, project: located.project } })
+    await this.runHooks('onStart', sprintId, located.project, located.meta, claims)
     return { ...located.sprint, project: located.project, promoted_to_todo: promotedToTodo }
   }
 
@@ -530,6 +553,7 @@ export class SprintService {
       type: 'SPRINT_CLOSED',
       payload: { sprint_id: sprintId, project: located.project },
     })
+    await this.runHooks('onClose', sprintId, located.project, located.meta, claims)
 
     // Avança a fila: a sprint 'planning' mais antiga na fila deste projeto
     // ativa sozinha, cobrindo tanto o fechamento manual quanto o automático.
@@ -664,13 +688,18 @@ export class SprintService {
     const usage = optUsageExtras(params)
     const op = kind === 'dev' ? ('WORKFLOW_DEV' as const) : ('WORKFLOW_TRIAGE' as const)
     const ts = new Date().toISOString()
+    // O orquestrador só pode reportar usage com o token de PM (esta tool é
+    // access: 'pm'), mesmo para rounds de dev — então o `actor` do round de
+    // dev precisa ser derivado de `kind`, não do token que fez a chamada,
+    // senão todo custo medido do dev agent aparece agregado como PM.
+    const actor = kind === 'dev' ? claims.actor.replace(/pm$/, 'dev') : claims.actor
 
     this.repo.logTokens({
       ts,
       op,
       card_id: '',
       card_type: 'workflow_round',
-      actor: claims.actor,
+      actor,
       model,
       input_tokens: inputTokens,
       output_tokens: outputTokens,
@@ -682,7 +711,7 @@ export class SprintService {
       ts,
       op,
       project: located.project,
-      actor: claims.actor,
+      actor,
       sprint_id: sprintId,
       input_tokens: inputTokens,
       output_tokens: outputTokens,

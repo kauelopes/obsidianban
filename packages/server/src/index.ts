@@ -35,6 +35,7 @@ import { SprintPlanningService } from './services/sprint-planning.js'
 import { createAgentToken } from './auth/tokens.js'
 import { McpHttpManager } from './server/mcp-http.js'
 import { SprintService } from './services/sprint.js'
+import { GitLifecycleHook } from './services/git-lifecycle-hook.js'
 import { WorkflowManager, loadWorkflowConfig } from './services/workflow-runner.js'
 import { JobManager, loadJobConfig } from './services/job-runner.js'
 import { JobStore } from './jobs/store.js'
@@ -82,7 +83,8 @@ async function main(): Promise<void> {
   const activity = new ActivityService(db, config.paths, new GitActivityService())
   const admin = new AdminService(config.paths, repo, audit, sse)
   const epics = new EpicService(config.paths, audit, sse)
-  const sprints = new SprintService(config.paths, repo, writer, audit, sse)
+  const gitLifecycleHook = new GitLifecycleHook(audit)
+  const sprints = new SprintService(config.paths, repo, writer, audit, sse, [gitLifecycleHook])
 
   // Claims para ações disparadas pelo próprio servidor (avanço de fila,
   // auto-close), sem token emitido — role manager satisfaz os guards dos
@@ -221,6 +223,7 @@ async function main(): Promise<void> {
     kanban_unarchive_project: async (p, c) => admin.unarchiveProject(p, c),
     kanban_delete_project: async (p, c) => admin.deleteProject(p, c),
     kanban_set_project_repo: async (p, c) => admin.setProjectRepo(p, c),
+    kanban_set_git_automation: async (p, c) => admin.setGitAutomation(p, c),
     kanban_set_goal: async (p, c) => admin.setGoal(p, c),
     kanban_delete_goal: async (p, c) => admin.deleteGoal(p, c),
     kanban_planning_start: async (p, c) => planning.start(p, c),

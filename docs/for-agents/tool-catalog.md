@@ -49,7 +49,7 @@
 | `kanban_list_jobs` | List jobs, optionally filtered by card_id, sprint_id and/or status (running, succeeded, failed, timeout, stopped, lost). Newest first. | ✓ | ✓ |
 | `kanban_stop_job` | Stop a running job: SIGTERM to the job's whole process group, SIGKILL after a grace period if it survives. The job finalizes as 'stopped', the stopping actor is recorded in the card's Agent Log, and the card is handed back to 'todo' (unless a human already moved it). Pass reason to record why the job was stopped. 409 job_not_running if the job already finished. | ✓ | ✓ |
 
-## Projetos (11 tools)
+## Projetos (12 tools)
 
 | Tool | Description | Dev | PM |
 |------|-------------|:---:|:--:|
@@ -59,6 +59,7 @@
 | `kanban_unarchive_project` | Restore a previously archived project to default listings. |  |  |
 | `kanban_delete_project` | Manager-only — permanently delete a project (requires confirm=<project>) |  |  |
 | `kanban_set_project_repo` | Set or clear the target_repo path for a project — used as the working directory when launching sprint workflows. Without it, starting a sprint skips the workflow and logs a warning. Pass null to clear. |  |  |
+| `kanban_set_git_automation` | Enable or disable git lifecycle automation for a project (requires target_repo). When enabled: kanban_start_sprint creates and checks out a sprint/<id> branch from main; kanban_close_sprint commits any pending changes on that branch and merges it into main with --no-ff. On merge conflict the merge is aborted, the sprint still closes, and a SPRINT_GIT_MERGE_CONFLICT audit entry flags it for manual resolution. |  |  |
 | `kanban_set_goal` | Create or update a medium-term project goal (upsert: omit id to create). Goals live in the project _meta.json and appear in kanban_list_projects. Fields: title (max 120), target_date (YYYY-MM-DD or null), status open\|done\|dropped, notes (max 1000). PM agents operate on their own project; managers pass project explicitly. |  | ✓ |
 | `kanban_delete_goal` | Remove a project goal by id. Prefer status=dropped via kanban_set_goal when the goal was abandoned but its history matters. |  | ✓ |
 | `kanban_create_epic` | Create an epic — a named grouping of sprints under a common objective. Epics live in the project _meta.json beside sprints and goals. Optionally pass sprint_ids to attach sprints at creation; each sprint may belong to at most one epic (409 sprint_already_in_epic otherwise). PM agents operate on their own project; managers pass project explicitly. |  | ✓ |
