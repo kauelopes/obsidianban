@@ -34,3 +34,6 @@ Thumbs.db
 
 # Subagent-driven-development scratch workspaces
 .superpowers/
+
+# Runtime pidfile/log for `make server-*`
+.run/
