@@ -62,13 +62,41 @@ Referência completa em `docs/reference/config.md`.
 # Type check de todos os pacotes
 ~/.local/share/pnpm/bin/pnpm run typecheck
 
-# Dev mode (hot reload)
+# Dev mode (hot reload, foreground)
 ~/.local/share/pnpm/bin/pnpm --filter obsidiankan-mcp run dev
+# equivalente: make start_server (já carrega .env)
 
 # Regenerar catálogo de tools MCP
 ~/.local/share/pnpm/bin/pnpm run gen:tools
 # → docs/for-agents/tool-catalog.md
 ```
+
+---
+
+## Rodando o servidor de longa duração (produção local) — SEMPRE via `make`
+
+O servidor que sustenta o board + o auto-launch do sprint workflow **nunca deve
+ser iniciado à mão** (`node dist/index.js` cru, `nohup` improvisado, snapshot
+de env capturado manualmente). O código não carrega `.env` sozinho (não há
+`dotenv` no projeto) — quem sobe o processo é responsável por injetar as
+variáveis, e um processo iniciado sem `WORKFLOW_ENABLED`/`WORKFLOW_SCRIPT_PATH`/
+`ANTHROPIC_API_KEY` no ambiente perde o auto-launch do workflow **silenciosamente**
+(vira só um `logger.warn`, sem erro visível) — foi exatamente essa causa raiz
+que deixou uma sprint presa sem ninguém percebendo até o board parar de andar.
+
+```bash
+make server-start    # build + sobe em background, com .env inteiro carregado
+make server-stop     # SIGTERM limpo (pidfile em .run/server.pid)
+make server-restart  # stop + start
+make server-status   # pid + GET /health
+make server-logs     # tail -f do log (.run/server.log)
+```
+
+Depois de qualquer `server-restart`, confira `docs/for-developers/architecture.md`
+§A5/§A6 se uma sprint já estava ativa antes do restart: o auto-launch só
+dispara na chamada de `kanban_start_sprint`, não retroativamente — uma sprint
+que já estava `active` quando o servidor caiu precisa de `kanban_workflow_start`
+manual para religar o orquestrador nela.
 
 ---
 
@@ -81,7 +109,9 @@ Referência completa em `docs/reference/config.md`.
 | `db/` | Conexão SQLite, schema, migrations |
 | `server/` | HTTP (`node:http` cru), SSE, MCP protocol, RBAC, tool catalog |
 | `services/` | Lógica de negócio — card, sprint, query, admin, metrics, epic, planning |
-| `planning/` | Wizard KAD "Planejar um novo Projeto" — motor de etapas, runner headless do claude (`--resume`), materialização épicos→sprints→cards |
+| `planning/` | Wizard KAD "Planejar um novo Projeto" (nível projeto) — motor de etapas, runner headless do claude (`--resume`), materialização épicos→sprints→cards |
+| `sprint-planning/` | Wizard de planejamento de uma sprint específica (`kanban_sprint_planning_*`) — distinto de `planning/`, que é o wizard de projeto novo |
+| `jobs/` | JobManager/JobStore — execução de comandos de longa duração administrados pelo servidor (ver `docs/for-developers/architecture.md` §A6) |
 | `startup/` | Reconciliação vault → SQLite no startup |
 | `util/` | Logger (pino), constantes |
 | `vault/` | Leitura/escrita de arquivos .md do vault |

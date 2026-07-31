@@ -14,7 +14,9 @@ Esta pasta contém documentação gerada durante o planejamento e as iterações
 | `sprint-04-hardening.md` | Sprint 4 | Testes, error handling, observabilidade |
 | `sprint-04-acceptance-report.md` | Sprint 4 | Relatório de aceitação do Sprint 4 |
 | `design-plugin.md` | Sprint 3 | Class design do Plugin Obsidian, normativo até a remoção do pacote na fase 5 da migração web |
-| `handoff-fase4-ui.md` | 2026-07 | Snapshot pontual do fim da fase 4 da migração web; referencia `packages/plugin`, removido desde então. Superado por `docs/prd-web-migration.md` (status: concluído) |
+| `2026-07-24-prd-web-migration.md` | 2026-07-24 | PRD da migração da visualização plugin Obsidian → web app React. Status: concluído (fases 0–5); descreve `packages/plugin` como existente porque documenta o estado pré-remoção |
+| `handoff-fase4-ui.md` | 2026-07 | Snapshot pontual do fim da fase 4 da migração web; referencia `packages/plugin`, removido desde então. Superado por `2026-07-24-prd-web-migration.md` (status: concluído) |
+| `2026-07-28-codex-critique.md` | 2026-07-28 | Crítica externa (Codex) de qualidade e diagramação; analisa a árvore do repo em um momento anterior à remoção de `packages/plugin` |
 | `2026-07-30-long-running-jobs.md` | 2026-07-30 | Plano de design do subsistema Jobs (comandos de longa duração administrados pelo servidor). Implementado — ver `docs/for-developers/architecture.md` §A6 |
 | `2026-07-30-project-settings-tabs.md` + `-design.md` | 2026-07-30 | Plano/spec das abas de configuração do projeto (`ProjectPanel.tsx`). Implementado |
 | `2026-07-30-sprint-wizard-editable-tasks.md` + `-design.md` | 2026-07-30 | Plano/spec da lista de tarefas editável no wizard de sprint-planning (`StepTaskList`). Implementado |

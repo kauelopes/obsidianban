@@ -2,7 +2,7 @@
 
 **Para:** próxima sessão
 **Branch:** `web-migration` (nada mergeado na `main` ainda)
-**Contexto obrigatório:** leia `docs/prd-web-migration.md` primeiro. Ele é o plano; este documento é o estado atual e o que falta.
+**Contexto obrigatório:** leia `2026-07-24-prd-web-migration.md` primeiro. Ele é o plano; este documento é o estado atual e o que falta.
 
 ---
 

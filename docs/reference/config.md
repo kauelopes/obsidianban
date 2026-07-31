@@ -43,6 +43,12 @@ Scripts `.ts` são lançados com `node --import tsx`.
 
 O diretório de trabalho do dev harness **não** vem do ambiente: é o `target_repo` do projeto, definido por `kanban_set_project_repo`. Não existe fallback global.
 
+### Jobs de longa duração (opcional)
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `JOB_MAX_CONCURRENT` | `1` | Número máximo de jobs (`jobs/`) executando em paralelo no servidor — ver `docs/for-developers/architecture.md` §A6 |
+
 Sem token pm **e** dev resolvíveis (ambiente ou settings do repo), `kanban_workflow_start` falha com `400 workflow_tokens_missing` antes de spawnar qualquer processo.
 
 **Contabilidade de tokens — nenhum round se perde.** Todo round do workflow
