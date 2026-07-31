@@ -73,30 +73,26 @@ Referência completa em `docs/reference/config.md`.
 
 ---
 
-## Rodando o servidor de longa duração (produção local) — SEMPRE via `make`
+## Rodando o servidor de longa duração — SEMPRE via `make`
 
-O servidor que sustenta o board + o auto-launch do sprint workflow **nunca deve
-ser iniciado à mão** (`node dist/index.js` cru, `nohup` improvisado, snapshot
-de env capturado manualmente). O código não carrega `.env` sozinho (não há
-`dotenv` no projeto) — quem sobe o processo é responsável por injetar as
-variáveis, e um processo iniciado sem `WORKFLOW_ENABLED`/`WORKFLOW_SCRIPT_PATH`/
-`ANTHROPIC_API_KEY` no ambiente perde o auto-launch do workflow **silenciosamente**
-(vira só um `logger.warn`, sem erro visível) — foi exatamente essa causa raiz
-que deixou uma sprint presa sem ninguém percebendo até o board parar de andar.
+Nunca subir à mão (`node dist/index.js`, `nohup` improvisado): sem `.env`
+carregado por inteiro, o auto-launch do workflow falha **silenciosamente**
+(só um `logger.warn`) — causa raiz de um incidente real de sprint presa.
 
 ```bash
-make server-start    # build + sobe em background, com .env inteiro carregado
+make server-start    # build + sobe em background, .env carregado (usar após boot da máquina)
 make server-stop     # SIGTERM limpo (pidfile em .run/server.pid)
 make server-restart  # stop + start
 make server-status   # pid + GET /health
 make server-logs     # tail -f do log (.run/server.log)
 ```
 
-Depois de qualquer `server-restart`, confira `docs/for-developers/architecture.md`
-§A5/§A6 se uma sprint já estava ativa antes do restart: o auto-launch só
-dispara na chamada de `kanban_start_sprint`, não retroativamente — uma sprint
-que já estava `active` quando o servidor caiu precisa de `kanban_workflow_start`
-manual para religar o orquestrador nela.
+Sem autostart configurado (nem systemd nem cron) — depois de reiniciar a
+máquina, rodar `make server-start` manualmente.
+
+Depois de `server-restart`/reboot: se uma sprint já estava `active`, o
+auto-launch não religa sozinho — precisa de `kanban_workflow_start` manual
+(detalhes em `docs/for-developers/architecture.md` §A5/§A6).
 
 ---
 
