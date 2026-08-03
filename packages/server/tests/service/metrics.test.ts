@@ -50,6 +50,39 @@ describe('MetricsService by_project', () => {
   })
 })
 
+/**
+ * by_role é o que responde "quanto cada tipo de agente (wizard/pm/dev) gastou"
+ * sem precisar decifrar `actor` — ver roleFromClaims em cards/repository.ts.
+ */
+describe('MetricsService by_role', () => {
+  it('agrega por role e cai em "desconhecido" para linhas sem a coluna (pré-migração)', () => {
+    const db = createTestDb()
+    const ins = db.prepare(
+      `INSERT INTO token_log (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project, role)
+       VALUES (@ts, @op, @card_id, @card_type, @actor, @model, @input_tokens, @output_tokens, @project, @role)`,
+    )
+    ins.run({ ts: '2026-07-01T10:00:00Z', op: 'CREATE', card_id: 'card-x', card_type: 'task', actor: 'agent:pm-1', model: 'claude-opus-4-8', input_tokens: 100, output_tokens: 50, project: 'alfa', role: 'pm' })
+    ins.run({ ts: '2026-07-02T10:00:00Z', op: 'WORKFLOW_DEV', card_id: '', card_type: 'workflow_round', actor: 'workflow:dev', model: 'claude-sonnet-5', input_tokens: 30, output_tokens: 10, project: 'alfa', role: 'dev' })
+    ins.run({ ts: '2026-07-03T10:00:00Z', op: 'PLANNING', card_id: 'sess-1', card_type: 'planning', actor: 'kaue', model: 'claude-opus-4-8', input_tokens: 7, output_tokens: 3, project: 'beta', role: 'wizard' })
+    // Linha legada, gravada antes da coluna `role` existir — não passa `role`.
+    ins.run({ ts: '2026-07-04T10:00:00Z', op: 'UPDATE', card_id: 'card-y', card_type: 'task', actor: 'agent:dev-1', model: 'claude-sonnet-5', input_tokens: 5, output_tokens: 2, project: 'alfa', role: null })
+
+    const m = new MetricsService(db).collect({})
+    expect(m.by_role).toEqual([
+      { role: 'desconhecido', input_tokens: 5, output_tokens: 2, cost_usd: 0, ops: 1 },
+      { role: 'dev', input_tokens: 30, output_tokens: 10, cost_usd: 0, ops: 1 },
+      { role: 'pm', input_tokens: 100, output_tokens: 50, cost_usd: 0, ops: 1 },
+      { role: 'wizard', input_tokens: 7, output_tokens: 3, cost_usd: 0, ops: 1 },
+    ])
+  })
+
+  it('sem linhas, devolve lista vazia', () => {
+    const db = createTestDb()
+    const m = new MetricsService(db).collect({})
+    expect(m.by_role).toEqual([])
+  })
+})
+
 describe('MetricsService by_project_day', () => {
   it('cruza projeto e dia (UTC), contando ops mesmo com tokens zerados', () => {
     const db = createTestDb()

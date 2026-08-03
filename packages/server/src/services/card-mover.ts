@@ -1,6 +1,7 @@
 import path from 'node:path'
 import type { Paths } from '../config.js'
 import type { CardRepository } from '../cards/repository.js'
+import { roleFromClaims } from '../cards/repository.js'
 import type { AuditLogger } from '../audit/logger.js'
 import type { AtomicWriter } from '../writer/atomic.js'
 import type { SSEEventBus } from '../server/sse.js'
@@ -119,7 +120,7 @@ export class CardMover {
     this.repo.logTokens({
       ts: now, op: 'MOVE', card_id: id, card_type: current.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
-      project: row.project, ...usage,
+      project: row.project, role: roleFromClaims(claims), ...usage,
     })
     await this.audit.log({
       ts: now, op: 'MOVE', project: row.project, card_id: id, version: merged.version,
@@ -241,7 +242,7 @@ export class CardMover {
     this.repo.logTokens({
       ts: now, op: 'REORDER', card_id: id, card_type: current.type,
       actor: claims.actor, model, input_tokens: inputTokens, output_tokens: outputTokens,
-      project: row.project, ...usage,
+      project: row.project, role: roleFromClaims(claims), ...usage,
     })
     await this.audit.log({
       ts: now, op: 'REORDER', project: row.project, card_id: id, version: targetCard.version,

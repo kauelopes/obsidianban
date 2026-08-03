@@ -394,6 +394,7 @@ For token consumption summaries, hit the metrics endpoint:
 ```bash
 curl http://127.0.0.1:9375/metrics | jq .summary
 curl 'http://127.0.0.1:9375/metrics?from_date=2026-05-01&to_date=2026-05-31' | jq .by_agent
+curl http://127.0.0.1:9375/metrics | jq .by_role   # gasto por wizard/pm/dev/human/system
 ```
 
 `/metrics` is loopback-only and needs no auth.

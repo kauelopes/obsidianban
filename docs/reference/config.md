@@ -18,7 +18,8 @@ Copie `.env.example` para `.env` e edite conforme necessário.
 
 | Variável | Padrão | Descrição |
 |---|---|---|
-| `MCP_HTTP_PORT` | `9375` | Porta do servidor HTTP. Bind em `127.0.0.1` (não exposto externamente). |
+| `MCP_HTTP_PORT` | `9375` | Porta do servidor HTTP. |
+| `HOST` | `127.0.0.1` | Endereço de bind do servidor HTTP. `127.0.0.1` só aceita conexões da própria máquina. `0.0.0.0` passa a aceitar qualquer dispositivo da rede local (LAN) — útil para abrir o board do celular na mesma Wi-Fi. Nunca usar `0.0.0.0` numa máquina exposta diretamente à internet. |
 | `LOG_LEVEL` | `info` | Nível de log pino: `debug` \| `info` \| `warn` \| `error` |
 
 ### Workflow autônomo (opcional)
@@ -57,9 +58,19 @@ registra o usage medido via `kanban_log_workflow_usage`: input/output, tokens
 de cache (que ficam **fora** de input/output no usage do harness), `cost_usd`
 autoritativo (`total_cost_usd` do harness) e turnos. Os registros caem no
 `token_log` (op `WORKFLOW_DEV`/`WORKFLOW_TRIAGE`, com `sprint_id`) e o
-`/metrics` agrega tudo — o painel da web mostra o custo medido e rebaixa a
-estimativa por tokens a referência. A anotação por card (`DEV_DRAIN_LIMIT=1`)
-continua existindo como refinamento, agora também com cache e usd.
+`/metrics` agrega tudo — o painel da web (aba **Estatísticas**) mostra o custo
+medido e rebaixa a estimativa por tokens a referência. A anotação por card
+(`DEV_DRAIN_LIMIT=1`) continua existindo como refinamento, agora também com
+cache e usd.
+
+Cada linha do `token_log` também carrega `role` (`wizard`/`pm`/`dev`/`human`/
+`system`, derivado de `TokenClaims` em `roleFromClaims()`, não do texto livre
+de `actor`) — é o que alimenta o recorte "gasto por agente" nas Estatísticas.
+Linhas gravadas antes dessa coluna existir ficam `desconhecido` até rodar
+`scripts/backfill-token-log-role.ts` uma vez (reconstrói por `op` e por
+`actor` cruzado com os tokens conhecidos de cada projeto — servidor parado,
+`VAULT_PATH=... tsx scripts/backfill-token-log-role.ts`; idempotente, o que
+sobrar sem resolver é actor sem token correspondente em nenhum projeto atual).
 
 O ciclo de vida de uma execução é observável por `kanban_workflow_status`
 (running/exited/failed/stopped), pelos eventos SSE `WORKFLOW_STARTED` /

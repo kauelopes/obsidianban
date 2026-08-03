@@ -58,6 +58,9 @@ function migrateTokenLogUsageColumns(db: Database.Database): void {
   if (!names.has('sprint_id')) {
     db.exec(`ALTER TABLE token_log ADD COLUMN sprint_id TEXT`)
   }
+  if (!names.has('role')) {
+    db.exec(`ALTER TABLE token_log ADD COLUMN role TEXT`)
+  }
 }
 
 /**

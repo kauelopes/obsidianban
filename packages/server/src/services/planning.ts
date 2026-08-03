@@ -301,6 +301,7 @@ export class PlanningService {
         output_tokens: r.usage.output,
         project: session.project_name ?? 'planejamento',
         cost_usd: r.usage.usd,
+        role: 'wizard',
       })
     } catch (err) {
       logger.warn({ err }, 'planning: failed to log tokens')

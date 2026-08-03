@@ -705,6 +705,9 @@ export class SprintService {
       output_tokens: outputTokens,
       project: located.project,
       sprint_id: sprintId,
+      // op já diz qual round é — claims.agent_type diria sempre 'pm' aqui,
+      // já que o orquestrador só pode chamar esta tool com o token de PM.
+      role: kind,
       ...usage,
     })
     await this.audit.log({

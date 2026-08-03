@@ -31,6 +31,7 @@ export interface ServerState {
 
 export interface HttpServerDeps {
   port: number
+  host: string
   state: ServerState
   validator: TokenValidator
   idempotency: IdempotencyStore
@@ -84,7 +85,7 @@ export class HttpServer {
       this.sockets.add(socket)
       socket.on('close', () => this.sockets.delete(socket))
     })
-    await new Promise<void>((resolve) => this.server!.listen(this.deps.port, '127.0.0.1', resolve))
+    await new Promise<void>((resolve) => this.server!.listen(this.deps.port, this.deps.host, resolve))
   }
 
   /**
@@ -157,8 +158,10 @@ export class HttpServer {
     }
 
     // The SPA is served last so it can never shadow an API route. A sessão só
-    // acompanha o documento quando ele sai para o loopback: se o bind um dia
-    // mudar, o token não vaza junto com o HTML.
+    // acompanha o documento quando ele sai para o loopback — mesmo com HOST=0.0.0.0
+    // (acesso via LAN), esse token implícito não é ampliado: qualquer dispositivo
+    // na rede que abrisse a página ganharia acesso de manager sem digitar nada.
+    // Fora do loopback o fluxo esperado é a TokenGate, com um token real colado.
     if (req.method === 'GET' && this.deps.site) {
       const session = isLoopback(req.socket.remoteAddress ?? '') ? this.deps.session?.raw : null
       return this.deps.site.serve(url, res, session)
@@ -199,10 +202,11 @@ export class HttpServer {
   }
 
   private handleMetrics(req: IncomingMessage, res: ServerResponse, url: string): void {
-    // Defense in depth: server already binds to 127.0.0.1, but reject anything
-    // not coming from loopback in case the bind ever changes.
+    // Rota sem token: a checagem de rede é a única barreira. Permite loopback
+    // e a LAN privada em que o servidor pode estar (opcionalmente) exposto
+    // via HOST=0.0.0.0, mas nunca a internet pública.
     const remote = req.socket.remoteAddress ?? ''
-    if (!isLoopback(remote)) {
+    if (!isPrivateLan(remote)) {
       sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
       return
     }
@@ -223,14 +227,14 @@ export class HttpServer {
     }
   }
 
-  /** Mesma postura do /metrics: rota da SPA local, loopback-only, sem token. */
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
   private async handleActivity(
     req: IncomingMessage,
     res: ServerResponse,
     url: string,
   ): Promise<void> {
     const remote = req.socket.remoteAddress ?? ''
-    if (!isLoopback(remote)) {
+    if (!isPrivateLan(remote)) {
       sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
       return
     }
@@ -245,14 +249,14 @@ export class HttpServer {
     sendJson(res, 200, await this.deps.activity.collect({ days, tzOffsetMinutes: tzOffset }))
   }
 
-  /** Mesma postura do /metrics: rota da SPA local, loopback-only, sem token. */
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
   private async handleWorkflowLog(
     req: IncomingMessage,
     res: ServerResponse,
     url: string,
   ): Promise<void> {
     const remote = req.socket.remoteAddress ?? ''
-    if (!isLoopback(remote)) {
+    if (!isPrivateLan(remote)) {
       sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
       return
     }
@@ -273,8 +277,8 @@ export class HttpServer {
   /**
    * Visão agregada para o painel de agentes no board: status do processo +
    * fase corrente + cards em andamento (assignee + papel pm/dev, quando
-   * resolvível). Mesma postura de /workflow/log: rota da SPA local,
-   * loopback-only, sem token.
+   * resolvível). Mesma postura de /workflow/log: rota da SPA local, sem
+   * token, loopback ou LAN privada.
    */
   private async handleWorkflowAgents(
     req: IncomingMessage,
@@ -282,7 +286,7 @@ export class HttpServer {
     url: string,
   ): Promise<void> {
     const remote = req.socket.remoteAddress ?? ''
-    if (!isLoopback(remote)) {
+    if (!isPrivateLan(remote)) {
       sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
       return
     }
@@ -499,6 +503,23 @@ function sameHost(origin: string, host: string | undefined): boolean {
 
 function isLoopback(addr: string): boolean {
   return addr === '::1' || addr.startsWith('127.') || addr.startsWith('::ffff:127.')
+}
+
+/**
+ * Loopback ou faixa RFC 1918 (LAN privada: 10/8, 172.16/12, 192.168/16).
+ * Node reporta clientes IPv4 como `::ffff:x.x.x.x` quando o servidor escuta
+ * em 0.0.0.0 sob socket dual-stack — por isso os dois formatos são checados.
+ */
+function isPrivateLan(addr: string): boolean {
+  if (isLoopback(addr)) return true
+  const v4 = addr.startsWith('::ffff:') ? addr.slice('::ffff:'.length) : addr
+  if (v4.startsWith('10.') || v4.startsWith('192.168.')) return true
+  const m = /^172\.(\d{1,3})\./.exec(v4)
+  if (m) {
+    const octet = Number(m[1])
+    return octet >= 16 && octet <= 31
+  }
+  return false
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {

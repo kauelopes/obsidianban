@@ -49,7 +49,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
     cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
     cost_usd              REAL NOT NULL DEFAULT 0,
-    sprint_id             TEXT
+    sprint_id             TEXT,
+    role                  TEXT
   )`,
   `CREATE INDEX IF NOT EXISTS idx_token_log_ts       ON token_log(ts)`,
   `CREATE INDEX IF NOT EXISTS idx_token_log_type     ON token_log(card_type)`,

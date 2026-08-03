@@ -829,6 +829,8 @@ export interface Metrics {
   by_day: Array<{ date: string; input_tokens: number; output_tokens: number; cost_usd: number }>
   by_model: Array<{ model: string; input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_creation_tokens: number; cost_usd: number }>
   by_agent: Array<{ actor: string; input_tokens: number; output_tokens: number; cost_usd: number }>
+  /** wizard/pm/dev/human/system — ver roleFromClaims no server. 'desconhecido' cobre linhas anteriores à coluna. */
+  by_role: Array<{ role: string; input_tokens: number; output_tokens: number; cost_usd: number; ops: number }>
   by_operation: Array<{ op: string; input_tokens: number; output_tokens: number; cost_usd: number; count: number }>
   by_project: Array<{ project: string; input_tokens: number; output_tokens: number; cost_usd: number; ops: number }>
   /** Cruzamento projeto×dia (datas UTC) — a série que alimenta visões de ritmo. */

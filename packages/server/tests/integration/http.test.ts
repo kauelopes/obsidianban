@@ -105,6 +105,7 @@ beforeAll(async () => {
   )
   server = new HttpServer({
     port: 0,
+    host: '127.0.0.1',
     state,
     validator,
     idempotency,
@@ -663,6 +664,7 @@ describe('HttpServer.stop() com uma conexão SSE aberta', () => {
 
     const shutdownServer = new HttpServer({
       port: 0,
+      host: '127.0.0.1',
       state,
       validator,
       idempotency,

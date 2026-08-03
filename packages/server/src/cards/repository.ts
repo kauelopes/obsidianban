@@ -1,5 +1,18 @@
 import type Database from 'better-sqlite3'
-import type { Card } from '@obsidiankan/types'
+import type { Card, TokenClaims } from '@obsidiankan/types'
+
+/**
+ * Bucket de custo por tipo de agente (Wizard/PM/Dev), não pelo token que
+ * literalmente fez a chamada: rounds de workflow sempre chegam pelo token do
+ * PM (ver logWorkflowUsage em sprint.ts), e um manager clicando na UI web é
+ * "human", não "pm" — inferir isso de `actor` (texto livre) já se provou
+ * frágil (sprint.ts precisou de um regex hack pm→dev).
+ */
+export function roleFromClaims(claims: TokenClaims): string {
+  if (claims.actor.startsWith('system:')) return 'system'
+  if (claims.role === 'manager') return 'human'
+  return claims.agent_type
+}
 
 export interface CardRow {
   id: string
@@ -209,20 +222,23 @@ export class CardRepository {
     cost_usd?: number
     /** Presente nos registros por round do workflow (op WORKFLOW_*). */
     sprint_id?: string | null
+    /** Bucket wizard/pm/dev/human/system — ver roleFromClaims. Null em linhas antigas. */
+    role?: string | null
   }): void {
     this.db
       .prepare(
         `INSERT INTO token_log
            (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project,
-            cache_read_tokens, cache_creation_tokens, cost_usd, sprint_id)
+            cache_read_tokens, cache_creation_tokens, cost_usd, sprint_id, role)
          VALUES (@ts, @op, @card_id, @card_type, @actor, @model, @input_tokens, @output_tokens, @project,
-            @cache_read_tokens, @cache_creation_tokens, @cost_usd, @sprint_id)`,
+            @cache_read_tokens, @cache_creation_tokens, @cost_usd, @sprint_id, @role)`,
       )
       .run({
         cache_read_tokens: 0,
         cache_creation_tokens: 0,
         cost_usd: 0,
         sprint_id: null,
+        role: null,
         ...entry,
       })
   }

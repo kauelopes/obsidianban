@@ -361,12 +361,12 @@ async function main(): Promise<void> {
   const site = (await candidate.isAvailable()) ? candidate : undefined
   if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
 
-  const httpServer = new HttpServer({ port: config.httpPort, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths, jobManager: jobs })
+  const httpServer = new HttpServer({ port: config.httpPort, host: config.host, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths, jobManager: jobs })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }
   await httpServer.start()
-  logger.info({ port: config.httpPort }, 'startup: http listening')
+  logger.info({ port: config.httpPort, host: config.host }, 'startup: http listening')
 
   const report = await reconcile(config.paths, repo, audit, { sqliteRebuilt: createdFromScratch })
   state.reconciling = false

@@ -44,6 +44,14 @@ interface ByAgentRow {
   cost_usd: number
 }
 
+interface ByRoleRow {
+  role: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
+  ops: number
+}
+
 interface ByOpRow {
   op: string
   input_tokens: number
@@ -163,6 +171,22 @@ export class MetricsService {
       )
       .all(params) as ByAgentRow[]
 
+    // Linhas anteriores à coluna `role` (migração) ficam sem bucket — melhor
+    // aparecer como 'desconhecido' na UI do que ser descartada ou forçada num
+    // bucket errado.
+    const byRole = this.db
+      .prepare(
+        `SELECT COALESCE(role, 'desconhecido') AS role,
+                SUM(input_tokens) AS input_tokens,
+                SUM(output_tokens) AS output_tokens,
+                SUM(cost_usd) AS cost_usd,
+                COUNT(*) AS ops
+         FROM token_log${whereClause}
+         GROUP BY role
+         ORDER BY role ASC`,
+      )
+      .all(params) as ByRoleRow[]
+
     const byOperation = this.db
       .prepare(
         `SELECT op,
@@ -211,6 +235,7 @@ export class MetricsService {
       by_day: byDay,
       by_model: byModel,
       by_agent: byAgent,
+      by_role: byRole,
       by_operation: byOperation,
       by_project: byProject,
       by_project_day: byProjectDay,

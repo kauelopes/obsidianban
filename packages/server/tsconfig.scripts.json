@@ -7,6 +7,6 @@
     "moduleResolution": "Bundler"
   },
   "comment": "Scoped to typechecked scripts. The legacy batch runners predate strict typing and don't pass; add files here as they're cleaned up.",
-  "include": ["scripts/sprint-workflow.ts"],
+  "include": ["scripts/sprint-workflow.ts", "scripts/backfill-token-log-role.ts"],
   "exclude": ["node_modules", "dist"]
 }
