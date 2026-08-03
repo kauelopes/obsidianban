@@ -57,11 +57,10 @@ export function ThemeToggle({ pref, cycle }: { pref: ThemePref; cycle: () => voi
   const label = pref === 'system' ? 'sistema' : pref === 'light' ? 'claro' : 'escuro'
   return (
     <button
-      className="ghost mono"
+      className="ghost mono theme-toggle"
       onClick={cycle}
       title="Alternar tema: sistema → claro → escuro"
       aria-label={`Tema: ${label}. Clique para alternar.`}
-      style={{ fontSize: 'var(--t-2xs)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-label)' }}
     >
       tema: {label}
     </button>

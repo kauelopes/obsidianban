@@ -316,6 +316,56 @@ button.ghost:hover:not(:disabled) {
   accent-color: var(--accent);
 }
 
+.theme-toggle {
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+
+@media (max-width: 600px) {
+  .topbar {
+    gap: var(--s-3);
+    padding: 0 var(--s-4);
+  }
+
+  .topbar-plan {
+    max-width: 12ch;
+  }
+
+  .tabs-nav {
+    margin-left: var(--s-3);
+    overflow-x: auto;
+  }
+
+  .tabs-nav a {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .conn {
+    font-size: 0;
+  }
+
+  /* O texto do tema ("tema: sistema") sozinho tomava mais espaço que os 4
+   * links de navegação juntos — vira ícone, o estado continua no aria-label. */
+  .theme-toggle {
+    font-size: 0;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .theme-toggle::before {
+    content: '\1F313';
+    font-size: var(--t-md);
+  }
+
+  .search {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 /* ── Board ────────────────────────────────────────────────────────────────── */
 
 .board {
@@ -376,6 +426,32 @@ button.ghost:hover:not(:disabled) {
   min-height: 96px;
   display: flex;
   flex-direction: column;
+}
+
+@media (max-width: 600px) {
+  .project-head {
+    flex-wrap: wrap;
+    row-gap: var(--s-3);
+  }
+
+  .project-head select {
+    flex: 1 1 100%;
+    min-height: 44px;
+  }
+
+  .project-head button {
+    min-height: 44px;
+  }
+
+  .columns {
+    scroll-snap-type: x mandatory;
+  }
+
+  .column {
+    min-width: calc(100vw - 2 * var(--s-6));
+    max-width: none;
+    scroll-snap-align: start;
+  }
 }
 
 .column-head {

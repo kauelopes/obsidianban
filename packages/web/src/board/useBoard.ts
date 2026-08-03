@@ -22,7 +22,19 @@ export function useBoard(client: KanbanClient, opts: { project?: string } = {}) 
   const { project } = opts
   const [cards, setCards] = useState<readonly CardSummary[]>([])
   const [projects, setProjects] = useState<ProjectInfo[]>([])
-  const [sprintFilter, setSprintFilter] = useState<Record<string, string | undefined>>({})
+  // sessionStorage pelo mesmo motivo do showArchived abaixo: entrar num card
+  // e voltar remonta o hook, e perder o filtro de sprint a cada navegação
+  // custava re-selecionar toda vez.
+  const [sprintFilter, setSprintFilter] = useState<Record<string, string | undefined>>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('kanban.sprintFilter') ?? '{}')
+    } catch {
+      return {}
+    }
+  })
+  useEffect(() => {
+    sessionStorage.setItem('kanban.sprintFilter', JSON.stringify(sprintFilter))
+  }, [sprintFilter])
   const [conn, setConn] = useState<ConnectionState>('connecting')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)

@@ -1,8 +1,28 @@
-import { useCallback, useEffect, useState } from 'react'
-import { estimateUsd, type Metrics as MetricsData } from '@obsidiankan/types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  estimateUsd,
+  providerOf,
+  type Metrics as MetricsData,
+  type ModelProvider,
+} from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
 import { BarChart, Tile, TokenTable } from './widgets.js'
+
+const PROVIDER_LABEL: Record<ModelProvider, string> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  other: 'outros',
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  wizard: 'Wizard (planejamento)',
+  pm: 'PM',
+  dev: 'Dev',
+  human: 'humano (via UI)',
+  system: 'sistema',
+  desconhecido: 'desconhecido (anterior ao rastreio por agente)',
+}
 
 /**
  * Painel de atividade e custo.
@@ -86,7 +106,7 @@ export function Metrics({ client }: { client: KanbanClient }) {
     <div className="detail">
       <div className="detail-inner wide">
         <div className="detail-head">
-          <h1>Atividade</h1>
+          <h1>Estatísticas</h1>
           <div className="detail-ident">
             <span>agregado do vault inteiro</span>
           </div>
@@ -231,6 +251,8 @@ export function Metrics({ client }: { client: KanbanClient }) {
               }))}
             />
 
+            <Usage metrics={data} />
+
             {/* Rodapé, não manchete: a explicação é honesta mas não pode ser a
                 primeira coisa da página — parecia aviso de sistema quebrado. */}
             {tokensReported === 0 && (
@@ -244,6 +266,139 @@ export function Metrics({ client }: { client: KanbanClient }) {
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Uso agregado por provedor, por tipo de agente e por projeto. O custo do
+ * bloco "por provedor" é ESTIMADO por tabela local de preços de lista da API
+ * (pay-per-token) — modelos fora dela (human, unknown…) não entram na conta.
+ * Não reflete plano de assinatura flat-rate (Claude Max etc.).
+ */
+function Usage({ metrics }: { metrics: MetricsData }) {
+  const providers = useMemo(() => {
+    const acc = new Map<ModelProvider, { input: number; output: number; usd: number; models: string[] }>()
+    for (const row of metrics.by_model) {
+      const prov = providerOf(row.model)
+      const cur = acc.get(prov) ?? { input: 0, output: 0, usd: 0, models: [] }
+      cur.input += row.input_tokens
+      cur.output += row.output_tokens
+      cur.usd += estimateUsd(row.model, row.input_tokens, row.output_tokens) ?? 0
+      cur.models.push(row.model)
+      acc.set(prov, cur)
+    }
+    return acc
+  }, [metrics])
+
+  const reported = metrics.summary.total_input_tokens + metrics.summary.total_output_tokens
+
+  return (
+    <div className="home-usage">
+      <section className="chart">
+        <p className="label">uso por provedor</p>
+        {reported === 0 ? (
+          <p className="empty">nenhum token reportado no período selecionado</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>provedor</th>
+                <th className="num">entrada</th>
+                <th className="num">saída</th>
+                <th
+                  className="num"
+                  title="Preço de lista da API pay-per-token — não é o que você paga num plano de assinatura (Claude Max etc.)"
+                >
+                  custo estimado ≈ (lista API)
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {(['anthropic', 'openai', 'other'] as const)
+                .filter((prov) => providers.has(prov))
+                .map((prov) => {
+                  const v = providers.get(prov)!
+                  return (
+                    <tr key={prov} title={v.models.join(', ')}>
+                      <td>{PROVIDER_LABEL[prov]}</td>
+                      <td className="num">{v.input > 0 ? v.input.toLocaleString('pt-BR') : '—'}</td>
+                      <td className="num">{v.output > 0 ? v.output.toLocaleString('pt-BR') : '—'}</td>
+                      <td className="num">{v.usd > 0 ? `US$ ${v.usd.toFixed(4)}` : '—'}</td>
+                    </tr>
+                  )
+                })}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {metrics.by_role.length > 0 && (
+        <section className="chart">
+          <p className="label">gasto por agente</p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>agente</th>
+                <th className="num">ops</th>
+                <th className="num">entrada</th>
+                <th className="num">saída</th>
+                <th
+                  className="num"
+                  title="Custo MEDIDO reportado pelo harness — 0 em linhas antigas sem essa medição, não necessariamente custo zero"
+                >
+                  custo medido
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.by_role.map((r) => (
+                <tr key={r.role} className={r.role === 'desconhecido' ? 'muted' : undefined}>
+                  <td>{ROLE_LABEL[r.role] ?? r.role}</td>
+                  <td className="num">{r.ops.toLocaleString('pt-BR')}</td>
+                  <td className="num">
+                    {r.input_tokens > 0 ? r.input_tokens.toLocaleString('pt-BR') : '—'}
+                  </td>
+                  <td className="num">
+                    {r.output_tokens > 0 ? r.output_tokens.toLocaleString('pt-BR') : '—'}
+                  </td>
+                  <td className="num">{r.cost_usd > 0 ? `US$ ${r.cost_usd.toFixed(4)}` : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {metrics.by_project.length > 0 && (
+        <section className="chart">
+          <p className="label">operações por projeto</p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>projeto</th>
+                <th className="num">ops</th>
+                <th className="num">entrada</th>
+                <th className="num">saída</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.by_project.map((r) => (
+                <tr key={r.project}>
+                  <td className="mono">{r.project}</td>
+                  <td className="num">{r.ops.toLocaleString('pt-BR')}</td>
+                  <td className="num">
+                    {r.input_tokens > 0 ? r.input_tokens.toLocaleString('pt-BR') : '—'}
+                  </td>
+                  <td className="num">
+                    {r.output_tokens > 0 ? r.output_tokens.toLocaleString('pt-BR') : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
     </div>
   )
 }

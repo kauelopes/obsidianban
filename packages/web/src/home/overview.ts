@@ -44,7 +44,7 @@ export function buildOverview(
     [...projects.map((p) => p.project), ...byProject.keys()].filter((n) => !archived.has(n)),
   )
 
-  return [...names].sort((a, b) => a.localeCompare(b)).map((name) => {
+  const overviews = [...names].sort((a, b) => a.localeCompare(b)).map((name) => {
     const info = projects.find((p) => p.project === name)
     const own = byProject.get(name) ?? []
     const visible = own.filter((c) => !c.archived)
@@ -82,6 +82,17 @@ export function buildOverview(
       goals: info?.goals ?? [],
       lastUpdate,
     }
+  })
+
+  // Trabalho recente primeiro: é o que responde "onde os agentes mexeram por
+  // último", mais útil num hub de supervisão do que ordem alfabética. Sem
+  // cards (lastUpdate null) vai para o fim, alfabético entre si por
+  // estabilidade — não tem "recência" pra comparar.
+  return overviews.sort((a, b) => {
+    if (a.lastUpdate === null && b.lastUpdate === null) return a.project.localeCompare(b.project)
+    if (a.lastUpdate === null) return 1
+    if (b.lastUpdate === null) return -1
+    return b.lastUpdate.localeCompare(a.lastUpdate)
   })
 }
 

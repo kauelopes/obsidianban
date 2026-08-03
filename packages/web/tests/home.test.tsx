@@ -18,6 +18,7 @@ const offline = {
   listCards: () => Promise.resolve({ ok: false as const, error: { kind: 'network' } }),
   getActivity: () => Promise.resolve({ ok: false as const, error: { kind: 'network' } }),
   planningList: () => Promise.resolve({ ok: false as const, error: { kind: 'network' } }),
+  workflowStatus: () => Promise.resolve({ ok: false as const, error: { kind: 'network' } }),
 }
 const client = offline as unknown as KanbanClient
 

@@ -62,7 +62,7 @@ export function Shell({
             Escalações
           </NavLink>
           <NavLink to="/atividade" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Atividade
+            Estatísticas
           </NavLink>
           <NavLink to="/ajuda" className={({ isActive }) => (isActive ? 'active' : '')}>
             Ajuda

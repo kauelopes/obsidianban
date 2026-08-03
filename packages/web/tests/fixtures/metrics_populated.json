@@ -69,6 +69,22 @@
       "output_tokens": 0
     }
   ],
+  "by_role": [
+    {
+      "role": "dev",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0,
+      "ops": 60
+    },
+    {
+      "role": "pm",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cost_usd": 0,
+      "ops": 43
+    }
+  ],
   "by_operation": [
     {
       "op": "CREATE",

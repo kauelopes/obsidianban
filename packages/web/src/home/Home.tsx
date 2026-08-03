@@ -1,11 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  estimateUsd,
-  providerOf,
-  type Metrics as MetricsData,
-  type ModelProvider,
-} from '@obsidiankan/types'
 import type {
   ActivityResponse,
   CardSummary,
@@ -14,6 +8,7 @@ import type {
   ProjectActivity,
 } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
+import { subscribe } from '../api/events.js'
 import type { useBoard } from '../board/useBoard.js'
 import { Sparkline } from '../metrics/widgets.js'
 import { stepIndex, stepMeta, PLAN_STEPS } from '../plan/steps-meta.js'
@@ -27,11 +22,7 @@ import {
   type ProjectOverview,
 } from './overview.js'
 
-const PROVIDER_LABEL: Record<ModelProvider, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  other: 'outros',
-}
+const WORKING_POLL_MS = 5000
 
 /**
  * Hub de supervisão. Ordem das seções = urgência: o que espera decisão humana
@@ -67,14 +58,8 @@ export function Home({
     [board.cards, reviewSnapshot, board.projects, board.escalations],
   )
 
-  // Snapshot no mount: contabilidade não precisa de SSE.
-  const [metrics, setMetrics] = useState<MetricsData | null>(null)
-  useEffect(() => {
-    void client.getMetrics().then((res) => {
-      if (res.ok) setMetrics(res.data)
-    })
-  }, [client])
-
+  // Contabilidade/custo mora na aba Estatísticas — a home fica só com o pulso
+  // de atividade, mais barato de olhar de relance do que a tabela completa.
   // Idem para o pulso de 14 dias: snapshot basta, a home recarrega ao voltar.
   const [activity, setActivity] = useState<ActivityResponse | null>(null)
   useEffect(() => {
@@ -97,6 +82,11 @@ export function Home({
       ),
     [activity],
   )
+
+  // "Agentes trabalhando" é status de execução (kanban_workflow_status), não
+  // dado do board — por isso um poll leve à parte em vez de esperar o SSE de
+  // cards, que não dispara quando só o workflow muda de fase.
+  const working = useWorkingProjects(client, overview)
 
   const pendingReview = overview.flatMap((p) => p.review).sort(compareReview)
   const pendingEscalations = overview.flatMap((p) => p.escalations).sort(compareEscalation)
@@ -193,11 +183,10 @@ export function Home({
                   p={p}
                   activity={activityByProject.get(p.project)}
                   peak={activityPeak}
+                  working={working.has(p.project)}
                 />
               ))}
             </section>
-
-            {metrics && <Usage metrics={metrics} />}
           </div>
         </div>
       </div>
@@ -247,19 +236,75 @@ function AllClear({ overview }: { overview: readonly ProjectOverview[] }) {
   )
 }
 
+/**
+ * Uma sprint ativa não significa agente rodando — o workflow pode estar
+ * parado à espera de humano. Só `kanban_workflow_status` diz o estado real do
+ * processo, daí o poll dedicado (o SSE de cards não dispara quando só a fase
+ * do workflow muda).
+ */
+function useWorkingProjects(
+  client: KanbanClient,
+  overview: readonly ProjectOverview[],
+): ReadonlySet<string> {
+  const [working, setWorking] = useState<ReadonlySet<string>>(new Set())
+
+  const sprintByProject = useMemo(
+    () =>
+      overview
+        .filter((p) => p.active !== null)
+        .map((p) => ({ project: p.project, sprintId: p.active!.sprint.id })),
+    [overview],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      const results = await Promise.all(
+        sprintByProject.map(async ({ project, sprintId }) => {
+          const res = await client.workflowStatus(sprintId)
+          return res.ok && res.data.run?.status === 'running' ? project : null
+        }),
+      )
+      if (!cancelled) setWorking(new Set(results.filter((p): p is string => p !== null)))
+    }
+    void poll()
+    const timer = setInterval(() => void poll(), WORKING_POLL_MS)
+    const unsubscribe = subscribe((ev) => {
+      switch (ev.type) {
+        case 'WORKFLOW_STARTED':
+        case 'WORKFLOW_EXITED':
+        case 'JOB_STARTED':
+        case 'JOB_FINISHED':
+          void poll()
+          break
+      }
+    })
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      unsubscribe()
+    }
+  }, [client, sprintByProject])
+
+  return working
+}
+
 function ProjectCard({
   p,
   activity,
   peak,
+  working,
 }: {
   p: ProjectOverview
   activity: ProjectActivity | undefined
   peak: number
+  working: boolean
 }) {
   const alert = p.escalations.length + p.review.length
   const openGoals = p.goals.filter((g) => g.status === 'open')
   return (
     <Link className={`project-tile${alert > 0 ? ' alert' : ''}`} to={`/board/${p.project}`}>
+      {working && <div className="pt-working">● agentes trabalhando</div>}
       <div className="pt-head">
         <h2>{p.project}</h2>
         {alert > 0 && (
@@ -354,102 +399,6 @@ function GoalLine({ goal }: { goal: Goal }) {
 function fmtDay(iso: string): string {
   const [, m, d] = iso.split('-')
   return `${d}/${m}`
-}
-
-/**
- * Uso agregado por provedor e por projeto. O custo é ESTIMADO por tabela local
- * de preços de lista da API (pay-per-token) — modelos fora dela (human,
- * unknown…) não entram na conta. Não reflete plano de assinatura flat-rate
- * (Claude Max etc.): os tokens ao lado são a medida sem essa distorção.
- */
-function Usage({ metrics }: { metrics: MetricsData }) {
-  const providers = useMemo(() => {
-    const acc = new Map<ModelProvider, { input: number; output: number; usd: number; models: string[] }>()
-    for (const row of metrics.by_model) {
-      const prov = providerOf(row.model)
-      const cur = acc.get(prov) ?? { input: 0, output: 0, usd: 0, models: [] }
-      cur.input += row.input_tokens
-      cur.output += row.output_tokens
-      cur.usd += estimateUsd(row.model, row.input_tokens, row.output_tokens) ?? 0
-      cur.models.push(row.model)
-      acc.set(prov, cur)
-    }
-    return acc
-  }, [metrics])
-
-  const reported = metrics.summary.total_input_tokens + metrics.summary.total_output_tokens
-
-  return (
-    <div className="home-usage">
-      <section className="chart">
-        <p className="label">uso por provedor</p>
-        {reported === 0 ? (
-          <p className="empty">nenhum token reportado — detalhes na página Atividade</p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>provedor</th>
-                <th className="num">entrada</th>
-                <th className="num">saída</th>
-                <th
-                  className="num"
-                  title="Preço de lista da API pay-per-token — não é o que você paga num plano de assinatura (Claude Max etc.)"
-                >
-                  custo estimado ≈ (lista API)
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {(['anthropic', 'openai', 'other'] as const)
-                .filter((prov) => providers.has(prov))
-                .map((prov) => {
-                  const v = providers.get(prov)!
-                  return (
-                    <tr key={prov} title={v.models.join(', ')}>
-                      <td>{PROVIDER_LABEL[prov]}</td>
-                      <td className="num">{v.input > 0 ? v.input.toLocaleString('pt-BR') : '—'}</td>
-                      <td className="num">{v.output > 0 ? v.output.toLocaleString('pt-BR') : '—'}</td>
-                      <td className="num">{v.usd > 0 ? `US$ ${v.usd.toFixed(4)}` : '—'}</td>
-                    </tr>
-                  )
-                })}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      {metrics.by_project.length > 0 && (
-        <section className="chart">
-          <p className="label">operações por projeto</p>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>projeto</th>
-                <th className="num">ops</th>
-                <th className="num">entrada</th>
-                <th className="num">saída</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.by_project.map((r) => (
-                <tr key={r.project}>
-                  <td className="mono">{r.project}</td>
-                  <td className="num">{r.ops.toLocaleString('pt-BR')}</td>
-                  <td className="num">
-                    {r.input_tokens > 0 ? r.input_tokens.toLocaleString('pt-BR') : '—'}
-                  </td>
-                  <td className="num">
-                    {r.output_tokens > 0 ? r.output_tokens.toLocaleString('pt-BR') : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
-    </div>
-  )
 }
 
 function truncate(s: string, n: number): string {

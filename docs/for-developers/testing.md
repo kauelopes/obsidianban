@@ -211,9 +211,9 @@ A UI não pode ser totalmente testada automaticamente — `jsdom` não renderiza
 - [ ] Abrir um card com `$$...$$` (MathJax) e bloco ` ```mermaid ` no Agent Log — `card-2vorDD5G` do `test-vault` serve para isso
 - [ ] Verificar renderização correta nos dois temas (claro/escuro)
 
-### 8. Atividade e supervisão
+### 8. Estatísticas e supervisão
 
-- [ ] Abrir `/atividade` e verificar tokens/custo por agente e por projeto
+- [ ] Abrir a aba **Estatísticas** (`/atividade`) e verificar tokens/custo por provedor, por tipo de agente (Wizard/PM/Dev/humano/sistema) e por projeto
 - [ ] Provocar uma escalação (`log_kind: escalate`) e verificar que aparece em `/inbox` e na seção "precisa de você" da home
 - [ ] Abrir a aba **History** do card e verificar que reflete `audit.ndjson`
 

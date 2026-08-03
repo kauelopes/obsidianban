@@ -73,11 +73,23 @@ describe('buildOverview', () => {
   it('projeto listado sem nenhum card aparece vazio; cards órfãos inferem projeto', () => {
     const vazio: ProjectInfo = { project: 'aaa-vazio', columns: ['todo'], archived: false, sprints: [], goals: [] }
     const ovs = buildOverview(CARDS, [vazio], [])
-    expect(ovs.map((o) => o.project)).toEqual(['aaa-vazio', 'teste'])
-    expect(ovs[0]!.total).toBe(0)
-    expect(ovs[0]!.lastUpdate).toBeNull()
+    // Trabalho recente primeiro: 'teste' tem lastUpdate, 'aaa-vazio' não — vai
+    // pro fim mesmo vindo antes em ordem alfabética.
+    expect(ovs.map((o) => o.project)).toEqual(['teste', 'aaa-vazio'])
+    expect(ovs[1]!.total).toBe(0)
+    expect(ovs[1]!.lastUpdate).toBeNull()
     // 'teste' não está em projects (token dev) e mesmo assim aparece.
-    expect(ovs[1]!.total).toBe(13)
+    expect(ovs[0]!.total).toBe(13)
+  })
+
+  it('ordena por trabalho mais recente primeiro; sem cards vai pro fim', () => {
+    const a = { project: 'a-projeto', columns: ['todo'], archived: false, sprints: [], goals: [] }
+    const b = { project: 'b-projeto', columns: ['todo'], archived: false, sprints: [], goals: [] }
+    const semCards = { project: 'c-sem-cards', columns: ['todo'], archived: false, sprints: [], goals: [] }
+    const cardA = { ...CARDS[0]!, id: 'card-a', project: 'a-projeto', updated_at: '2026-01-01T00:00:00Z' }
+    const cardB = { ...CARDS[0]!, id: 'card-b', project: 'b-projeto', updated_at: '2026-06-01T00:00:00Z' }
+    const ovs = buildOverview([cardA, cardB], [a, b, semCards], [])
+    expect(ovs.map((o) => o.project)).toEqual(['b-projeto', 'a-projeto', 'c-sem-cards'])
   })
 
   it('cards arquivados saem das contagens mas não do lastUpdate', () => {

@@ -70,9 +70,15 @@ export function Board({
   // só até o fim do tick para esse click não virar navegação acidental.
   const justDragged = useRef(false)
   const sensors = useSensors(
-    // A small threshold keeps a click on the card from starting a drag, so
-    // the link to the detail view still works.
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    // Um único PointerSensor cobre mouse, touch e caneta — o dnd-kit despacha
+    // tudo isso como Pointer Events. Registrar um TouchSensor à parte além
+    // deste criava uma corrida: o distance:4 (calibrado pra mouse) do
+    // PointerSensor era satisfeito por qualquer scroll no touch antes do
+    // delay do TouchSensor completar, então o sensor errado vencia na maior
+    // parte das vezes. Um delay+tolerance único resolve os dois casos: um
+    // clique/scroll normal passa livre, um press-and-hold breve inicia o
+    // drag — no mouse esse delay é imperceptível.
+    useSensor(PointerSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     // Setas reordenam dentro da coluna e também movem entre colunas —
     // sortableKeyboardCoordinates opera por geometria sobre todos os
     // droppables do DndContext, não só os da lista atual. Verificado em

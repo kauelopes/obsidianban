@@ -1103,6 +1103,7 @@
 
 .chart {
   margin-top: var(--s-7);
+  overflow-x: auto;
 }
 
 .chart > .label {
@@ -1430,6 +1431,20 @@
 
 .project-tile.alert {
   border-color: color-mix(in srgb, var(--alert) 40%, var(--rule));
+}
+
+/* Faixa azul no topo: sinaliza agente rodando sem depender de abrir o board —
+ * margin negativo para colar nas bordas do tile (que tem padding próprio). */
+.pt-working {
+  margin: calc(var(--s-5) * -1) calc(var(--s-6) * -1) 0;
+  padding: var(--s-2) var(--s-6);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: color-mix(in srgb, var(--accent) 16%, var(--ink-1));
+  color: var(--accent);
+  font-size: var(--t-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
 }
 
 .pt-head {
