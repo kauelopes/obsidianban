@@ -77,10 +77,24 @@ interface ByProjectDayRow {
   ops: number
 }
 
+interface TerminalSummaryRow {
+  total_input_tokens: number
+  total_output_tokens: number
+  total_cache_read_tokens: number
+  total_cache_creation_tokens: number
+  total_cost_usd: number
+  total_ops: number
+}
+
 /**
  * Read-only aggregation over the `token_log` table. The token_log is the
  * authoritative source for token accounting (one row per mutating MCP op);
  * `cards.total_input_tokens` is a cached sum on the target card only.
+ *
+ * Also aggregates `terminal_usage` (sessões de terminal fora do board,
+ * ingeridas por `TerminalUsageService`) into `terminal`/`by_origin` — mesma
+ * postura read-only, dado já fresco quando o caller chama `ensureFresh()`
+ * antes (GET /metrics faz isso).
  */
 export class MetricsService {
   constructor(private readonly db: Database.Database) {}
@@ -229,6 +243,42 @@ export class MetricsService {
       )
       .all(params) as ByProjectDayRow[]
 
+    // terminal_usage não tem card_id — o filtro de data reusa os mesmos
+    // parâmetros, mas o WHERE é reconstruído sem a cláusula card_id.
+    const terminalWhere: string[] = []
+    if (filter.from_date != null) terminalWhere.push('substr(ts, 1, 10) >= @from_date')
+    if (filter.to_date != null) terminalWhere.push('substr(ts, 1, 10) <= @to_date')
+    const terminalWhereClause = terminalWhere.length > 0 ? ' WHERE ' + terminalWhere.join(' AND ') : ''
+
+    const terminal = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+                COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+                COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation_tokens,
+                COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
+                COUNT(*) AS total_ops
+         FROM terminal_usage${terminalWhereClause}`,
+      )
+      .get(params) as TerminalSummaryRow
+
+    const byOrigin: Metrics['by_origin'] = [
+      {
+        origin: 'board',
+        input_tokens: summary.total_input_tokens,
+        output_tokens: summary.total_output_tokens,
+        cost_usd: summary.total_cost_usd,
+        ops: summary.total_ops,
+      },
+      {
+        origin: 'terminal',
+        input_tokens: terminal.total_input_tokens,
+        output_tokens: terminal.total_output_tokens,
+        cost_usd: terminal.total_cost_usd,
+        ops: terminal.total_ops,
+      },
+    ]
+
     return {
       summary,
       by_type: byType,
@@ -239,6 +289,8 @@ export class MetricsService {
       by_operation: byOperation,
       by_project: byProject,
       by_project_day: byProjectDay,
+      terminal,
+      by_origin: byOrigin,
     }
   }
 }

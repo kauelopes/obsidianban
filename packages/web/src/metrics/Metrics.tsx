@@ -92,7 +92,10 @@ export function Metrics({ client }: { client: KanbanClient }) {
     let sum = 0
     let any = false
     for (const row of data.by_model) {
-      const usd = estimateUsd(row.model, row.input_tokens, row.output_tokens)
+      const usd = estimateUsd(row.model, row.input_tokens, row.output_tokens, {
+        readTokens: row.cache_read_tokens,
+        creationTokens: row.cache_creation_tokens,
+      })
       if (usd === null) continue
       any = true
       sum += usd
@@ -262,6 +265,8 @@ export function Metrics({ client }: { client: KanbanClient }) {
 
             <Usage metrics={data} />
 
+            {data.terminal && <TerminalUsage terminal={data.terminal} byOrigin={data.by_origin} />}
+
             {/* Rodapé, não manchete: a explicação é honesta mas não pode ser a
                 primeira coisa da página — parecia aviso de sistema quebrado. */}
             {tokensReported === 0 && (
@@ -280,6 +285,64 @@ export function Metrics({ client }: { client: KanbanClient }) {
 }
 
 /**
+ * Uso do TERMINAL — sessões de Claude Code fora do board, ingeridas dos
+ * `.jsonl` locais em `~/.claude/projects`. `cost_usd` aqui é SEMPRE estimado
+ * (nunca medido pelo harness, diferente de `by_role`/`by_agent` acima) — por
+ * isso a seção fica separada e rotulada, nunca somada ao "custo medido".
+ */
+function TerminalUsage({
+  terminal,
+  byOrigin,
+}: {
+  terminal: NonNullable<MetricsData['terminal']>
+  byOrigin: MetricsData['by_origin']
+}) {
+  const cacheTokens = terminal.total_cache_read_tokens + terminal.total_cache_creation_tokens
+  return (
+    <section className="chart">
+      <p className="label">Terminal (sessões Claude Code fora do board)</p>
+      <div className="tiles">
+        <Tile label="operações (terminal)" value={terminal.total_ops.toLocaleString('pt-BR')} />
+        <Tile
+          label="tokens de cache (r+w)"
+          value={cacheTokens > 0 ? cacheTokens.toLocaleString('pt-BR') : 'sem dados'}
+          muted={cacheTokens === 0}
+        />
+        <Tile
+          label="custo estimado (terminal, US$)"
+          value={terminal.total_cost_usd > 0 ? terminal.total_cost_usd.toFixed(2) : 'sem dados'}
+          muted={terminal.total_cost_usd === 0}
+        />
+      </div>
+      {terminal.total_ops === 0 ? (
+        <p className="empty">
+          Nenhuma sessão de terminal encontrada em <code>~/.claude/projects</code> neste intervalo.
+        </p>
+      ) : (
+        <>
+          {byOrigin && (
+            <BarChart
+              title="Custo por origem (US$, board medido + terminal estimado)"
+              rows={byOrigin.map((r) => ({
+                label: r.origin === 'board' ? 'board' : 'terminal',
+                value: Number(r.cost_usd.toFixed(4)),
+              }))}
+            />
+          )}
+          <p className="note">
+            Custo do terminal é sempre <strong>estimado</strong> por tabela local de preços —
+            inclui cache read/write (≈69% do custo real em sessões interativas), mas nunca é uma
+            medição do harness. Ingestão incremental dos `.jsonl` locais; sessões com{' '}
+            <code>cwd</code> fora dos <code>target_repo</code> conhecidos não são atribuídas a
+            nenhum projeto.
+          </p>
+        </>
+      )}
+    </section>
+  )
+}
+
+/**
  * Uso agregado por provedor, por tipo de agente e por projeto. O custo do
  * bloco "por provedor" é ESTIMADO por tabela local de preços de lista da API
  * (pay-per-token) — modelos fora dela (human, unknown…) não entram na conta.
@@ -293,7 +356,11 @@ function Usage({ metrics }: { metrics: MetricsData }) {
       const cur = acc.get(prov) ?? { input: 0, output: 0, usd: 0, models: [] }
       cur.input += row.input_tokens
       cur.output += row.output_tokens
-      cur.usd += estimateUsd(row.model, row.input_tokens, row.output_tokens) ?? 0
+      cur.usd +=
+        estimateUsd(row.model, row.input_tokens, row.output_tokens, {
+          readTokens: row.cache_read_tokens,
+          creationTokens: row.cache_creation_tokens,
+        }) ?? 0
       cur.models.push(row.model)
       acc.set(prov, cur)
     }

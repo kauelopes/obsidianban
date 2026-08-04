@@ -17,6 +17,7 @@ import { QueryService } from './services/query.js'
 import { HistoryService } from './services/history.js'
 import { SupervisionService } from './services/supervision.js'
 import { MetricsService } from './services/metrics.js'
+import { TerminalUsageService } from './services/terminal-usage.js'
 import { ActivityService } from './services/activity.js'
 import { DigestService } from './services/digest.js'
 import { FlowService } from './services/flow.js'
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
   const jobStore = new JobStore(config.paths)
   const jobs = new JobManager(jobCfg, jobStore, cards, sse, audit, workflow, config.paths)
   const metrics = new MetricsService(db)
+  const terminalUsage = new TerminalUsageService(db, config.paths)
   const activity = new ActivityService(db, config.paths, new GitActivityService())
   const admin = new AdminService(config.paths, repo, audit, sse)
   const epics = new EpicService(config.paths, audit, sse)
@@ -365,7 +367,7 @@ async function main(): Promise<void> {
   const site = (await candidate.isAvailable()) ? candidate : undefined
   if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
 
-  const httpServer = new HttpServer({ port: config.httpPort, host: config.host, state, validator, idempotency, sse, metrics, activity, digest, flow, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths, jobManager: jobs })
+  const httpServer = new HttpServer({ port: config.httpPort, host: config.host, state, validator, idempotency, sse, metrics, terminalUsage, activity, digest, flow, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths, jobManager: jobs })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }

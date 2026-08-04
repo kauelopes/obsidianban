@@ -578,6 +578,10 @@ export interface DeleteProjectResult {
 export const MODEL_PRICES_USD_PER_TOKEN: Readonly<
   Record<string, { input: number; output: number }>
 > = {
+  'claude-opus-5': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
+  'claude-sonnet-5': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  'claude-fable-5': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  'claude-haiku-4-5-20251001': { input: 1 / 1_000_000, output: 5 / 1_000_000 },
   'claude-opus-4-8': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
   'claude-opus-4-6': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
   'claude-sonnet-4-6': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
@@ -593,19 +597,47 @@ export const MODEL_PRICES_USD_PER_TOKEN: Readonly<
   'codex-mini': { input: 0.25 / 1_000_000, output: 2 / 1_000_000 },
 }
 
+// Preço de cache é sempre um múltiplo do preço de INPUT do próprio modelo
+// (tabela pública da Anthropic): leitura de cache é a mais barata, escrita
+// efêmera de 1h é a mais cara — o padrão vale para toda a família Claude.
+const CACHE_READ_MULTIPLIER = 0.1
+const CACHE_WRITE_5M_MULTIPLIER = 1.25
+const CACHE_WRITE_1H_MULTIPLIER = 2
+
+export interface EstimateUsdCacheTokens {
+  /** cache_read_input_tokens do harness. */
+  readTokens?: number
+  /** cache_creation_input_tokens (write efêmero de 5 min), ou o total de escrita quando a fonte não distingue 5m/1h. */
+  creationTokens?: number
+  /** Fração do write que é efêmero de 1h (mais caro) — vem de `cache_creation.ephemeral_1h_input_tokens`. */
+  creation1hTokens?: number
+}
+
 /**
- * Custo estimado de um par de contagens, ou null quando o modelo não está na
- * tabela — inclusive os pseudo-modelos `human`, `plugin` e `unknown`, que o
- * servidor grava e que não têm preço nenhum.
+ * Custo estimado de um turno, ou null quando o modelo não está na tabela —
+ * inclusive os pseudo-modelos `human`, `plugin` e `unknown`, que o servidor
+ * grava e que não têm preço nenhum.
+ *
+ * `cache` é opcional e aditivo: sem ele, o cálculo é só input×preço +
+ * output×preço — o comportamento histórico. Cache read/write tokens ficam
+ * FORA de input/output nos registros do harness; ignorá-los subestimava o
+ * custo real em ~69% nas sessões de terminal (ver terminal_usage).
  */
 export function estimateUsd(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  cache?: EstimateUsdCacheTokens,
 ): number | null {
   const price = MODEL_PRICES_USD_PER_TOKEN[model]
   if (!price) return null
-  return inputTokens * price.input + outputTokens * price.output
+  let usd = inputTokens * price.input + outputTokens * price.output
+  if (cache) {
+    usd += (cache.readTokens ?? 0) * price.input * CACHE_READ_MULTIPLIER
+    usd += (cache.creationTokens ?? 0) * price.input * CACHE_WRITE_5M_MULTIPLIER
+    usd += (cache.creation1hTokens ?? 0) * price.input * CACHE_WRITE_1H_MULTIPLIER
+  }
+  return usd
 }
 
 export type ModelProvider = 'anthropic' | 'openai' | 'other'
@@ -837,6 +869,28 @@ export interface Metrics {
   by_project_day: Array<{
     project: string
     date: string
+    input_tokens: number
+    output_tokens: number
+    cost_usd: number
+    ops: number
+  }>
+  /**
+   * Uso do TERMINAL (sessões Claude Code fora do board), ingerido dos `.jsonl`
+   * de `~/.claude/projects` — Fase 1 (2026-08). `cost_usd` é sempre ESTIMADO
+   * (tabela local de preços), nunca medido. Opcional: servidor sem a migração
+   * de `terminal_usage` simplesmente omite o campo.
+   */
+  terminal?: {
+    total_input_tokens: number
+    total_output_tokens: number
+    total_cache_read_tokens: number
+    total_cache_creation_tokens: number
+    total_cost_usd: number
+    total_ops: number
+  }
+  /** `board` = token_log (measured), `terminal` = terminal_usage (estimated). */
+  by_origin?: Array<{
+    origin: 'board' | 'terminal'
     input_tokens: number
     output_tokens: number
     cost_usd: number

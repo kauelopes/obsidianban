@@ -9,6 +9,7 @@ import type { SSEEventBus } from './sse.js'
 import type { TokenClaims } from '@obsidiankan/types'
 import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
+import type { TerminalUsageService } from '../services/terminal-usage.js'
 import type { ActivityService } from '../services/activity.js'
 import type { DigestService } from '../services/digest.js'
 import type { FlowService } from '../services/flow.js'
@@ -24,6 +25,7 @@ import { listAgentTokens } from '../auth/tokens.js'
 import type { WorkflowAgentsStatus, WorkflowInProgressCard } from '@obsidiankan/types'
 import { listKadDocs, readKadDoc } from '../vault/kad.js'
 import { listRepoDocs, readRepoDoc } from '../vault/repo-docs.js'
+import { logger } from '../util/logger.js'
 
 export interface ServerState {
   startedAt: number
@@ -41,6 +43,8 @@ export interface HttpServerDeps {
   idempotency: IdempotencyStore
   sse: SSEEventBus
   metrics: MetricsService
+  /** Ingestão sob demanda das sessões de terminal — ausente em testes que não precisam do bloco `terminal`. */
+  terminalUsage?: Pick<TerminalUsageService, 'ensureFresh'> | undefined
   activity: ActivityService
   digest: DigestService
   flow: FlowService
@@ -225,7 +229,7 @@ export class HttpServer {
     })
   }
 
-  private handleMetrics(req: IncomingMessage, res: ServerResponse, url: string): void {
+  private async handleMetrics(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
     // Rota sem token: a checagem de rede é a única barreira. Permite loopback
     // e a LAN privada em que o servidor pode estar (opcionalmente) exposto
     // via HOST=0.0.0.0, mas nunca a internet pública.
@@ -234,6 +238,12 @@ export class HttpServer {
       sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
       return
     }
+    // Best-effort: ingestão do terminal falhar (fs indisponível, jsonl
+    // corrompido) não pode derrubar o /metrics — o bloco `terminal` da
+    // resposta só fica com dado velho, o resto (token_log) segue intacto.
+    await this.deps.terminalUsage?.ensureFresh().catch((err) => {
+      logger.warn({ err: String(err) }, 'terminal-usage: ensureFresh falhou')
+    })
     const params = new URL(url, 'http://localhost').searchParams
     try {
       const metrics = this.deps.metrics.collect({
