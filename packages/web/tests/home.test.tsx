@@ -176,6 +176,33 @@ describe('Home', () => {
     expect(overdue?.textContent).toContain('venceu')
   })
 
+  it('prazo apertado acende o tile sozinho; prazo folgado não', () => {
+    // Sem card em review: o alerta do tile tem que vir da meta, não da fila.
+    const calm = CARDS.filter((c) => c.status !== 'review')
+    const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toLocaleDateString('sv')
+    const goalIn = (days: number) => [
+      {
+        id: 'goal-1',
+        title: 'Entregar relatório',
+        target_date: inDays(days),
+        status: 'open',
+        created_at: '2026-01-01T00:00:00Z',
+      },
+    ]
+    const projects = (goals: object[]) => [
+      { project: 'teste', columns: ['backlog', 'todo', 'in_progress', 'review', 'done'], archived: false, sprints: [SPRINT], goals },
+    ]
+
+    const soon = renderHome(calm, [], { projects: projects(goalIn(5)) })
+    expect(soon.container.querySelector('.pt-goals .goal-due-soon')).toBeTruthy()
+    expect(soon.container.querySelector('.project-tile.alert')).toBeTruthy()
+    soon.unmount()
+
+    const later = renderHome(calm, [], { projects: projects(goalIn(20)) })
+    expect(later.container.querySelector('.pt-goals .goal-due-soon')).toBeNull()
+    expect(later.container.querySelector('.project-tile.alert')).toBeNull()
+  })
+
   it('muitas sprints em planning viram resumo de uma linha, não lista', () => {
     const planned = Array.from({ length: 6 }, (_, i) => ({
       id: `sprint-plan${i}`,

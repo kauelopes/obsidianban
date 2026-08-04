@@ -13,7 +13,8 @@ import type { useBoard } from '../board/useBoard.js'
 import { Sparkline } from '../metrics/widgets.js'
 import { stepIndex, stepMeta, PLAN_STEPS } from '../plan/steps-meta.js'
 import { usePlanningSummary } from '../plan/usePlanningSummary.js'
-import { humanTime, relativeTime } from '../util/time.js'
+import { fmtDay, humanTime, relativeTime, todayIso } from '../util/time.js'
+import { goalUrgency, type GoalUrgency } from './goal-urgency.js'
 import {
   buildOverview,
   compareEscalation,
@@ -302,8 +303,16 @@ function ProjectCard({
 }) {
   const alert = p.escalations.length + p.review.length
   const openGoals = p.goals.filter((g) => g.status === 'open')
+  const today = todayIso()
+  // Prazo apertado acende o tile mas fica fora do contador: "N decisões" conta
+  // o que espera resposta agora, e somar prazo ali misturaria duas urgências
+  // com tempos de resposta diferentes.
+  const goalAlert = openGoals.some((g) => goalUrgency(g, today) !== 'ok')
   return (
-    <Link className={`project-tile${alert > 0 ? ' alert' : ''}`} to={`/board/${p.project}`}>
+    <Link
+      className={`project-tile${alert > 0 || goalAlert ? ' alert' : ''}`}
+      to={`/board/${p.project}`}
+    >
       {working && <div className="pt-working">● agentes trabalhando</div>}
       <div className="pt-head">
         <h2>{p.project}</h2>
@@ -329,7 +338,7 @@ function ProjectCard({
       {openGoals.length > 0 && (
         <ul className="pt-goals">
           {openGoals.map((g) => (
-            <GoalLine key={g.id} goal={g} />
+            <GoalLine key={g.id} goal={g} today={today} />
           ))}
         </ul>
       )}
@@ -375,30 +384,27 @@ function ProjectCard({
   )
 }
 
+const URGENCY_MARK: Record<GoalUrgency, string> = { ok: '◇', 'due-soon': '◆', overdue: '▲' }
+
 /**
- * Meta aberta num tile: título + prazo. Vencida entra no canal de alerta — é
- * um estado que pede decisão (replanejar ou desistir), não decoração.
+ * Meta aberta num tile: título + prazo. Vencida e vencendo entram no canal de
+ * alerta — são estados que pedem decisão (replanejar ou correr), não
+ * decoração; o losango cheio separa "aperta" de "já passou" sem gastar um
+ * quarto matiz.
  */
-function GoalLine({ goal }: { goal: Goal }) {
-  const overdue =
-    goal.target_date !== null && goal.target_date < new Date().toLocaleDateString('sv')
+function GoalLine({ goal, today }: { goal: Goal; today: string }) {
+  const urgency = goalUrgency(goal, today)
   return (
-    <li className={overdue ? 'goal-overdue' : undefined} title={goal.notes}>
-      <span className="goal-mark">{overdue ? '▲' : '◇'}</span> {goal.title}
+    <li className={urgency === 'ok' ? undefined : `goal-${urgency}`} title={goal.notes}>
+      <span className="goal-mark">{URGENCY_MARK[urgency]}</span> {goal.title}
       {goal.target_date && (
         <span className="mono goal-date">
-          {overdue ? 'venceu ' : 'até '}
+          {urgency === 'overdue' ? 'venceu ' : 'até '}
           {fmtDay(goal.target_date)}
         </span>
       )}
     </li>
   )
-}
-
-/** YYYY-MM-DD → dd/mm, sem passar por Date (é data pura, fuso não entra). */
-function fmtDay(iso: string): string {
-  const [, m, d] = iso.split('-')
-  return `${d}/${m}`
 }
 
 function truncate(s: string, n: number): string {

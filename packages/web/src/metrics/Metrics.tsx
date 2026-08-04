@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   estimateUsd,
   providerOf,
+  type FlowMetrics,
   type Metrics as MetricsData,
   type ModelProvider,
 } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
 import { BarChart, Tile, TokenTable } from './widgets.js'
+import { FlowPanel } from './FlowPanel.js'
 
 const PROVIDER_LABEL: Record<ModelProvider, string> = {
   anthropic: 'Anthropic',
@@ -44,15 +46,20 @@ const ROLE_LABEL: Record<string, string> = {
  */
 export function Metrics({ client }: { client: KanbanClient }) {
   const [data, setData] = useState<MetricsData | null>(null)
+  // Fluxo é uma segunda fonte (audit log) sob o mesmo filtro de datas. Falha
+  // dele não pode esconder o custo, que é a metade que já funcionava.
+  const [flow, setFlow] = useState<FlowMetrics | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
 
   const load = useCallback(async () => {
-    const res = await client.getMetrics({
+    const range = {
       ...(from ? { from_date: from } : {}),
       ...(to ? { to_date: to } : {}),
-    })
+    }
+    const [res, flowRes] = await Promise.all([client.getMetrics(range), client.getFlow(range)])
+    setFlow(flowRes.ok ? flowRes.data : null)
     if (!res.ok) {
       setError(errorText(res.error))
       return
@@ -194,6 +201,8 @@ export function Metrics({ client }: { client: KanbanClient }) {
                 </p>
               )
             )}
+
+            {flow && <FlowPanel data={flow} />}
 
             <BarChart
               title="Operações por tipo de mutação"

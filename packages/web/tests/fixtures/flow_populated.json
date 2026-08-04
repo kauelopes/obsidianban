@@ -1,0 +1,25 @@
+{
+  "window_from": "2026-06-08T10:00:00.000Z",
+  "window_to": "2026-07-27T18:00:00.000Z",
+  "cycle_time_hours": { "count": 110, "p50": 0.1, "p90": 4.5, "max": 23.4 },
+  "decision_latency_hours": { "count": 24, "p50": 0.6, "p90": 13.7, "max": 23.4 },
+  "rework": {
+    "forward": 319,
+    "backward": 24,
+    "rate": 0.07,
+    "by_transition": [
+      { "from_status": "review", "to_status": "todo", "count": 15 },
+      { "from_status": "in_progress", "to_status": "todo", "count": 8 },
+      { "from_status": "done", "to_status": "todo", "count": 1 }
+    ]
+  },
+  "by_week": [
+    { "week_start": "2026-06-08", "delivered": 10, "cost_usd": 0, "cost_per_card": null },
+    { "week_start": "2026-06-15", "delivered": 20, "cost_usd": 0, "cost_per_card": null },
+    { "week_start": "2026-06-22", "delivered": 0, "cost_usd": 0, "cost_per_card": null },
+    { "week_start": "2026-06-29", "delivered": 0, "cost_usd": 0, "cost_per_card": null },
+    { "week_start": "2026-07-27", "delivered": 103, "cost_usd": 196.53, "cost_per_card": 1.91 }
+  ],
+  "cost_reporting_starts": "2026-07-27",
+  "audit_truncated": false
+}

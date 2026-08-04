@@ -18,10 +18,12 @@ import { CardDetail } from './card/CardDetail.js'
 import { Files } from './files/Files.js'
 import { Help } from './help/Help.js'
 import { Home } from './home/Home.js'
+import { Horizon } from './horizon/Horizon.js'
 import { Inbox } from './inbox/Inbox.js'
 import { Metrics } from './metrics/Metrics.js'
 import { ThemeContext } from './markdown/Markdown.js'
 import { PlanEntry, PlanWizard } from './plan/PlanWizard.js'
+import { Review } from './review/Review.js'
 import { usePlanningSummary } from './plan/usePlanningSummary.js'
 import { SprintPlanEntry, SprintPlanWizard } from './sprint-plan/SprintPlanWizard.js'
 import { CreateCard } from './ui/CreateCard.js'
@@ -61,6 +63,12 @@ export function Shell({
           </NavLink>
           <NavLink to="/inbox" className={({ isActive }) => (isActive ? 'active' : '')}>
             Escalações
+          </NavLink>
+          <NavLink to="/horizonte" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Horizonte
+          </NavLink>
+          <NavLink to="/revisao" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Revisão
           </NavLink>
           <NavLink to="/atividade" className={({ isActive }) => (isActive ? 'active' : '')}>
             Estatísticas
@@ -439,6 +447,22 @@ export function App() {
             element={
               <Shell client={client} onLogout={clearToken}>
                 <Inbox client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/horizonte"
+            element={
+              <Shell client={client} onLogout={clearToken}>
+                <Horizon client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/revisao"
+            element={
+              <Shell client={client} onLogout={clearToken}>
+                <Review client={client} />
               </Shell>
             }
           />

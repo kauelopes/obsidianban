@@ -904,6 +904,127 @@ export interface RepoDocResponse {
   content: string
 }
 
+// ─── Flow metrics (GET /flow) ────────────────────────────────────────────────
+// A metade de entrega da aba Estatísticas: /metrics diz quanto custou, isto diz
+// o que saiu. Tudo derivado do audit log, que registra cada MOVE com
+// from_status/to_status desde o primeiro dia — a série nasce retroativa.
+
+/** Percentis em horas. `count` = amostras; 0 significa "não dá para afirmar". */
+export interface FlowPercentiles {
+  count: number
+  p50: number
+  p90: number
+  max: number
+}
+
+export interface FlowWeek {
+  /** Segunda-feira da semana, YYYY-MM-DD. */
+  week_start: string
+  delivered: number
+  cost_usd: number
+  /** null quando não houve entrega ou o custo não foi reportado na época. */
+  cost_per_card: number | null
+}
+
+export interface FlowRework {
+  forward: number
+  backward: number
+  /** backward / (forward + backward), 0..1. */
+  rate: number
+  by_transition: Array<{ from_status: string; to_status: string; count: number }>
+}
+
+export interface FlowMetrics {
+  /** Extremos do que foi lido, para a tela dizer de quando fala. */
+  window_from: string | null
+  window_to: string | null
+  /** in_progress → done. */
+  cycle_time_hours: FlowPercentiles
+  /** Tempo parado em review até alguém mover — a espera pela decisão humana. */
+  decision_latency_hours: FlowPercentiles
+  rework: FlowRework
+  by_week: FlowWeek[]
+  /**
+   * Primeira semana com custo reportado. Antes disso nada media tokens, então
+   * comparar custo com esse período desenharia uma queda que nunca existiu —
+   * a tela precisa avisar em vez de plotar zero.
+   */
+  cost_reporting_starts: string | null
+  audit_truncated: boolean
+}
+
+// ─── Weekly digest (GET /digest) ─────────────────────────────────────────────
+// Retrospectiva de uma semana civil (segunda a domingo), cross-project. Tudo
+// aqui é computado de fontes que já existem — nenhum dado novo é gravado.
+
+export interface DigestSprintClosed {
+  project: string
+  sprint_id: string
+  name: string
+  goal: string | null
+  ended_at: string
+}
+
+export interface DigestCardDone {
+  project: string
+  card_id: string
+  title: string
+  /** Momento do MOVE para done, do audit log. */
+  ts: string
+}
+
+/**
+ * Goal não tem timestamp de conclusão no schema — este `ts` vem do audit
+ * `GOAL_SET`, então uma meta fechada por edição direta do _meta.json (fora do
+ * MCP) não aparece aqui.
+ */
+export interface DigestGoalDone {
+  project: string
+  goal_id: string
+  title: string
+  ts: string
+}
+
+export interface DigestGoalUpcoming {
+  project: string
+  goal_id: string
+  title: string
+  /** YYYY-MM-DD — cai na semana seguinte à janela. */
+  target_date: string
+}
+
+export interface DigestStalledReview {
+  project: string
+  card_id: string
+  title: string
+  escalated_at: string | null
+  days_stalled: number
+}
+
+export interface WeeklyDigest {
+  /** YYYY-MM-DD, segunda-feira. */
+  week_start: string
+  /** YYYY-MM-DD, domingo (inclusive). */
+  week_end: string
+  sprints_closed: DigestSprintClosed[]
+  cards_done: DigestCardDone[]
+  goals_done: DigestGoalDone[]
+  goals_upcoming: DigestGoalUpcoming[]
+  /** Estado atual, não histórico da semana: o que ainda trava agora. */
+  stalled_reviews: DigestStalledReview[]
+  activity: Pick<Metrics, 'summary' | 'by_day' | 'by_project'>
+  /** Só existe para a semana corrente — ver hours_estimate_available. */
+  hours_estimate: number
+  /**
+   * A estimativa de horas vem de uma janela deslizante de 7 dias, que só
+   * coincide com a semana civil quando ela é a atual. Em semanas passadas o
+   * campo fica zerado e este flag em false, em vez de fingir precisão.
+   */
+  hours_estimate_available: boolean
+  /** O scan do audit log parou no teto de linhas — os totais podem faltar. */
+  audit_truncated: boolean
+}
+
 // ─── Card body zones ─────────────────────────────────────────────────────────
 // Lives here rather than in the server so the web app parses card bodies with
 // the exact same code the server writes them with — a second implementation

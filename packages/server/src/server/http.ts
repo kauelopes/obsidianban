@@ -10,6 +10,8 @@ import type { TokenClaims } from '@obsidiankan/types'
 import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
 import type { ActivityService } from '../services/activity.js'
+import type { DigestService } from '../services/digest.js'
+import type { FlowService } from '../services/flow.js'
 import { ACTIVITY_DAYS_DEFAULT, ACTIVITY_DAYS_MAX, HTTP_SHUTDOWN_TIMEOUT_MS } from '../util/constants.js'
 import type { McpHttpManager } from './mcp-http.js'
 import type { StaticSite } from './static.js'
@@ -40,6 +42,8 @@ export interface HttpServerDeps {
   sse: SSEEventBus
   metrics: MetricsService
   activity: ActivityService
+  digest: DigestService
+  flow: FlowService
   mcp: McpHttpManager
   /** Built web SPA, served from the same origin. Absent when not built. */
   site?: StaticSite | undefined
@@ -142,6 +146,12 @@ export class HttpServer {
     }
     if (req.method === 'GET' && url.split('?')[0] === '/activity') {
       return this.handleActivity(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/flow') {
+      return this.handleFlow(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/digest') {
+      return this.handleDigest(req, res, url)
     }
     if (req.method === 'GET' && url.split('?')[0] === '/workflow/log') {
       return this.handleWorkflowLog(req, res, url)
@@ -261,6 +271,62 @@ export class HttpServer {
       return
     }
     sendJson(res, 200, await this.deps.activity.collect({ days, tzOffsetMinutes: tzOffset }))
+  }
+
+  /**
+   * Mesma postura e os mesmos filtros do /metrics — os dois alimentam a mesma
+   * aba, e um intervalo que valesse só para metade dela seria armadilha.
+   */
+  private async handleFlow(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: string,
+  ): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const from = params.get('from_date')
+    const to = params.get('to_date')
+    for (const [field, value] of [['from_date', from], ['to_date', to]] as const) {
+      if (value !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)))) {
+        sendJson(res, 400, { error: 'invalid_field', field, expected: 'YYYY-MM-DD' })
+        return
+      }
+    }
+    sendJson(res, 200, await this.deps.flow.collect({
+      ...(from ? { from_date: from } : {}),
+      ...(to ? { to_date: to } : {}),
+    }))
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleDigest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: string,
+  ): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    // Sem week_start, a semana corrente em UTC. O serviço normaliza qualquer
+    // dia para a segunda da sua semana, então o cliente pode mandar "hoje".
+    const weekStart = params.get('week_start') ?? new Date().toISOString().slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || Number.isNaN(Date.parse(weekStart))) {
+      sendJson(res, 400, { error: 'invalid_field', field: 'week_start', expected: 'YYYY-MM-DD' })
+      return
+    }
+    const tzOffset = intParam(params.get('tz_offset'), 0, -840, 840)
+    if (tzOffset === null) {
+      sendJson(res, 400, { error: 'invalid_field', field: 'tz_offset', expected: '-840..840' })
+      return
+    }
+    sendJson(res, 200, await this.deps.digest.collect({ weekStart, tzOffsetMinutes: tzOffset }))
   }
 
   /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */

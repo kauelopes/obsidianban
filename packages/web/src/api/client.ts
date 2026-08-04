@@ -22,7 +22,9 @@ import type {
   ReorderCardParams,
   ReorderResult,
   SetProjectRepoResult,
+  FlowMetrics,
   Sprint,
+  WeeklyDigest,
   WorkflowAgentsStatus,
   WorkflowLogResult,
   WorkflowReadinessResult,
@@ -375,6 +377,54 @@ export class KanbanClient {
         error: {
           kind: 'offline',
           message: 'não foi possível ler a atividade',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /**
+   * GET /flow — a metade de entrega da aba Estatísticas. Aceita o mesmo
+   * recorte de datas do /metrics porque divide a tela com ele.
+   */
+  async getFlow(params: { from_date?: string; to_date?: string } = {}): Promise<
+    McpResult<FlowMetrics>
+  > {
+    const qs = new URLSearchParams()
+    if (params.from_date) qs.set('from_date', params.from_date)
+    if (params.to_date) qs.set('to_date', params.to_date)
+    const suffix = qs.size > 0 ? `?${qs.toString()}` : ''
+    try {
+      const res = await fetch(`${this.baseUrl}/flow${suffix}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler as métricas de fluxo',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /**
+   * GET /digest — mesma postura do /metrics. `week_start` pode ser qualquer
+   * dia da semana desejada: o servidor normaliza para a segunda.
+   */
+  async getDigest(params: { week_start?: string } = {}): Promise<McpResult<WeeklyDigest>> {
+    const qs = new URLSearchParams({ tz_offset: String(new Date().getTimezoneOffset()) })
+    if (params.week_start) qs.set('week_start', params.week_start)
+    try {
+      const res = await fetch(`${this.baseUrl}/digest?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler a revisão da semana',
           cause: err instanceof Error ? err.message : String(err),
         },
       }

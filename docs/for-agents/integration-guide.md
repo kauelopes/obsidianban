@@ -433,6 +433,23 @@ stream is reconnecting.
 **Metrics.** `GET /metrics` (loopback only, no auth) returns token totals and
 aggregates by type/model/agent/day/operation. Filter with `?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`.
 
+**Flow.** `GET /flow` (loopback only, no auth) is the delivery half of
+`/metrics`: cycle time (`in_progress`→`done`) and decision latency (time
+parked in `review`) as p50/p90/max, rework rate (backward column moves,
+ranked by transition), and a weekly series of cards delivered with cost per
+card. Accepts the same `?from_date=&to_date=` filter. Everything is derived
+from the audit log, so the series covers the vault's whole history — no new
+instrumentation. `cost_reporting_starts` marks the first week with measured
+`cost_usd`; weeks before it report `cost_per_card: null`, never `0`.
+
+**Weekly digest.** `GET /digest?week_start=YYYY-MM-DD` (loopback only, no
+auth) returns one civil week (Monday–Sunday; any day in the week is
+normalized to its Monday): sprints closed, cards and goals completed, goals
+due next week, stalled reviews, plus the window's activity totals. Backs the
+web app's **Revisão** tab. Two known gaps, by design: a card created directly
+in `done` emits no `MOVE` and a goal closed by editing `_meta.json` by hand
+emits no `GOAL_SET`, so neither shows up.
+
 **KAD docs.** `GET /vault/kad?project=` (loopback only, no auth) lists the
 planning docs (`kad/*.md`) a project has; `GET /vault/kad/doc?project=&doc=`
 returns one doc's raw markdown content. Backs the web app's **Arquivos** tab.

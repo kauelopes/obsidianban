@@ -32,3 +32,45 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   const days = Math.floor(s / 86400)
   return days === 1 ? 'há 1 dia' : `há ${days} dias`
 }
+
+/* ── Datas puras (YYYY-MM-DD) ──────────────────────────────────────────────
+ * Prazo de meta é data civil, não instante: comparar via `new Date(iso)` e
+ * `toISOString()` erra o dia perto da virada (o construtor lê YYYY-MM-DD como
+ * meia-noite UTC, o relógio local não). Tudo aqui trabalha na string ou em
+ * Date.UTC dos componentes, e nunca mistura os dois.
+ */
+
+/** Hoje no fuso do navegador. 'sv' é o atalho de locale que já sai ISO. */
+export function todayIso(now: Date = new Date()): string {
+  return now.toLocaleDateString('sv')
+}
+
+/** Dias inteiros de `fromIso` até `toIso` — negativo se `toIso` já passou. */
+export function diffDays(fromIso: string, toIso: string): number {
+  return Math.round((utcOf(toIso) - utcOf(fromIso)) / 86_400_000)
+}
+
+/** YYYY-MM-DD → dd/mm, sem passar por Date (é data pura, fuso não entra). */
+export function fmtDay(iso: string): string {
+  const [, m, d] = iso.split('-')
+  return `${d}/${m}`
+}
+
+/** Segunda-feira da semana que contém `iso` (semana pt-BR: seg–dom). */
+export function mondayOf(iso: string): string {
+  const d = new Date(utcOf(iso))
+  // getUTCDay: 0=dom … 6=sáb. Domingo fecha a semana anterior, recua 6.
+  const back = (d.getUTCDay() + 6) % 7
+  d.setUTCDate(d.getUTCDate() - back)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Soma dias a uma data civil, devolvendo YYYY-MM-DD. */
+export function addDays(iso: string, days: number): string {
+  return new Date(utcOf(iso) + days * 86_400_000).toISOString().slice(0, 10)
+}
+
+function utcOf(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number)
+  return Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)
+}

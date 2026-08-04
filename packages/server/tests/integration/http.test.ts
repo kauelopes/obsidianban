@@ -16,6 +16,8 @@ import { CardService } from '../../src/services/card.js'
 import { SprintService } from '../../src/services/sprint.js'
 import { HistoryService } from '../../src/services/history.js'
 import { SupervisionService } from '../../src/services/supervision.js'
+import { DigestService } from '../../src/services/digest.js'
+import { FlowService } from '../../src/services/flow.js'
 import { AtomicWriter } from '../../src/writer/atomic.js'
 import { AuditLogger } from '../../src/audit/logger.js'
 import { createAgentToken, createManagerToken, revokeAgentToken } from '../../src/auth/tokens.js'
@@ -114,6 +116,8 @@ beforeAll(async () => {
     sse,
     metrics,
     activity,
+    digest: new DigestService(paths, repo, metrics, activity, supervisionService),
+    flow: new FlowService(paths, metrics),
     mcp: mcpStub,
     workflow,
     cardsRepo: repo,
@@ -568,6 +572,75 @@ describe('manager token', () => {
   })
 })
 
+describe('GET /flow', () => {
+  it('devolve a forma esperada das métricas de fluxo', async () => {
+    const res = await httpGet(port, '/flow')
+    expect(res.status).toBe(200)
+    const body = res.body as Record<string, any>
+    for (const k of ['cycle_time_hours', 'decision_latency_hours']) {
+      expect(body[k]).toMatchObject({
+        count: expect.any(Number),
+        p50: expect.any(Number),
+        p90: expect.any(Number),
+        max: expect.any(Number),
+      })
+    }
+    expect(body['rework']).toMatchObject({ forward: expect.any(Number), backward: expect.any(Number) })
+    expect(Array.isArray(body['by_week'])).toBe(true)
+    expect(body['audit_truncated']).toBe(false)
+  })
+
+  it('aceita o mesmo recorte de datas do /metrics', async () => {
+    const res = await httpGet(port, '/flow?from_date=2026-01-01&to_date=2026-12-31')
+    expect(res.status).toBe(200)
+  })
+
+  it('400 com data malformada', async () => {
+    expect((await httpGet(port, '/flow?from_date=01-01-2026')).status).toBe(400)
+    expect((await httpGet(port, '/flow?to_date=2026-99-99')).status).toBe(400)
+  })
+})
+
+describe('GET /digest', () => {
+  it('sem week_start, devolve a semana corrente com todas as seções', async () => {
+    const res = await httpGet(port, '/digest')
+    expect(res.status).toBe(200)
+    const body = res.body as Record<string, unknown>
+    // Segunda-feira e domingo, seis dias depois.
+    expect(body['week_start']).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(new Date(`${body['week_start'] as string}T00:00:00Z`).getUTCDay()).toBe(1)
+    expect(new Date(`${body['week_end'] as string}T00:00:00Z`).getUTCDay()).toBe(0)
+    for (const key of [
+      'sprints_closed',
+      'cards_done',
+      'goals_done',
+      'goals_upcoming',
+      'stalled_reviews',
+    ]) {
+      expect(Array.isArray(body[key])).toBe(true)
+    }
+    expect(body['activity']).toHaveProperty('summary')
+    expect(body['hours_estimate_available']).toBe(true)
+  })
+
+  it('normaliza qualquer dia da semana para a segunda', async () => {
+    const res = await httpGet(port, '/digest?week_start=2026-07-09')
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ week_start: '2026-07-06', week_end: '2026-07-12' })
+  })
+
+  it('semana passada não finge estimativa de horas', async () => {
+    const res = await httpGet(port, '/digest?week_start=2026-07-06')
+    expect((res.body as Record<string, unknown>)['hours_estimate_available']).toBe(false)
+  })
+
+  it('400 com week_start malformado ou tz_offset fora da faixa', async () => {
+    expect((await httpGet(port, '/digest?week_start=09-07-2026')).status).toBe(400)
+    expect((await httpGet(port, '/digest?week_start=2026-13-45')).status).toBe(400)
+    expect((await httpGet(port, '/digest?tz_offset=9999')).status).toBe(400)
+  })
+})
+
 describe('GET /workflow/log', () => {
   it('serve o log do disco com leitura incremental', async () => {
     const res = await httpGet(port, '/workflow/log?sprint_id=wf1')
@@ -810,6 +883,14 @@ describe('HttpServer.stop() com uma conexão SSE aberta', () => {
       sse,
       metrics,
       activity,
+      digest: new DigestService(
+        shutdownPaths,
+        repo,
+        metrics,
+        activity,
+        new SupervisionService(shutdownPaths, repo),
+      ),
+      flow: new FlowService(shutdownPaths, metrics),
       mcp: mcpStub,
     })
     await shutdownServer.start()

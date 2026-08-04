@@ -1328,6 +1328,196 @@
   color: var(--accent);
 }
 
+/* ── Horizonte (metas no tempo) ───────────────────────────────────────────── */
+
+.horizon-group + .horizon-group {
+  margin-top: var(--s-6);
+}
+
+.horizon-chip {
+  margin-bottom: var(--s-5);
+}
+
+.horizon-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+}
+
+.horizon-list li:hover {
+  background: var(--ink-3);
+}
+
+.horizon-item-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.horizon-title {
+  font-size: var(--t-xs);
+}
+
+.horizon-project {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+.horizon-item-side {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-3);
+  white-space: nowrap;
+}
+
+/* Seletor de prazo compacto: divide uma linha de ~340px com o "concluir",
+ * então herda a caixa padrão do input mas sem a folga de formulário. */
+.horizon-item-side input[type='date'] {
+  padding: var(--s-1) var(--s-2);
+  font-size: var(--t-2xs);
+  max-width: 9.5rem;
+}
+
+/* O canal de alerta vale igual na lista e no tile da home. */
+.horizon-list .goal-overdue,
+.horizon-list .goal-overdue .goal-date {
+  color: var(--alert);
+}
+
+.horizon-list .goal-due-soon,
+.horizon-list .goal-due-soon .goal-date {
+  color: var(--alert);
+  opacity: 0.75;
+}
+
+.horizon-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  margin-bottom: var(--s-5);
+}
+
+.horizon-month {
+  font-size: var(--t-sm);
+  /* O mês vem do Intl em minúscula ("agosto de 2026"); no título ele é nome. */
+  text-transform: capitalize;
+}
+
+.horizon-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.horizon-weekday {
+  background: var(--ink-2);
+  padding: var(--s-2) var(--s-3);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+  text-align: center;
+}
+
+.horizon-cell {
+  background: var(--ink-1);
+  min-height: 92px;
+  padding: var(--s-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+
+.horizon-cell.out-month {
+  opacity: 0.4;
+}
+
+.horizon-cell.has-goals {
+  cursor: pointer;
+}
+
+.horizon-cell.has-goals:hover {
+  background: var(--ink-3);
+}
+
+/* Hoje é referência de leitura, não estado — marca de régua, sem matiz. */
+.horizon-cell.today .horizon-day {
+  color: var(--fg-0);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.horizon-cell.selected {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.horizon-day {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+/* Título inteiro numa célula de 1/7 de largura não cabe: corta em vez de
+ * deformar a grade, e o hover/title= do dia mostra a lista completa. */
+.horizon-dot {
+  font-size: var(--t-2xs);
+  line-height: 1.25;
+  padding: 1px var(--s-1);
+  border-radius: var(--r-sm);
+  background: var(--ink-3);
+  color: var(--fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.horizon-cell.has-overdue .horizon-dot {
+  color: var(--alert);
+}
+
+.horizon-more {
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+/* Numa tela estreita a grade de 7 colunas vira faixa ilegível se as células
+ * mantiverem a altura de leitura: encolhe para marcador, o detalhe fica na
+ * lista acima (que o .home-grid já empilha primeiro). */
+@media (max-width: 640px) {
+  .horizon-cell {
+    min-height: 44px;
+  }
+
+  .horizon-dot,
+  .horizon-more {
+    display: none;
+  }
+
+  .horizon-cell.has-goals .horizon-day::after {
+    content: '•';
+    margin-left: 2px;
+    color: var(--accent);
+  }
+
+  .horizon-cell.has-overdue .horizon-day::after {
+    color: var(--alert);
+  }
+}
+
+/* Objetivo da sprint fechada: contexto da linha, não a linha. */
+.review-note {
+  margin: var(--s-1) 0 0 var(--s-6);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
 /* Idade da espera: o dado que transforma a fila em ordem de ataque. */
 .pending .age {
   margin-left: auto;
@@ -1575,6 +1765,16 @@
 .pt-goals .goal-overdue .goal-mark,
 .pt-goals .goal-overdue .goal-date {
   color: var(--alert);
+}
+
+/* Vence nos próximos 7 dias: mesmo canal da vencida (é a mesma família de
+ * decisão), rebaixado — ainda dá tempo, e a vencida precisa continuar sendo a
+ * linha mais grave do tile. Sem matiz nova: o sistema tem só três. */
+.pt-goals .goal-due-soon,
+.pt-goals .goal-due-soon .goal-mark,
+.pt-goals .goal-due-soon .goal-date {
+  color: var(--alert);
+  opacity: 0.75;
 }
 
 /* ── Wizard de planejamento (KAD) ─────────────────────────────────────────── */

@@ -90,6 +90,24 @@ confiança) — cobre a cópia de KAD que a materialização grava em `docs/kad/
 e qualquer outro `.md` que exista ali. Projeto sem `target_repo` (ou sem
 `docs/` nele) simplesmente não mostra essa seção, sem erro.
 
+As metas (`goals` no `_meta.json`) ganham duas visões próprias na web, ambas
+derivadas do que já existe, sem schema novo. A aba **Horizonte** agrupa as
+metas abertas de todos os projetos por prazo derivado de `target_date`
+(atrasada · até 2 semanas · 2 a 4 semanas · mais de 4 · sem prazo) e as plota
+num calendário mensal; meta sem prazo ganha um botão para definir a data ali
+mesmo. A aba **Revisão** mostra uma semana civil por vez via
+`GET /digest?week_start=` (loopback-only, sem token, como `/metrics`).
+
+O `GET /flow?from_date=&to_date=` (mesma postura de confiança) completa a aba
+**Estatísticas** com a metade de entrega — cycle time, espera por decisão em
+`review`, taxa de retrabalho e cards entregues por semana com custo por card.
+A ordem de avanço das colunas vem do `columns` de cada projeto, então um board
+com colunas fora do padrão não gera retrabalho falso; transição envolvendo
+status não declarado é ignorada. As entregas vêm do audit log e o custo vem do
+`token_log` (fonte autoritativa) — de propósito, para não exibir dois números
+quase iguais na mesma tela. Semanas anteriores à primeira medição de tokens
+aparecem sem custo (`—`), nunca como zero.
+
 ### Wizard de planejamento (opcional)
 
 | Variável | Padrão | Descrição |

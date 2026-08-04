@@ -26,6 +26,16 @@ export const GIT_LIFECYCLE_TIMEOUT_MS = 15_000
 // como estagnado (dev agent morto/travado) em kanban_list_escalations.
 export const STALE_IN_PROGRESS_MS = 15 * 60 * 1000
 
+// ── Digest semanal ───────────────────────────────────────────────────────────
+// Dias em `review` sem resposta a partir dos quais a escalação vira pendência
+// da semana. Bem maior que STALE_IN_PROGRESS_MS: ali o sinal é agente morto,
+// aqui é humano que não voltou — a escala é de dias, não de minutos.
+export const STALE_REVIEW_DAYS = 3
+// Teto do scan do audit log por request. Sem índice por timestamp, a leitura é
+// linear; o corte troca completude por uma resposta que sempre chega (e diz
+// que cortou, via audit_truncated).
+export const DIGEST_AUDIT_MAX_LINES = 200_000
+
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 // Backstop de JobManager.stop()/dispose(): quanto esperar pelo finalize
 // (evento `close` do filho após o SIGKILL) antes de devolver o melhor estado

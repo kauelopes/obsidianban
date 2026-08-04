@@ -18,6 +18,8 @@ import { HistoryService } from './services/history.js'
 import { SupervisionService } from './services/supervision.js'
 import { MetricsService } from './services/metrics.js'
 import { ActivityService } from './services/activity.js'
+import { DigestService } from './services/digest.js'
+import { FlowService } from './services/flow.js'
 import { GitActivityService } from './services/git-activity.js'
 import { AdminService } from './services/admin.js'
 import { EpicService } from './services/epic.js'
@@ -183,6 +185,8 @@ async function main(): Promise<void> {
   const history = new HistoryService(config.paths)
   // JobManager real injetado: distingue "job vivo" de card preso em job morto.
   const supervision = new SupervisionService(config.paths, repo, jobs)
+  const digest = new DigestService(config.paths, repo, metrics, activity, supervision)
+  const flow = new FlowService(config.paths, metrics)
 
   type ToolFn = (p: Record<string, unknown>, c: TokenClaims) => Promise<unknown>
   type ToolDef = { name: string; description: string; inputSchema?: Record<string, unknown>; access: ToolAccess; handler: ToolFn }
@@ -361,7 +365,7 @@ async function main(): Promise<void> {
   const site = (await candidate.isAvailable()) ? candidate : undefined
   if (site) logger.info({ root: webRoot }, 'static: serving web SPA')
 
-  const httpServer = new HttpServer({ port: config.httpPort, host: config.host, state, validator, idempotency, sse, metrics, activity, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths, jobManager: jobs })
+  const httpServer = new HttpServer({ port: config.httpPort, host: config.host, state, validator, idempotency, sse, metrics, activity, digest, flow, mcp, site, session, workflow, cardsRepo: repo, paths: config.paths, jobManager: jobs })
   for (const t of tools) {
     httpServer.registerTool(t.name, (p, c) => t.handler(p as Record<string, unknown>, c))
   }
