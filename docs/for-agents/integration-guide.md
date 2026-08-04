@@ -433,6 +433,16 @@ stream is reconnecting.
 **Metrics.** `GET /metrics` (loopback only, no auth) returns token totals and
 aggregates by type/model/agent/day/operation. Filter with `?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`.
 
+**KAD docs.** `GET /vault/kad?project=` (loopback only, no auth) lists the
+planning docs (`kad/*.md`) a project has; `GET /vault/kad/doc?project=&doc=`
+returns one doc's raw markdown content. Backs the web app's **Arquivos** tab.
+
+**Repo docs.** Same shape, second source: `GET /vault/repo-docs?project=` and
+`GET /vault/repo-docs/doc?project=&doc=` list/read `.md` files under
+`docs/` inside the project's `target_repo` (recursive; `doc` may include
+subfolders, e.g. `doc=kad/vision`). Empty list when the project has no
+`target_repo` or no `docs/` in it — not an error.
+
 ---
 
 ## 7. Sprint-planning wizard

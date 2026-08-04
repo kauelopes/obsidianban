@@ -869,6 +869,41 @@ export interface ActivityResponse {
   projects: ProjectActivity[]
 }
 
+// ─── Vault KAD docs (GET /vault/kad, /vault/kad/doc) ─────────────────────────
+
+export interface KadFile {
+  id: string
+  label: string
+  mtime: string
+}
+
+export interface KadListResponse {
+  project: string
+  files: KadFile[]
+}
+
+export interface KadDocResponse {
+  project: string
+  doc: string
+  content: string
+}
+
+// ─── Repo docs (GET /vault/repo-docs, /vault/repo-docs/doc) ──────────────────
+// `docs/` dentro do target_repo do projeto (git) — inclui a cópia de KAD que
+// materialize.ts grava em docs/kad/, mas também qualquer outro .md que exista
+// ali. Mesmo shape de KadFile: `id` é o caminho relativo a docs/, sem `.md`
+// (ex.: "kad/vision", "adr/0001-escolha-de-stack").
+export interface RepoDocsListResponse {
+  project: string
+  files: KadFile[]
+}
+
+export interface RepoDocResponse {
+  project: string
+  doc: string
+  content: string
+}
+
 // ─── Card body zones ─────────────────────────────────────────────────────────
 // Lives here rather than in the server so the web app parses card bodies with
 // the exact same code the server writes them with — a second implementation

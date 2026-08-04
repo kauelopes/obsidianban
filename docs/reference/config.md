@@ -80,6 +80,16 @@ SIGTERM ao process group inteiro — o workflow e os harnesses dev que ele
 spawnou. O estado vive em memória: após um restart do servidor o processo
 antigo não é mais rastreado, mas o log em disco continua legível.
 
+Os documentos KAD (`kad/*.md`, gravados por `kanban_planning_finalize`) ficam
+navegáveis na aba **Arquivos** da web, via `GET /vault/kad?project=` (lista) e
+`GET /vault/kad/doc?project=&doc=` (conteúdo) — mesma postura de confiança do
+`/metrics`: loopback-only, sem token. A mesma aba também lista `docs/` de
+dentro do `target_repo` do projeto (`GET /vault/repo-docs?project=` e
+`GET /vault/repo-docs/doc?project=&doc=`, recursivo, mesma postura de
+confiança) — cobre a cópia de KAD que a materialização grava em `docs/kad/`
+e qualquer outro `.md` que exista ali. Projeto sem `target_repo` (ou sem
+`docs/` nele) simplesmente não mostra essa seção, sem erro.
+
 ### Wizard de planejamento (opcional)
 
 | Variável | Padrão | Descrição |

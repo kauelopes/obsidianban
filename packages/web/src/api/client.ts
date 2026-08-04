@@ -11,7 +11,11 @@ import type {
   Goal,
   ListCardsParams,
   ActivityResponse,
+  KadDocResponse,
+  KadListResponse,
   Metrics,
+  RepoDocResponse,
+  RepoDocsListResponse,
   MoveBetweenSprintsResult,
   MoveCardParams,
   ProjectShapeResult,
@@ -371,6 +375,78 @@ export class KanbanClient {
         error: {
           kind: 'offline',
           message: 'não foi possível ler a atividade',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async listKadFiles(project: string): Promise<McpResult<KadListResponse>> {
+    try {
+      const qs = new URLSearchParams({ project })
+      const res = await fetch(`${this.baseUrl}/vault/kad?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar os documentos KAD',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async getKadFile(project: string, doc: string): Promise<McpResult<KadDocResponse>> {
+    try {
+      const qs = new URLSearchParams({ project, doc })
+      const res = await fetch(`${this.baseUrl}/vault/kad/doc?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler o documento KAD',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async listRepoDocs(project: string): Promise<McpResult<RepoDocsListResponse>> {
+    try {
+      const qs = new URLSearchParams({ project })
+      const res = await fetch(`${this.baseUrl}/vault/repo-docs?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar os documentos do repositório',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async getRepoDoc(project: string, doc: string): Promise<McpResult<RepoDocResponse>> {
+    try {
+      const qs = new URLSearchParams({ project, doc })
+      const res = await fetch(`${this.baseUrl}/vault/repo-docs/doc?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler o documento do repositório',
           cause: err instanceof Error ? err.message : String(err),
         },
       }

@@ -399,6 +399,20 @@ curl http://127.0.0.1:9375/metrics | jq .by_role   # gasto por wizard/pm/dev/hum
 
 `/metrics` is loopback-only and needs no auth.
 
+To browse the KAD planning docs a project has (written by `kanban_planning_finalize` into `kad/*.md`), same trust posture:
+
+```bash
+curl 'http://127.0.0.1:9375/vault/kad?project=my-project' | jq .files
+curl 'http://127.0.0.1:9375/vault/kad/doc?project=my-project&doc=vision'
+```
+
+Same shape for `docs/` inside the project's `target_repo` (recursive, includes the KAD copy at `docs/kad/` from `materialize.ts` §7, plus any other `.md` living there — ADRs, subsystem READMEs etc.). `doc` here may include subfolders (e.g. `kad/vision`, `adr/0001-stack`):
+
+```bash
+curl 'http://127.0.0.1:9375/vault/repo-docs?project=my-project' | jq .files
+curl 'http://127.0.0.1:9375/vault/repo-docs/doc?project=my-project&doc=kad/vision'
+```
+
 ---
 
 ## 7. Common failure modes

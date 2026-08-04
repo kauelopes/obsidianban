@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
 import type { Paths } from '../../src/config.js'
 import { HttpServer } from '../../src/server/http.js'
+import { loadProjectMeta, saveProjectMeta } from '../../src/vault/layout.js'
 import { SSEEventBus } from '../../src/server/sse.js'
 import { IdempotencyStore } from '../../src/server/idempotency.js'
 import { TokenValidator } from '../../src/auth/validator.js'
@@ -639,6 +641,143 @@ describe('GET /workflow/agents', () => {
       const status = await jobManager.status('job-httptest')
       expect(status?.status).toBe('stopped')
     })
+  })
+})
+
+describe('GET /vault/kad', () => {
+  it('lista os arquivos .md de kad/, ordenados pelos ids canônicos primeiro', async () => {
+    const kadDir = path.join(paths.kanbanData, 'test-project', 'kad')
+    await fs.mkdir(kadDir, { recursive: true })
+    await fs.writeFile(path.join(kadDir, 'roadmap.md'), '# Roadmap\n', 'utf8')
+    await fs.writeFile(path.join(kadDir, 'vision.md'), '# Visão\n', 'utf8')
+    await fs.writeFile(path.join(kadDir, 'extra-doc.md'), '# Extra\n', 'utf8')
+
+    const res = await httpGet(port, '/vault/kad?project=test-project')
+    expect(res.status).toBe(200)
+    const body = res.body as { project: string; files: Array<{ id: string; label: string }> }
+    expect(body.project).toBe('test-project')
+    // vision (id canônico, rank menor) antes de roadmap (rank maior), e o
+    // desconhecido 'extra-doc' por último, em ordem alfabética.
+    expect(body.files.map((f) => f.id)).toEqual(['vision', 'roadmap', 'extra-doc'])
+    expect(body.files.find((f) => f.id === 'vision')?.label).toBe('Visão')
+    expect(body.files.find((f) => f.id === 'extra-doc')?.label).toBe('extra-doc')
+  })
+
+  it('projeto sem kad/ retorna lista vazia, não erro', async () => {
+    const res = await httpGet(port, '/vault/kad?project=projeto-sem-planejamento')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ project: 'projeto-sem-planejamento', files: [] })
+  })
+
+  it('400 sem project', async () => {
+    expect((await httpGet(port, '/vault/kad')).status).toBe(400)
+  })
+})
+
+describe('GET /vault/kad/doc', () => {
+  it('lê o conteúdo de um doc existente', async () => {
+    const kadDir = path.join(paths.kanbanData, 'test-project', 'kad')
+    await fs.mkdir(kadDir, { recursive: true })
+    await fs.writeFile(path.join(kadDir, 'prd.md'), '# PRD\n\nConteúdo.\n', 'utf8')
+
+    const res = await httpGet(port, '/vault/kad/doc?project=test-project&doc=prd')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ project: 'test-project', doc: 'prd', content: '# PRD\n\nConteúdo.\n' })
+  })
+
+  it('404 para doc inexistente', async () => {
+    const res = await httpGet(port, '/vault/kad/doc?project=test-project&doc=nao-existe')
+    expect(res.status).toBe(404)
+  })
+
+  it('404 (não 500) para doc com tentativa de path traversal', async () => {
+    const traversal = await httpGet(
+      port,
+      `/vault/kad/doc?project=test-project&doc=${encodeURIComponent('../_meta')}`,
+    )
+    expect(traversal.status).toBe(404)
+
+    const slash = await httpGet(
+      port,
+      `/vault/kad/doc?project=test-project&doc=${encodeURIComponent('sub/doc')}`,
+    )
+    expect(slash.status).toBe(404)
+  })
+
+  it('400 sem project ou sem doc', async () => {
+    expect((await httpGet(port, '/vault/kad/doc?project=test-project')).status).toBe(400)
+    expect((await httpGet(port, '/vault/kad/doc?doc=prd')).status).toBe(400)
+  })
+})
+
+describe('GET /vault/repo-docs', () => {
+  it('lista .md de docs/ dentro do target_repo, recursivamente', async () => {
+    const targetRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidiankan-repo-docs-'))
+    const docsDir = path.join(targetRepo, 'docs')
+    await fs.mkdir(path.join(docsDir, 'kad'), { recursive: true })
+    await fs.writeFile(path.join(docsDir, 'kad', 'vision.md'), '# Visão\n', 'utf8')
+    await fs.writeFile(path.join(docsDir, 'readme.md'), '# Readme\n', 'utf8')
+
+    const meta = await loadProjectMeta(paths, 'test-project')
+    await saveProjectMeta(paths, 'test-project', { ...meta, target_repo: targetRepo })
+
+    const res = await httpGet(port, '/vault/repo-docs?project=test-project')
+    expect(res.status).toBe(200)
+    const body = res.body as { project: string; files: Array<{ id: string }> }
+    expect(body.project).toBe('test-project')
+    expect(body.files.map((f) => f.id).sort()).toEqual(['kad/vision', 'readme'])
+
+    await fs.rm(targetRepo, { recursive: true, force: true })
+    await saveProjectMeta(paths, 'test-project', meta)
+  })
+
+  it('projeto sem target_repo (ou sem docs/) retorna lista vazia, não erro', async () => {
+    const res = await httpGet(port, '/vault/repo-docs?project=projeto-sem-planejamento')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ project: 'projeto-sem-planejamento', files: [] })
+  })
+
+  it('400 sem project', async () => {
+    expect((await httpGet(port, '/vault/repo-docs')).status).toBe(400)
+  })
+})
+
+describe('GET /vault/repo-docs/doc', () => {
+  it('lê um doc em subpasta, e rejeita traversal', async () => {
+    const targetRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidiankan-repo-docs-'))
+    const docsDir = path.join(targetRepo, 'docs')
+    await fs.mkdir(path.join(docsDir, 'kad'), { recursive: true })
+    await fs.writeFile(path.join(docsDir, 'kad', 'vision.md'), '# Visão\n\nConteúdo.\n', 'utf8')
+
+    const meta = await loadProjectMeta(paths, 'test-project')
+    await saveProjectMeta(paths, 'test-project', { ...meta, target_repo: targetRepo })
+
+    const ok = await httpGet(port, '/vault/repo-docs/doc?project=test-project&doc=kad/vision')
+    expect(ok.status).toBe(200)
+    expect(ok.body).toEqual({
+      project: 'test-project',
+      doc: 'kad/vision',
+      content: '# Visão\n\nConteúdo.\n',
+    })
+
+    const traversal = await httpGet(
+      port,
+      `/vault/repo-docs/doc?project=test-project&doc=${encodeURIComponent('../../etc/passwd')}`,
+    )
+    expect(traversal.status).toBe(404)
+
+    await fs.rm(targetRepo, { recursive: true, force: true })
+    await saveProjectMeta(paths, 'test-project', meta)
+  })
+
+  it('404 sem target_repo configurado', async () => {
+    const res = await httpGet(port, '/vault/repo-docs/doc?project=projeto-sem-planejamento&doc=readme')
+    expect(res.status).toBe(404)
+  })
+
+  it('400 sem project ou sem doc', async () => {
+    expect((await httpGet(port, '/vault/repo-docs/doc?project=test-project')).status).toBe(400)
+    expect((await httpGet(port, '/vault/repo-docs/doc?doc=readme')).status).toBe(400)
   })
 })
 

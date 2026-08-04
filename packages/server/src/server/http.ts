@@ -20,6 +20,8 @@ import type { CardRepository } from '../cards/repository.js'
 import type { Paths } from '../config.js'
 import { listAgentTokens } from '../auth/tokens.js'
 import type { WorkflowAgentsStatus, WorkflowInProgressCard } from '@obsidiankan/types'
+import { listKadDocs, readKadDoc } from '../vault/kad.js'
+import { listRepoDocs, readRepoDoc } from '../vault/repo-docs.js'
 
 export interface ServerState {
   startedAt: number
@@ -146,6 +148,18 @@ export class HttpServer {
     }
     if (req.method === 'GET' && url.split('?')[0] === '/workflow/agents') {
       return this.handleWorkflowAgents(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/kad') {
+      return this.handleKadList(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/kad/doc') {
+      return this.handleKadDoc(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/repo-docs') {
+      return this.handleRepoDocsList(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/repo-docs/doc') {
+      return this.handleRepoDoc(req, res, url)
     }
 
     const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(url.split('?')[0] ?? '')
@@ -338,6 +352,100 @@ export class HttpServer {
       jobs,
     }
     sendJson(res, 200, body)
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleKadList(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    if (!project) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project obrigatório' })
+      return
+    }
+    const files = await listKadDocs(this.deps.paths, project)
+    sendJson(res, 200, { project, files })
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleKadDoc(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    const doc = params.get('doc')
+    if (!project || !doc) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project e doc obrigatórios' })
+      return
+    }
+    const content = await readKadDoc(this.deps.paths, project, doc)
+    if (content === null) {
+      sendJson(res, 404, { error: 'not_found' })
+      return
+    }
+    sendJson(res, 200, { project, doc, content })
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleRepoDocsList(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    if (!project) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project obrigatório' })
+      return
+    }
+    const files = await listRepoDocs(this.deps.paths, project)
+    sendJson(res, 200, { project, files })
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleRepoDoc(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    const doc = params.get('doc')
+    if (!project || !doc) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project e doc obrigatórios' })
+      return
+    }
+    const content = await readRepoDoc(this.deps.paths, project, doc)
+    if (content === null) {
+      sendJson(res, 404, { error: 'not_found' })
+      return
+    }
+    sendJson(res, 200, { project, doc, content })
   }
 
   /**

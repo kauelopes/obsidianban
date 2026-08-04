@@ -1312,6 +1312,22 @@
   padding-left: var(--s-6);
 }
 
+/* ── Arquivos (KAD + docs do repo) ────────────────────────────────────────── */
+
+.files-section + .files-section {
+  margin-top: var(--s-6);
+}
+
+.files-list a {
+  cursor: pointer;
+}
+
+.files-list a.active {
+  background: var(--ink-3);
+  font-weight: 600;
+  color: var(--accent);
+}
+
 /* Idade da espera: o dado que transforma a fila em ordem de ataque. */
 .pending .age {
   margin-left: auto;

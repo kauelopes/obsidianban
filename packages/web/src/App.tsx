@@ -15,6 +15,7 @@ import { errorText } from './api/result.js'
 import { Board } from './board/Board.js'
 import { useBoard } from './board/useBoard.js'
 import { CardDetail } from './card/CardDetail.js'
+import { Files } from './files/Files.js'
 import { Help } from './help/Help.js'
 import { Home } from './home/Home.js'
 import { Inbox } from './inbox/Inbox.js'
@@ -63,6 +64,9 @@ export function Shell({
           </NavLink>
           <NavLink to="/atividade" className={({ isActive }) => (isActive ? 'active' : '')}>
             Estatísticas
+          </NavLink>
+          <NavLink to="/arquivos" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Arquivos
           </NavLink>
           <NavLink to="/ajuda" className={({ isActive }) => (isActive ? 'active' : '')}>
             Ajuda
@@ -451,6 +455,14 @@ export function App() {
             element={
               <Shell client={client} onLogout={clearToken}>
                 <Metrics client={client} />
+              </Shell>
+            }
+          />
+          <Route
+            path="/arquivos"
+            element={
+              <Shell client={client} onLogout={clearToken}>
+                <Files client={client} />
               </Shell>
             }
           />
