@@ -901,6 +901,92 @@
   }
 }
 
+/* ── Workspace do projeto: Board / Arquivos / Estatísticas / Metas ──────────
+   Mesmo padrão visual do .settings-layout, mas align-items:stretch (não
+   flex-start) e .project-content como coluna flex com min-height:0 — o board
+   dentro dele é `.board{flex:1 1 auto; overflow-y:auto}` e precisa de um
+   ancestral flex column de altura real para esse flex:1 valer algo, não só
+   de largura como o settings-layout de um modal. */
+
+.project-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: var(--s-6);
+  padding: 0 var(--s-6);
+}
+
+.project-nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  flex: 0 0 160px;
+  padding-top: var(--s-6);
+}
+
+.project-nav a {
+  display: block;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius, 6px);
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+  text-decoration: none;
+}
+
+.project-nav a:hover {
+  background: var(--ink-2);
+  color: var(--fg-0);
+}
+
+.project-nav a.active {
+  background: var(--ink-2);
+  border-color: var(--rule-strong);
+  color: var(--fg-0);
+  font-weight: 600;
+}
+
+.project-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--s-6);
+}
+
+/* .board e .detail já são flex:1 1 auto + overflow-y:auto por conta própria
+   (mesmo padrão de quando eram filhas diretas de .app) — aqui só precisam
+   perder o padding vertical duplicado, já coberto por .project-content. */
+.project-content > .board {
+  padding-top: 0;
+}
+
+.project-content > .detail {
+  padding-top: 0;
+}
+
+@media (max-width: 900px) {
+  .project-workspace {
+    flex-direction: column;
+  }
+
+  .project-nav {
+    flex-direction: row;
+    flex: 0 0 auto;
+    width: 100%;
+    gap: var(--s-3);
+    overflow-x: auto;
+    padding-top: var(--s-4);
+    padding-bottom: var(--s-3);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .project-nav a {
+    white-space: nowrap;
+  }
+}
+
 /* ── Ações do card ────────────────────────────────────────────────────────── */
 
 .card-actions {

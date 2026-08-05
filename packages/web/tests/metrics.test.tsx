@@ -59,6 +59,8 @@ describe('painel de atividade', () => {
 
   it('não desenha gráfico de volume para by_agent, que não tem contagem', async () => {
     mount(metricsPopulated)
+    await waitFor(() => expect(screen.getByText('103')).toBeTruthy())
+    fireEvent.click(screen.getByText('Uso via board'))
     await waitFor(() => expect(screen.getByText('Por ator')).toBeTruthy())
     // by_agent e by_day viram tabela justamente porque só têm tokens.
     expect(screen.getByText('Por dia')).toBeTruthy()

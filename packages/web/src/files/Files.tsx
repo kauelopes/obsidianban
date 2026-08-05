@@ -20,15 +20,25 @@ const SOURCE_LABEL: Record<Source, string> = {
  * Cards já têm tela própria no board; esta aba é só para os documentos de
  * apoio que hoje só dá pra ler abrindo o arquivo direto no editor/Obsidian.
  */
-export function Files({ client }: { client: KanbanClient }) {
+export function Files({
+  client,
+  fixedProject,
+}: {
+  client: KanbanClient
+  /** Dentro do workspace de um projeto o `project` já vem da URL — passar
+   *  aqui suprime o seletor interno (lista ou campo livre) e trava a
+   *  fonte de dados nesse projeto. */
+  fixedProject?: string
+}) {
   const [projects, setProjects] = useState<string[]>([])
   // Token de dev/pm não enxerga kanban_list_projects (manager-only) — sem
   // lista, cai para um campo de texto livre, mesma postura do seletor de
   // projeto do board (App.tsx: "Token de dev não enxerga listProjects").
   const [projectsUnavailable, setProjectsUnavailable] = useState(false)
-  const [project, setProject] = useState('')
+  const [project, setProject] = useState(fixedProject ?? '')
 
   useEffect(() => {
+    if (fixedProject) return
     void client.listProjects().then((res) => {
       if (!res.ok) {
         setProjectsUnavailable(true)
@@ -38,7 +48,7 @@ export function Files({ client }: { client: KanbanClient }) {
       setProjects(names)
       setProject((prev) => prev || names[0] || '')
     })
-  }, [client])
+  }, [client, fixedProject])
 
   const [kadFiles, setKadFiles] = useState<KadFile[]>([])
   const [repoFiles, setRepoFiles] = useState<KadFile[]>([])
@@ -103,28 +113,30 @@ export function Files({ client }: { client: KanbanClient }) {
       <div className="detail-inner wide">
         <div className="detail-head">
           <h1>Arquivos</h1>
-          <div className="detail-ident">
-            {projectsUnavailable ? (
-              <input
-                aria-label="Projeto"
-                placeholder="nome do projeto"
-                value={project}
-                onChange={(e) => setProject(e.target.value)}
-              />
-            ) : (
-              <select
-                aria-label="Trocar de projeto"
-                value={project}
-                onChange={(e) => setProject(e.target.value)}
-              >
-                {projects.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
+          {!fixedProject && (
+            <div className="detail-ident">
+              {projectsUnavailable ? (
+                <input
+                  aria-label="Projeto"
+                  placeholder="nome do projeto"
+                  value={project}
+                  onChange={(e) => setProject(e.target.value)}
+                />
+              ) : (
+                <select
+                  aria-label="Trocar de projeto"
+                  value={project}
+                  onChange={(e) => setProject(e.target.value)}
+                >
+                  {projects.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
         </div>
 
         {filesError && <p className="banner">{filesError}</p>}

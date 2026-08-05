@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { PlanningSessionView } from '@obsidiankan/types'
 import type { KanbanClient } from '../src/api/client.js'
-import { Shell } from '../src/App.js'
+import { Shell } from '../src/ui/Shell.js'
 import { PlanWizard } from '../src/plan/PlanWizard.js'
 import { StepChoice, StepConfirm, StepForm, StepList } from '../src/plan/screens.js'
 

@@ -2,7 +2,7 @@ import { render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import type { KanbanClient } from '../src/api/client.js'
-import { Shell } from '../src/App.js'
+import { Shell } from '../src/ui/Shell.js'
 import { PageHeader } from '../src/ui/PageHeader.js'
 
 const client = {

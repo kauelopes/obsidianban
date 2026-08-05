@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { WeeklyDigest } from '@obsidiankan/types'
 import { KanbanClient } from '../src/api/client.js'
-import { Review } from '../src/review/Review.js'
+import { ReviewTab } from '../src/metrics/Metrics.js'
 import { mondayOf, todayIso } from '../src/util/time.js'
 
 const THIS_WEEK = mondayOf(todayIso())
@@ -55,12 +55,12 @@ function mount(opts: { body?: unknown; status?: number; onRequest?: (url: string
   })
   return render(
     <MemoryRouter>
-      <Review client={new KanbanClient({ token: 'tok' })} />
+      <ReviewTab client={new KanbanClient({ token: 'tok' })} />
     </MemoryRouter>,
   )
 }
 
-describe('Review', () => {
+describe('ReviewTab', () => {
   it('mostra cada seção da semana', async () => {
     mount()
     await waitFor(() => expect(screen.getByText('Sprint 7')).toBeTruthy())
