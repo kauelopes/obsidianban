@@ -6,6 +6,7 @@ import { useBoard } from '../board/useBoard.js'
 import { Shell } from '../ui/Shell.js'
 import { PageHeader } from '../ui/PageHeader.js'
 import { AgentsStatusBar } from '../ui/AgentsStatusBar.js'
+import { useModules } from '../modules/ModulesContext.js'
 
 export interface ProjectOutletContext {
   client: KanbanClient
@@ -35,6 +36,13 @@ export function ProjectLayout({ client, onLogout }: { client: KanbanClient; onLo
   const { project = '' } = useParams()
   const navigate = useNavigate()
   const board = useBoard(client, { project })
+  const { active } = useModules()
+  const tabs = [
+    ...TABS,
+    ...active.flatMap((m) =>
+      m.web.projectTab ? [{ to: `m/${m.info.id}`, label: m.web.projectTab.label, end: false }] : [],
+    ),
+  ]
 
   const sprintsFor = useCallback(
     (project: string): readonly Sprint[] =>
@@ -102,7 +110,7 @@ export function ProjectLayout({ client, onLogout }: { client: KanbanClient; onLo
       ) : (
         <div className="project-workspace">
           <nav className="project-nav" aria-label="Seções do projeto">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <NavLink
                 key={t.label}
                 to={`/board/${project}${t.to ? `/${t.to}` : ''}`}

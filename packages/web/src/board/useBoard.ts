@@ -167,6 +167,9 @@ export function useBoard(client: KanbanClient, opts: { project?: string } = {}) 
           case 'CARD_REORDERED':
             void loadCards()
             break
+          case 'MODULE_EVENT':
+            // Eventos de módulo (progresso de relatório etc.) não mexem no board.
+            break
           default:
             // Project and sprint events change board shape, not card content.
             void loadProjects()

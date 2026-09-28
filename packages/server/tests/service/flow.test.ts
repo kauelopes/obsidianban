@@ -231,3 +231,25 @@ describe('FlowService — janela e robustez', () => {
     expect(f.cycle_time_hours.count).toBe(1)
   })
 })
+
+describe('FlowService — filtro de projeto', () => {
+  it('só conta os MOVEs e o custo do projeto pedido', async () => {
+    await setupTestProject(paths, 'beta')
+    await audit([
+      move('card-a', 'todo', 'in_progress', at(MON, 9)),
+      move('card-a', 'in_progress', 'done', at(MON, 11)),
+      move('card-b', 'todo', 'in_progress', at(MON, 9), 'beta'),
+      move('card-b', 'in_progress', 'done', at(MON, 19), 'beta'),
+    ])
+    logCost(at(MON, 10), 4)
+    logCost(at(MON, 10), 100, 'beta')
+
+    const alfa = await service.collect({ project: 'alfa' })
+    expect(alfa.cycle_time_hours).toMatchObject({ count: 1, p50: 2 })
+    expect(alfa.by_week).toEqual([{ week_start: MON, delivered: 1, cost_usd: 4, cost_per_card: 4 }])
+
+    const all = await service.collect()
+    expect(all.cycle_time_hours.count).toBe(2)
+    expect(all.by_week[0]).toMatchObject({ delivered: 2, cost_usd: 104 })
+  })
+})

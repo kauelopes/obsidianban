@@ -221,6 +221,7 @@ export type SSEEventType =
   | 'JOB_STARTED'
   | 'JOB_STALLED'
   | 'JOB_FINISHED'
+  | 'MODULE_EVENT'
 
 export interface CardCreatedPayload     { card_id: string; project: string; status: string; position: number }
 export interface CardUpdatedPayload     { card_id: string; project: string; changed_fields: string[] }
@@ -249,6 +250,12 @@ export interface WorkflowExitedPayload   { sprint_id: string; project: string; s
 export interface JobStartedPayload       { job_id: string; card_id: string; sprint_id: string; project: string }
 export interface JobStalledPayload       { job_id: string; card_id: string; sprint_id: string; project: string }
 export interface JobFinishedPayload      { job_id: string; card_id: string; sprint_id: string; project: string; status: string; exit_code: number | null }
+/**
+ * Envelope único para eventos de módulos opcionais: o core não conhece os
+ * eventos de cada módulo, só o id de quem emitiu. `module: 'core'` sinaliza
+ * mudança de estado dos módulos (toggle em Configs → Módulos).
+ */
+export interface ModuleEventPayload      { module: string; event: string; payload: unknown }
 
 export type SSEEventPayload =
   | CardCreatedPayload
@@ -278,6 +285,7 @@ export type SSEEventPayload =
   | JobStartedPayload
   | JobStalledPayload
   | JobFinishedPayload
+  | ModuleEventPayload
 
 export interface SSEEvent {
   type: SSEEventType
@@ -1121,3 +1129,22 @@ export interface WeeklyDigest {
 // the exact same code the server writes them with — a second implementation
 // would drift, and the zone split is a contract, not an implementation detail.
 export * from './sections.js'
+
+// ─── Módulos opcionais (GET /modules, PUT /modules/:id) ─────────────────────
+// Instalado = listado no registry do servidor; ativo = toggle persistido em
+// .kanban/modules.json. Um módulo que falhou no register() aparece com
+// `load_error` e fica fora do ar mesmo se `enabled`.
+
+export interface ModuleInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+  config: Record<string, unknown>
+  load_error: string | null
+}
+
+export interface ModulesListResponse {
+  modules: ModuleInfo[]
+}

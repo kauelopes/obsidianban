@@ -36,6 +36,15 @@ export const STALE_REVIEW_DAYS = 3
 // que cortou, via audit_truncated).
 export const DIGEST_AUDIT_MAX_LINES = 200_000
 
+// ── Módulos opcionais ────────────────────────────────────────────────────────
+// Teto de cards por chamada de listCards na fachada de dados dos módulos — um
+// relatório do board inteiro lê tudo, mas nunca sem limite.
+export const MODULE_CARDS_MAX = 20_000
+// id de módulo: kebab-case curto, vira prefixo de rota e nome de pasta.
+export const MODULE_ID_RE = /^[a-z][a-z0-9-]{1,39}$/
+// LLM dos módulos (MODULES_LLM_TIMEOUT_MS sobrescreve).
+export const MODULE_LLM_TIMEOUT_MS = 300_000
+
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 // Backstop de JobManager.stop()/dispose(): quanto esperar pelo finalize
 // (evento `close` do filho após o SIGKILL) antes de devolver o melhor estado

@@ -14,6 +14,8 @@ import type {
   KadDocResponse,
   KadListResponse,
   Metrics,
+  ModuleInfo,
+  ModulesListResponse,
   RepoDocResponse,
   RepoDocsListResponse,
   SkillFileDocResponse,
@@ -503,6 +505,66 @@ export class KanbanClient {
         },
       }
     }
+  }
+
+  // ── Módulos opcionais (/modules) ────────────────────────────────────────────
+
+  async listModules(): Promise<McpResult<ModulesListResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/modules`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar os módulos',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  async updateModule(
+    id: string,
+    patch: { enabled?: boolean; config?: Record<string, unknown> },
+  ): Promise<McpResult<ModuleInfo>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/modules/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(patch),
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível atualizar o módulo',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /**
+   * fetch cru nas rotas de um módulo (/modules/<id><path>), com o bearer e,
+   * em mutações, o content-type JSON que o servidor exige contra CSRF. O
+   * módulo trata a Response — pode ser JSON ou binário (PDF).
+   */
+  moduleFetch(id: string, path: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${this.token}`)
+    const method = (init.method ?? 'GET').toUpperCase()
+    if (method !== 'GET' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    const rel = path.startsWith('/') ? path : `/${path}`
+    return fetch(`${this.baseUrl}/modules/${encodeURIComponent(id)}${rel}`, { ...init, headers })
   }
 
   // ── Skills dos agentes (.claude/skills/ fonte, replicada por projeto) ──────

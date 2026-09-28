@@ -2115,3 +2115,47 @@
   border-top: 1px solid var(--line, currentColor);
   font-size: var(--t-2xs);
 }
+
+/* ── Configs → Módulos ───────────────────────────────────────────────────── */
+
+.modules-list {
+  list-style: none;
+  margin: var(--s-6) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.module-row {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  padding: var(--s-5) var(--s-6);
+}
+
+.module-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  flex-wrap: wrap;
+}
+
+.module-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  font-size: var(--t-md);
+  cursor: pointer;
+}
+
+.module-version {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--fg-2);
+}
+
+.module-desc {
+  margin: var(--s-3) 0 0;
+  color: var(--fg-1);
+  font-size: var(--t-sm);
+}

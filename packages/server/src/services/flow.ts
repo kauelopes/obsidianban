@@ -11,6 +11,13 @@ import { DIGEST_AUDIT_MAX_LINES } from '../util/constants.js'
 import { scanAuditLog } from './audit-scan.js'
 import type { MetricsService } from './metrics.js'
 
+export interface FlowFilter {
+  from_date?: string
+  to_date?: string
+  /** Só os MOVEs (e o custo) deste projeto; ausente = vault inteiro. */
+  project?: string
+}
+
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
 
@@ -34,7 +41,7 @@ export class FlowService {
     private readonly metrics: MetricsService,
   ) {}
 
-  async collect(filter: { from_date?: string; to_date?: string } = {}): Promise<FlowMetrics> {
+  async collect(filter: FlowFilter = {}): Promise<FlowMetrics> {
     const rank = await this.columnRanks()
 
     const from = filter.from_date ? Date.parse(`${filter.from_date}T00:00:00.000Z`) : null
@@ -56,6 +63,7 @@ export class FlowService {
       this.paths.auditLog,
       (entry) => {
         if (entry.op !== 'MOVE' || !entry.card_id || !entry.ts) return
+        if (filter.project && entry.project !== filter.project) return
         const ms = Date.parse(entry.ts)
         if (Number.isNaN(ms) || !inWindow(ms)) return
 
@@ -142,14 +150,19 @@ export class FlowService {
    */
   private weeks(
     delivered: ReadonlyMap<string, number>,
-    filter: { from_date?: string; to_date?: string },
+    filter: FlowFilter,
   ): FlowWeek[] {
     const metrics = this.metrics.collect({
       ...(filter.from_date ? { from_date: filter.from_date } : {}),
       ...(filter.to_date ? { to_date: filter.to_date } : {}),
     })
+    // Com projeto, o custo sai do cruzamento projeto×dia — by_day somaria o
+    // gasto do vault inteiro contra as entregas de um projeto só.
+    const days = filter.project
+      ? metrics.by_project_day.filter((d) => d.project === filter.project)
+      : metrics.by_day
     const costByWeek = new Map<string, number>()
-    for (const day of metrics.by_day) {
+    for (const day of days) {
       const wk = mondayOf(day.date)
       costByWeek.set(wk, (costByWeek.get(wk) ?? 0) + day.cost_usd)
     }

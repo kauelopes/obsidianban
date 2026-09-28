@@ -14,6 +14,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@obsidiankan/types': path.resolve(__dirname, '../shared/src/index.ts'),
+      '@obsidiankan/module-sdk': path.resolve(__dirname, '../module-sdk/src/index.ts'),
     },
     // Vitest resolves .js imports to .ts automatically for NodeNext projects
     extensionAlias: {

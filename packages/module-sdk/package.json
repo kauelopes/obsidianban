@@ -1,0 +1,26 @@
+{
+  "name": "@obsidiankan/module-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contrato entre o core do ObsidianKan e os módulos opcionais (server + web)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./web": "./web/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.json",
+    "typecheck": "tsc --build tsconfig.json"
+  },
+  "dependencies": {
+    "@obsidiankan/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "typescript": "^5.6.3"
+  }
+}

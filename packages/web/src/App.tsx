@@ -16,6 +16,8 @@ import { BoardTab } from './project/BoardTab.js'
 import { FilesTab } from './project/FilesTab.js'
 import { GoalsTab } from './project/GoalsTab.js'
 import { MetricsTab } from './project/MetricsTab.js'
+import { ModulePage, ModuleProjectTab } from './modules/ModuleRoutes.js'
+import { ModulesProvider } from './modules/ModulesContext.js'
 import { ProjectLayout } from './project/ProjectLayout.js'
 import { SprintPlanEntry, SprintPlanWizard } from './sprint-plan/SprintPlanWizard.js'
 import { CreateProject } from './ui/CreateProject.js'
@@ -121,78 +123,89 @@ export function App() {
   return (
     <ThemeContext.Provider value={resolved}>
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<DashboardPage client={client} onLogout={clearToken} />} />
-          <Route path="/projetos" element={<ProjectsPage client={client} onLogout={clearToken} />} />
-          <Route path="/board/:project" element={<ProjectLayout client={client} onLogout={clearToken} />}>
-            <Route index element={<BoardTab />} />
-            <Route path="arquivos" element={<FilesTab />} />
-            <Route path="estatisticas" element={<MetricsTab />} />
-            <Route path="metas" element={<GoalsTab />} />
-          </Route>
-          <Route path="/board" element={<Navigate to="/projetos" replace />} />
-          <Route path="/card/:id" element={<CardPage client={client} onLogout={clearToken} />} />
-          <Route
-            path="/planejar"
-            element={
-              <Shell client={client} onLogout={clearToken}>
-                <PlanEntry client={client} />
-              </Shell>
-            }
-          />
-          <Route
-            path="/planejar/:sessionId"
-            element={
-              <Shell client={client} onLogout={clearToken}>
-                <PlanWizard client={client} />
-              </Shell>
-            }
-          />
-          <Route
-            path="/projetos/:project/planejar-sprint"
-            element={
-              <Shell client={client} onLogout={clearToken}>
-                <SprintPlanEntry client={client} />
-              </Shell>
-            }
-          />
-          <Route
-            path="/planejar-sprint/:sessionId"
-            element={
-              <Shell client={client} onLogout={clearToken}>
-                <SprintPlanWizard client={client} />
-              </Shell>
-            }
-          />
-          <Route path="/inbox" element={<Navigate to="/" replace />} />
-          <Route
-            path="/horizonte"
-            element={
-              <Shell client={client} onLogout={clearToken}>
-                <Horizon client={client} />
-              </Shell>
-            }
-          />
-          <Route path="/revisao" element={<Navigate to="/atividade" replace />} />
-          <Route path="/ajuda" element={<Navigate to="/configs" replace />} />
-          <Route
-            path="/configs"
-            element={
-              <Shell client={client} onLogout={clearToken}>
-                <Configs client={client} />
-              </Shell>
-            }
-          />
-          <Route
-            path="/atividade"
-            element={
-              <Shell client={client} onLogout={clearToken}>
-                <Metrics client={client} />
-              </Shell>
-            }
-          />
-          <Route path="/arquivos" element={<Navigate to="/projetos" replace />} />
-        </Routes>
+        <ModulesProvider client={client}>
+          <Routes>
+            <Route path="/" element={<DashboardPage client={client} onLogout={clearToken} />} />
+            <Route path="/projetos" element={<ProjectsPage client={client} onLogout={clearToken} />} />
+            <Route path="/board/:project" element={<ProjectLayout client={client} onLogout={clearToken} />}>
+              <Route index element={<BoardTab />} />
+              <Route path="arquivos" element={<FilesTab />} />
+              <Route path="estatisticas" element={<MetricsTab />} />
+              <Route path="metas" element={<GoalsTab />} />
+              <Route path="m/:moduleId/*" element={<ModuleProjectTab />} />
+            </Route>
+            <Route path="/board" element={<Navigate to="/projetos" replace />} />
+            <Route path="/card/:id" element={<CardPage client={client} onLogout={clearToken} />} />
+            <Route
+              path="/planejar"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <PlanEntry client={client} />
+                </Shell>
+              }
+            />
+            <Route
+              path="/planejar/:sessionId"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <PlanWizard client={client} />
+                </Shell>
+              }
+            />
+            <Route
+              path="/projetos/:project/planejar-sprint"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <SprintPlanEntry client={client} />
+                </Shell>
+              }
+            />
+            <Route
+              path="/planejar-sprint/:sessionId"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <SprintPlanWizard client={client} />
+                </Shell>
+              }
+            />
+            <Route path="/inbox" element={<Navigate to="/" replace />} />
+            <Route
+              path="/horizonte"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <Horizon client={client} />
+                </Shell>
+              }
+            />
+            <Route path="/revisao" element={<Navigate to="/atividade" replace />} />
+            <Route path="/ajuda" element={<Navigate to="/configs" replace />} />
+            <Route
+              path="/configs"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <Configs client={client} />
+                </Shell>
+              }
+            />
+            <Route
+              path="/atividade"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <Metrics client={client} />
+                </Shell>
+              }
+            />
+            <Route path="/arquivos" element={<Navigate to="/projetos" replace />} />
+            <Route
+              path="/m/:moduleId/*"
+              element={
+                <Shell client={client} onLogout={clearToken}>
+                  <ModulePage />
+                </Shell>
+              }
+            />
+          </Routes>
+        </ModulesProvider>
       </BrowserRouter>
     </ThemeContext.Provider>
   )
