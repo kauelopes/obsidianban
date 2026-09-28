@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ModuleHttpError } from '@obsidiankan/module-sdk'
 import { sprintPeriod, sprintReport } from '../../server/types/sprint.js'
 import { toMarkdown } from '../../server/markdown.js'
+import { localDay } from '../../server/period.js'
 import { card, emptyMetrics, fakeData, move, project, sprint } from './fixtures.js'
 
 const NOW = new Date('2026-07-20T12:00:00.000Z')
@@ -122,7 +123,8 @@ describe('sprintReport.build', () => {
     const { document } = await sprintReport.build(params, ctx)
     const chart = document.sections[1]!.blocks[0]!
     if (chart.kind !== 'chart') throw new Error('esperava gráfico')
-    expect(chart.labels).toEqual(['06/07 09h', '06/07 10h', '06/07 11h', '06/07 12h'])
+    // horário de Brasília (TZ fixado no vitest.config): 09:20Z = 06:20 local
+    expect(chart.labels).toEqual(['06/07 06h', '06/07 07h', '06/07 08h', '06/07 09h'])
     expect(chart.series[0]!.values).toEqual([0, 1, 1, 1])
     const summary = document.sections[0]!.blocks.find((b) => b.kind === 'paragraph')
     expect(summary).toMatchObject({ text: 'Em 2,8 h, 1 de 1 cards foram concluídos.' })
@@ -144,5 +146,23 @@ describe('sprintReport.build', () => {
     const md = toMarkdown(document)
     expect(md).toContain('não tem cards associados')
     expect(md).toContain('Nenhum card concluído nesta sprint.')
+  })
+})
+
+describe('datas no fuso local', () => {
+  it('sprint da noite de Brasília fica no dia local, não no dia UTC seguinte', async () => {
+    // 20:30–22:30 do dia 06/07 em Brasília = 23:30Z do 06 até 01:30Z do 07
+    const night = sprint({ started_at: '2026-07-06T23:30:00.000Z', ended_at: '2026-07-07T01:30:00.000Z' })
+    expect(sprintPeriod(night, '2026-07-20')).toEqual({ from: '2026-07-06', to: '2026-07-06' })
+  })
+
+  it('"hoje" e "gerado em" seguem o relógio local às 23h', async () => {
+    const lateNow = new Date('2026-08-01T02:00:00.000Z') // 31/07 23h em Brasília
+    const active = sprint({ status: 'active', ended_at: null })
+    expect(sprintPeriod(active, localDay(lateNow))).toEqual({ from: '2026-07-06', to: '2026-07-31' })
+    const ctx = { data: fakeData({ projects: [project({ sprints: [active] })] }), now: lateNow }
+    const params = await sprintReport.resolve({ type: 'sprint', project: 'alfa', sprint_id: 'sprint-aaaa0001' }, ctx)
+    const { document } = await sprintReport.build(params, ctx)
+    expect(toMarkdown(document)).toContain('gerado em 31/07/2026')
   })
 })

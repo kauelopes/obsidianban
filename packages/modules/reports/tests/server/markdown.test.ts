@@ -64,6 +64,10 @@ describe('toMarkdown', () => {
     expect(md).not.toMatch(/^# Resumo/m)
   })
 
+  it('gerado em usa o dia local: 01:23Z do dia 28 ainda é 27 em Brasília', () => {
+    expect(toMarkdown(doc({ generated_at: '2026-09-28T01:23:00.000Z' }))).toContain('gerado em 27/09/2026')
+  })
+
   it('notas fecham o documento', () => {
     expect(toMarkdown(doc({ notes: ['Nota A'] }))).toMatch(/## Notas metodológicas\n\n- Nota A\n$/)
   })

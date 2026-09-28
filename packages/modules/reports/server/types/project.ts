@@ -2,7 +2,7 @@ import type { CardMove, ModuleDataApi, ProjectInfo } from '@obsidiankan/module-s
 import type { CardSummary, FlowMetrics, Sprint } from '@obsidiankan/types'
 import type { ReportParams, ReportSection } from '../api-types.js'
 import { fmtDate, fmtHours, fmtInt, fmtPct, fmtPeriod, fmtTokens, fmtUsd } from '../format.js'
-import { addDays, daysInclusive, isoDate, mondayOf, overlaps } from '../period.js'
+import { addDays, daysInclusive, localDay, mondayOf, overlaps } from '../period.js'
 import {
   doneColumn,
   requirePeriod,
@@ -26,7 +26,7 @@ export const projectReport: ReportTypeDef = {
 
   async resolve(req, ctx) {
     const project = await requireProject(ctx, req.project)
-    const { from, to } = requirePeriod(req, isoDate(ctx.now))
+    const { from, to } = requirePeriod(req, localDay(ctx.now))
     return { type: 'project', project: project.name, sprint_id: null, from, to, include_analysis: req.include_analysis === true }
   },
 
@@ -58,7 +58,7 @@ export function deliveries(moves: readonly CardMove[], done: string, cards: Read
 export function sprintsInPeriod(p: ProjectInfo, period: { from: string; to: string }, today: string): Sprint[] {
   return p.sprints
     .filter((s) => s.status !== 'planning' || s.started_at)
-    .filter((s) => overlaps((s.started_at ?? s.created_at).slice(0, 10), (s.ended_at ?? today).slice(0, 10), period.from, period.to))
+    .filter((s) => overlaps(localDay(s.started_at ?? s.created_at), localDay(s.ended_at ?? today), period.from, period.to))
     .sort((a, b) => (a.started_at ?? a.created_at).localeCompare(b.started_at ?? b.created_at))
 }
 
@@ -78,7 +78,7 @@ export interface WeekRow {
 export function weekly(delivered: readonly Delivery[], flow: FlowMetrics): WeekRow[] {
   const byWeek = new Map<string, number>()
   for (const d of delivered) {
-    const wk = mondayOf(d.at)
+    const wk = mondayOf(localDay(d.at))
     byWeek.set(wk, (byWeek.get(wk) ?? 0) + 1)
   }
   const cost = new Map(flow.by_week.map((w) => [w.week_start, w.cost_usd]))
@@ -113,7 +113,7 @@ async function buildProject(params: ReportParams, ctx: BuildContext): Promise<Bu
   const data: ModuleDataApi = ctx.data
   const project = (await data.getProject(params.project!))!
   const period = { from: params.from!, to: params.to! }
-  const today = isoDate(ctx.now)
+  const today = localDay(ctx.now)
   const done = doneColumn(project.columns)
 
   const flow = await data.flow({ project: project.name, from_date: period.from, to_date: period.to })

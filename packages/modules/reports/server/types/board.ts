@@ -1,6 +1,6 @@
 import type { ReportParams, ReportSection } from '../api-types.js'
 import { fmtDate, fmtHours, fmtInt, fmtPct, fmtPeriod, fmtTokens, fmtUsd } from '../format.js'
-import { addDays, daysInclusive, isoDate } from '../period.js'
+import { addDays, daysInclusive, localDay } from '../period.js'
 import { deliveries, flowWarnings, weekRows, weekly, type Delivery } from './project.js'
 import {
   doneColumn,
@@ -23,7 +23,7 @@ export const boardReport: ReportTypeDef = {
   },
 
   async resolve(req, ctx) {
-    const { from, to } = requirePeriod(req, isoDate(ctx.now))
+    const { from, to } = requirePeriod(req, localDay(ctx.now))
     return { type: 'board', project: null, sprint_id: null, from, to, include_analysis: req.include_analysis === true }
   },
 
@@ -35,7 +35,7 @@ export const boardReport: ReportTypeDef = {
 async function buildBoard(params: ReportParams, ctx: BuildContext): Promise<BuiltReport> {
   const { data } = ctx
   const period = { from: params.from!, to: params.to! }
-  const today = isoDate(ctx.now)
+  const today = localDay(ctx.now)
   const projects = await data.listProjects()
 
   const metrics = data.metrics({ from_date: period.from, to_date: period.to })
@@ -76,7 +76,7 @@ async function buildBoard(params: ReportParams, ctx: BuildContext): Promise<Buil
 
   const closedSprints = projects
     .flatMap((p) => p.sprints.map((s) => ({ project: p.name, sprint: s })))
-    .filter(({ sprint }) => sprint.ended_at && sprint.ended_at.slice(0, 10) >= period.from && sprint.ended_at.slice(0, 10) <= period.to)
+    .filter(({ sprint }) => sprint.ended_at && localDay(sprint.ended_at) >= period.from && localDay(sprint.ended_at) <= period.to)
     .sort((a, b) => a.sprint.ended_at!.localeCompare(b.sprint.ended_at!))
 
   const horizon = addDays(period.to, UPCOMING_GOAL_DAYS)

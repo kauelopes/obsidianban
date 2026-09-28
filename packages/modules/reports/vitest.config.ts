@@ -11,6 +11,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     restoreMocks: true,
+    // Datas "de gente" (hoje, gerado em, dia da sprint) saem no fuso local;
+    // fixar o fuso deixa os testes iguais em qualquer máquina.
+    env: { TZ: 'America/Sao_Paulo' },
     testTimeout: 60_000,
   },
   resolve: {

@@ -1,6 +1,8 @@
 // Formatação pt-BR usada no documento. Um lugar só: o Markdown e o PDF recebem
 // strings já formatadas, então "1.234" nunca vira "1,234" numa das saídas.
 
+import { localDay } from './period.js'
+
 const INT = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 })
 const ONE = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const USD = new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -31,10 +33,10 @@ export function fmtTokens(n: number): string {
   return INT.format(n)
 }
 
-/** YYYY-MM-DD ou ISO completo → dd/mm/aaaa. */
+/** YYYY-MM-DD ou ISO completo → dd/mm/aaaa, no fuso local (ver localDay). */
 export function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—'
-  const [y, m, d] = iso.slice(0, 10).split('-')
+  const [y, m, d] = localDay(iso).split('-')
   return y && m && d ? `${d}/${m}/${y}` : iso
 }
 

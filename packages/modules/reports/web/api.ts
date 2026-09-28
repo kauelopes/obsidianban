@@ -116,8 +116,9 @@ export function localDate(d: Date = new Date()): string {
   return `${y}-${m}-${day}`
 }
 
+/** dd/mm/aaaa no fuso do navegador — timestamp UTC às 22h de Brasília é "amanhã" em UTC. */
 export function fmtDateBr(iso: string | null | undefined): string {
   if (!iso) return '—'
-  const [y, m, d] = iso.slice(0, 10).split('-')
+  const [y, m, d] = (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : localDate(new Date(iso))).split('-')
   return `${d}/${m}/${y}`
 }

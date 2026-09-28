@@ -3,7 +3,7 @@ import type { CardSummary, Metrics, Sprint } from '@obsidiankan/types'
 import type { Block, ReportParams, ReportSection } from '../api-types.js'
 import { flowByCard, percentiles } from '../cycle.js'
 import { fmtDate, fmtHours, fmtInt, fmtPct, fmtPeriod, fmtTokens, fmtUsd } from '../format.js'
-import { addDays, daysInclusive, eachDay, isoDate } from '../period.js'
+import { daysInclusive, eachDay, localDay, localDayEndIso } from '../period.js'
 import {
   badRequest,
   cardCost,
@@ -36,7 +36,7 @@ export const sprintReport: ReportTypeDef = {
     if (!req.sprint_id) throw badRequest('invalid_field', { field: 'sprint_id', hint: 'sprint obrigatória' })
     const sprint = project.sprints.find((s) => s.id === req.sprint_id)
     if (!sprint) throw new ModuleHttpError(404, { error: 'sprint_not_found', sprint_id: req.sprint_id })
-    const { from, to } = sprintPeriod(sprint, isoDate(ctx.now))
+    const { from, to } = sprintPeriod(sprint, localDay(ctx.now))
     return {
       type: 'sprint',
       project: project.name,
@@ -54,8 +54,8 @@ export const sprintReport: ReportTypeDef = {
 
 /** Janela da sprint: início (ou criação) até o fim (ou hoje). */
 export function sprintPeriod(s: Sprint, today: string): { from: string; to: string } {
-  const from = (s.started_at ?? s.created_at).slice(0, 10)
-  const end = s.ended_at ? s.ended_at.slice(0, 10) : today
+  const from = localDay(s.started_at ?? s.created_at)
+  const end = s.ended_at ? localDay(s.ended_at) : today
   return { from, to: end < from ? from : end }
 }
 
@@ -329,13 +329,13 @@ export function burnBuckets(s: Sprint, period: { from: string; to: string }, now
     for (let t = first; t < stop; t += HOUR_MS) {
       const d = new Date(t)
       out.push({
-        label: `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}h`,
+        label: `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}h`,
         end: new Date(t + HOUR_MS).toISOString(),
       })
     }
     return out
   }
-  return eachDay(period.from, period.to).map((d) => ({ label: fmtDate(d).slice(0, 5), end: `${addDays(d, 1)}T00:00:00.000Z` }))
+  return eachDay(period.from, period.to).map((d) => ({ label: fmtDate(d).slice(0, 5), end: localDayEndIso(d) }))
 }
 
 /** "6,5 h" para sprint curta (com início e fim reais), "12 dia(s)" para as demais. */

@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import type { ReportDocument, ReportMeta } from './api-types.js'
+import { localDay } from './period.js'
 
 export const REPORT_ID_RE = /^rep-\d{8}-[0-9a-f]{6}$/
 
@@ -20,7 +21,7 @@ export class ReportStore {
   }
 
   newId(now: Date): string {
-    const day = now.toISOString().slice(0, 10).replace(/-/g, '')
+    const day = localDay(now).replace(/-/g, '')
     return `rep-${day}-${randomBytes(3).toString('hex')}`
   }
 

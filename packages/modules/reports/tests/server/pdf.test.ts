@@ -94,6 +94,8 @@ describe.skipIf(!hasRenderer)('renderer Python (WeasyPrint)', () => {
     expect(html).toContain('Minha &quot;Marca&quot;')
     expect(html).toContain('content: "Rodapé \\"x\\""')
     expect(html).toContain('Vazio: sem dados no período.')
+    // generated_at 12:00Z → 09h em Brasília, mesmo dia; a capa mostra 20/07
+    expect(html).toContain('Gerado em 20/07/2026')
   })
 })
 

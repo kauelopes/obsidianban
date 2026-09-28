@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import sys
+from datetime import datetime
 from html import escape
 
 from . import figuras
@@ -61,6 +62,9 @@ def grafico(b: dict) -> str:
 
 
 def data_br(iso: str) -> str:
+    """dd/mm/aaaa; timestamp ISO (UTC) vira o dia no fuso local da máquina."""
+    if len(iso) > 10:
+        iso = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone().date().isoformat()
     y, m, d = iso[:10].split("-")
     return f"{d}/{m}/{y}"
 

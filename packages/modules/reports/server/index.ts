@@ -13,6 +13,7 @@ import { ReportStore } from './store.js'
 import { REPORT_TYPES } from './types/index.js'
 import { badRequest } from './types/common.js'
 import { fmtPeriod } from './format.js'
+import { localDay } from './period.js'
 
 export type { ReportTheme } from './pdf.js'
 export * from './api-types.js'
@@ -157,7 +158,7 @@ function fileSlug(meta: ReportMeta): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
-  return `relatorio-${base || meta.type}-${meta.created_at.slice(0, 10)}`
+  return `relatorio-${base || meta.type}-${localDay(meta.created_at)}`
 }
 
 function themeFrom(config: Record<string, unknown>): ReportTheme {
