@@ -86,9 +86,10 @@ function renderChart(b: Extract<Block, { kind: 'chart' }>): string[] {
 /** Topo do eixo um pouco acima do máximo — senão o mermaid cola a série no teto. */
 function niceMax(max: number): number {
   if (max <= 0) return 1
-  const padded = max * 1.1
+  const padded = max * 1.08
   const mag = 10 ** Math.floor(Math.log10(padded))
-  return Math.ceil(padded / mag) * mag
+  const step = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find((k) => k * mag >= padded) ?? 10
+  return Math.round(step * mag * 1000) / 1000
 }
 
 function num(n: number): string {

@@ -116,17 +116,20 @@ section.nova-pagina {{ page-break-before: always; margin-top: 0; }}
 .destaque.alerta {{ border-left-color: {b.SEGUNDA}; background: #fbf6ec; }}
 .destaque.alerta .titulo {{ color: {b.SEGUNDA_DARK}; }}
 
-table.tabela {{ width: 100%; border-collapse: collapse; margin: 7mm 0 2mm; font-size: 9pt; }}
-table.tabela caption {{ caption-side: top; text-align: left; font-family: {b.MONO}; font-size: 7.5pt;
-    letter-spacing: 0.08em; text-transform: uppercase; color: {b.MUTED}; padding-bottom: 2mm; }}
+.tabela-bloco {{ margin: 7mm 0 2mm; }}
+.tabela-bloco.curta {{ page-break-inside: avoid; }}
+.tabela-titulo {{ font-family: {b.MONO}; font-size: 7.5pt; letter-spacing: 0.08em;
+    text-transform: uppercase; color: {b.MUTED}; padding-bottom: 2mm; page-break-after: avoid; }}
+table.tabela {{ width: 100%; border-collapse: collapse; font-size: 9pt; }}
 table.tabela th {{ font-family: {b.MONO}; font-size: 7pt; letter-spacing: 0.06em;
     text-transform: uppercase; color: {b.MUTED}; text-align: left; font-weight: 500;
     border-bottom: 0.6pt solid {b.INK}; padding: 0 3mm 2mm 0; }}
 table.tabela td {{ padding: 2.2mm 3mm 2.2mm 0; border-bottom: 0.3pt solid {b.LINHA}; vertical-align: top; }}
 table.tabela td.num, table.tabela th.num {{ text-align: right; font-family: {b.MONO};
-    font-variant-numeric: tabular-nums; padding-right: 0; white-space: nowrap; }}
+    font-variant-numeric: tabular-nums; padding-right: 0; padding-left: 3mm; }}
+table.tabela td.num {{ white-space: nowrap; }}
+table.tabela th + th, table.tabela td + td {{ padding-left: 3mm; }}
 table.tabela tr {{ page-break-inside: avoid; }}
-table.tabela.curta {{ page-break-inside: avoid; }}
 table.tabela tr:last-child td {{ border-bottom: none; }}
 
 ul.lista {{ margin: 5mm 0 2mm 5mm; font-size: 9.5pt; }}

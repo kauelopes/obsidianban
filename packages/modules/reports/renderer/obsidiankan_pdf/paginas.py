@@ -110,11 +110,13 @@ def tabela(colunas: list[str], linhas: list[list[str]], num: set[int] | None = N
             for i, v in enumerate(linha)
         )
         trs.append(f"<tr>{tds}</tr>")
-    cap = f"<caption>{e(legenda)}</caption>" if legenda else ""
-    # Tabela curta partida entre páginas só atrapalha; longa flui (o thead repete).
-    classe = "tabela curta" if len(linhas) <= 12 else "tabela"
-    return (f'<table class="{classe}">{cap}<thead><tr>{th}</tr></thead>'
-            f'<tbody>{"".join(trs)}</tbody></table>')
+    # Título fora do <caption>: o WeasyPrint deixa o caption órfão no pé da
+    # página quando a tabela pula para a seguinte. Tabela curta vai inteira
+    # com o título; longa flui (o thead repete) e só o título gruda nela.
+    titulo = f'<div class="tabela-titulo">{e(legenda)}</div>' if legenda else ""
+    classe = "tabela-bloco curta" if len(linhas) <= 12 else "tabela-bloco"
+    return (f'<div class="{classe}">{titulo}<table class="tabela"><thead><tr>{th}</tr></thead>'
+            f'<tbody>{"".join(trs)}</tbody></table></div>')
 
 
 def figura(svg: str, titulo: str = "") -> str:
