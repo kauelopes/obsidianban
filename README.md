@@ -2,7 +2,7 @@
 
 **Um sistema Kanban para agentes de IA e humanos — com a confiabilidade de um banco de dados e a simplicidade de arquivos Markdown.**
 
-ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 65 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um web app para visualização e edição em tempo real.
+ObsidianKan transforma um vault Obsidian em um sistema Kanban operacional que agentes e humanos usam simultaneamente, sem conflito. É um servidor MCP com 65 ferramentas, controle de acesso por papel, idempotência, optimistic locking e um web app para visualização e edição em tempo real — extensível por **módulos opcionais** (o primeiro gera relatórios de sprint, projeto e board em Markdown e PDF).
 
 ---
 
@@ -50,10 +50,25 @@ packages/
   server/    # MCP Server — Node.js, TypeScript, better-sqlite3 (serve o web app na mesma origem)
   web/       # Web app — React + Vite + TypeScript
   shared/    # Tipos compartilhados (@obsidiankan/types)
+  module-sdk/ # Contrato core ↔ módulos opcionais (@obsidiankan/module-sdk)
+  modules/
+    reports/ # Módulo Relatórios — MD + PDF (Python/WeasyPrint), análise opcional por IA
 docs/        # Documentação organizada por público
 ```
 
-**Stack:** Node.js ≥22, TypeScript 5.6, better-sqlite3, MCP SDK 1.29+, chokidar, pino, Anthropic SDK
+**Stack:** Node.js ≥22, TypeScript 5.6, better-sqlite3, MCP SDK 1.29+, chokidar, pino, Anthropic SDK · Python 3.10+ com WeasyPrint (opcional, só para o PDF dos relatórios)
+
+---
+
+## Módulos opcionais
+
+Funcionalidades fora do núcleo são pacotes em `packages/modules/<id>` com parte servidor e parte web. Ficam **instaladas** no código (um registry de cada lado) e são **ativadas** pela interface, em **Configs → Módulos**, sem reiniciar — desativar tira o módulo do menu e das rotas, sem apagar dados. O core continua igual com o módulo desligado.
+
+| Módulo | O que faz |
+|---|---|
+| **Relatórios** | Relatório de sprint, de desenvolvimento do projeto num período e de desempenho do board inteiro. Números calculados do vault (entregas, tempo de ciclo, retrabalho, custo medido), análise opcional por IA (claude headless) e saída em Markdown na interface e em PDF |
+
+Guia completo: [docs/for-developers/modules.md](docs/for-developers/modules.md).
 
 ---
 
@@ -93,6 +108,14 @@ Abra `http://127.0.0.1:9375` no navegador para o board web — em loopback o ser
 ```bash
 VAULT_PATH=/caminho/para/vault node packages/server/dist/auth/cli.js create --role manager --actor "human:seu-nome"
 ```
+
+### 5. Relatórios em PDF (opcional)
+
+```bash
+make reports-setup   # venv do renderer (Python + WeasyPrint + matplotlib)
+```
+
+Depois ative **Relatórios** em Configs → Módulos. Sem o venv os relatórios saem só em Markdown.
 
 > Veja o guia completo em [docs/for-users/getting-started.md](docs/for-users/getting-started.md)
 
@@ -134,6 +157,7 @@ Veja a matriz completa em [docs/for-agents/tool-catalog.md](docs/for-agents/tool
 - [Setup de desenvolvimento](docs/for-developers/setup.md) — monorepo, build, dev mode
 - [Arquitetura](docs/for-developers/architecture.md) — diagramas C4, fluxos, padrões
 - [Guia de testes](docs/for-developers/testing.md) — como rodar e adicionar testes
+- [Módulos opcionais](docs/for-developers/modules.md) — contrato, como criar um módulo, módulo Relatórios
 - [Contribuição](docs/for-developers/contributing.md) — convenções, PR process
 
 ### Para agentes IA

@@ -390,8 +390,11 @@ data: {"type":"CARD_UPDATED","payload":{"card_id":"card-abc","project":"marketin
 
 Event types: `CARD_CREATED`, `CARD_UPDATED`, `CARD_MOVED`, `CARD_REORDERED`,
 `CARD_HUMAN_EDITED`, `CARD_DELETED`, `CARD_ARCHIVED`, `CARD_UNARCHIVED`,
-`PROJECT_ARCHIVED`, `PROJECT_UNARCHIVED`, `PROJECT_DELETED`. Pass
-`Last-Event-ID` on reconnect to replay missed frames (100-event rolling
+`PROJECT_ARCHIVED`, `PROJECT_UNARCHIVED`, `PROJECT_DELETED`, plus sprint,
+planning, workflow and job events, and `MODULE_EVENT` — a single envelope
+`{ module, event, payload }` for optional modules (`module: 'core'` with
+`event: 'modules_changed'` when one is toggled; the reports module emits
+`progress`). Pass `Last-Event-ID` on reconnect to replay missed frames (100-event rolling
 buffer).
 
 **Card filenames.** Each card lives at
@@ -459,6 +462,16 @@ returns one doc's raw markdown content. Backs the web app's **Arquivos** tab.
 `docs/` inside the project's `target_repo` (recursive; `doc` may include
 subfolders, e.g. `doc=kad/vision`). Empty list when the project has no
 `target_repo` or no `docs/` in it — not an error.
+
+**Optional modules.** `GET /modules` (any valid token) lists installed modules
+with `enabled`, `config` and `load_error`; `PUT /modules/<id>` with
+`{ enabled?, config? }` (manager, JSON content-type) toggles one at runtime.
+Everything under `/modules/<id>/` belongs to that module and answers `404`
+while it is disabled. The reports module exposes `GET /modules/reports/options`,
+`GET|POST /modules/reports/` (list / generate — generating needs a pm or
+manager token), `GET /modules/reports/<id>`, `…/<id>/markdown`, `…/<id>/pdf`
+and `DELETE /modules/reports/<id>`. These are HTTP routes for the web app, not
+MCP tools. See `docs/for-developers/modules.md`.
 
 ---
 

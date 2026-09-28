@@ -37,8 +37,15 @@ obsidiankan/
 │   │   └── dist/        # Output compilado (gitignored)
 │   ├── web/             # Web app — React + Vite + TypeScript
 │   │   └── src/         # Código fonte (board, card detail, wizard de planejamento)
-│   └── shared/          # Tipos compartilhados (@obsidiankan/types)
-│       └── src/index.ts # Fonte de verdade dos tipos do domínio
+│   ├── shared/          # Tipos compartilhados (@obsidiankan/types)
+│   │   └── src/index.ts # Fonte de verdade dos tipos do domínio
+│   ├── module-sdk/      # Contrato core ↔ módulos (src/ = servidor, compilado; web/ = fonte TSX)
+│   └── modules/
+│       └── reports/     # Módulo Relatórios (@obsidiankan/module-reports)
+│           ├── server/  # ServerModule — rotas, pipeline, tipos de relatório, Markdown
+│           ├── web/     # WebModule — página, aba de projeto, diálogo (fonte TSX, sem build)
+│           ├── renderer/# PDF: Python + WeasyPrint (venv em renderer/.venv, gitignored)
+│           └── tests/   # server/ (node) e web/ (jsdom)
 ├── docs/                # Documentação (esta pasta)
 └── pnpm-workspace.yaml  # Configuração do workspace
 ```
@@ -99,6 +106,24 @@ Em `vite dev` não há sessão injetada — o gate de token aparece, e isso é e
 # Pacote específico
 ~/.local/share/pnpm/bin/pnpm --filter obsidiankan-mcp run typecheck
 ```
+
+---
+
+## Módulos opcionais
+
+A parte servidor de cada módulo compila junto com o servidor (`pnpm run build` segue as
+project references: shared → module-sdk → modules → server). A parte web é importada
+como fonte pelo Vite do `@obsidiankan/web` — não tem build próprio.
+
+O renderer de PDF dos relatórios precisa de Python 3.10+:
+
+```bash
+make reports-setup   # cria packages/modules/reports/renderer/.venv
+make reports-check   # confere weasyprint + matplotlib
+```
+
+Em dev, `MODULES_LLM_STUB=true` troca a análise por IA por texto sintético (sem custo).
+Contrato e passo a passo para criar um módulo: [`modules.md`](modules.md).
 
 ---
 

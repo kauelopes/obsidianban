@@ -165,6 +165,40 @@ which claude
 
 ---
 
+## Relatórios (módulo)
+
+### "Relatórios" não aparece no menu
+
+O módulo nasce desativado. Ative em **Configs → Módulos** (exige sessão de manager —
+no loopback o navegador já tem). Se ele aparecer lá com "com erro", o `register()` falhou
+no boot: veja `make server-logs` e procure `modules: register() falhou`. Depois de
+atualizar o código, `make server-restart`.
+
+### PDF indisponível
+
+O relatório mostra "PDF indisponível" com o motivo quando o renderer não roda:
+
+```bash
+make reports-setup   # cria o venv com weasyprint + matplotlib
+make reports-check   # deve imprimir "renderer ok — weasyprint 70.0 …"
+```
+
+Depois clique em **tentar PDF de novo** no relatório — refaz só o PDF, sem recalcular.
+Para usar outro Python, defina `REPORTS_PYTHON` no `.env`.
+
+### Análise por IA falhou
+
+O relatório sai completo, sem a seção de análise, com o motivo nas notas. Causas comuns:
+`claude` fora do PATH do servidor, limite de uso da assinatura atingido ou tempo
+esgotado (`MODULES_LLM_TIMEOUT_MS`, padrão 5 min). Gere de novo depois.
+
+### Relatório ficou "falhou: interrompido"
+
+O servidor reiniciou no meio da geração; relatórios em andamento não retomam. Gere de
+novo.
+
+---
+
 ## Ainda com problemas?
 
 1. Aumente o log level para `debug`

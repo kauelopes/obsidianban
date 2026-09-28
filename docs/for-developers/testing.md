@@ -53,6 +53,31 @@ packages/server/tests/
     └── http.test.ts           # Fluxos completos: auth, cards, sprints
 ```
 
+Testes novos da arquitetura de módulos no servidor: `integration/modules.test.ts`
+(ativação, posturas de auth, 404 quando desativado, resposta binária),
+`service/module-data-api.test.ts` (fachada somente leitura) e
+`unit/llm-provider.test.ts` (`ClaudeCliProvider` contra um `claude` falso no PATH).
+
+### Módulos
+
+Cada módulo testa no próprio pacote, contra uma fachada de dados falsa — sem subir o core:
+
+```
+packages/modules/reports/tests/
+├── server/             # ambiente node
+│   ├── fixtures.ts            # fakeData (ModuleDataApi em memória), fakeContext, FakeLlm, fakePdf
+│   ├── sprint.test.ts         # relatório de sprint
+│   ├── project-board.test.ts  # relatórios de projeto e do board
+│   ├── markdown.test.ts       # ReportDocument → Markdown, prompt da análise
+│   ├── module.test.ts         # rotas + pipeline (fila, eventos, falha do LLM, restart)
+│   └── pdf.test.ts            # renderer Python — pulado sem renderer/.venv
+└── web/                # `// @vitest-environment jsdom` no topo do arquivo
+    └── reports-view.test.tsx
+```
+
+`pdf.test.ts` gera PDFs de verdade quando o venv existe (`make reports-setup`); sem ele,
+roda só os casos de "renderer indisponível".
+
 ---
 
 ## O que é testado / excluído
