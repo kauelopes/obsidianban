@@ -26,11 +26,41 @@ export const GIT_LIFECYCLE_TIMEOUT_MS = 15_000
 // como estagnado (dev agent morto/travado) em kanban_list_escalations.
 export const STALE_IN_PROGRESS_MS = 15 * 60 * 1000
 
+// ── Digest semanal ───────────────────────────────────────────────────────────
+// Dias em `review` sem resposta a partir dos quais a escalação vira pendência
+// da semana. Bem maior que STALE_IN_PROGRESS_MS: ali o sinal é agente morto,
+// aqui é humano que não voltou — a escala é de dias, não de minutos.
+export const STALE_REVIEW_DAYS = 3
+// Teto do scan do audit log por request. Sem índice por timestamp, a leitura é
+// linear; o corte troca completude por uma resposta que sempre chega (e diz
+// que cortou, via audit_truncated).
+export const DIGEST_AUDIT_MAX_LINES = 200_000
+
+// ── Módulos opcionais ────────────────────────────────────────────────────────
+// Teto de cards por chamada de listCards na fachada de dados dos módulos — um
+// relatório do board inteiro lê tudo, mas nunca sem limite.
+export const MODULE_CARDS_MAX = 20_000
+// id de módulo: kebab-case curto, vira prefixo de rota e nome de pasta.
+export const MODULE_ID_RE = /^[a-z][a-z0-9-]{1,39}$/
+// LLM dos módulos (MODULES_LLM_TIMEOUT_MS sobrescreve).
+export const MODULE_LLM_TIMEOUT_MS = 300_000
+
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 // Backstop de JobManager.stop()/dispose(): quanto esperar pelo finalize
 // (evento `close` do filho após o SIGKILL) antes de devolver o melhor estado
 // conhecido em vez de travar o chamador (ou o shutdown) para sempre.
 export const JOB_STOP_WAIT_TIMEOUT_MS_DEFAULT = 15_000
+
+// ── Terminal usage (ingestão de sessões Claude Code fora do board) ──────────
+// Pull sob demanda no GET /metrics, não watcher: latência de minutos é ok
+// para um dado de contabilidade.
+export const TERMINAL_USAGE_TTL_MS = 60_000
+// Teto de bytes lidos por RODADA de scan, somando todos os arquivos — evita que
+// o backfill inicial (81MB+ num vault com uso real) trave o primeiro
+// GET /metrics; o resto completa nos acessos seguintes (offset persistido).
+export const TERMINAL_SCAN_MAX_BYTES_PER_ROUND = 8 * 1024 * 1024
+// Cache do `git worktree list` por projeto (ligação sessão↔projeto).
+export const TERMINAL_PROJECTS_CACHE_TTL_MS = 60_000
 
 // ── HTTP shutdown ─────────────────────────────────────────────────────────────
 // Backstop de HttpServer.stop(): conexões abertas (streams SSE incluídos) são

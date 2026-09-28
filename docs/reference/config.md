@@ -80,6 +80,34 @@ SIGTERM ao process group inteiro — o workflow e os harnesses dev que ele
 spawnou. O estado vive em memória: após um restart do servidor o processo
 antigo não é mais rastreado, mas o log em disco continua legível.
 
+Os documentos KAD (`kad/*.md`, gravados por `kanban_planning_finalize`) ficam
+navegáveis na aba **Arquivos** da web, via `GET /vault/kad?project=` (lista) e
+`GET /vault/kad/doc?project=&doc=` (conteúdo) — mesma postura de confiança do
+`/metrics`: loopback-only, sem token. A mesma aba também lista `docs/` de
+dentro do `target_repo` do projeto (`GET /vault/repo-docs?project=` e
+`GET /vault/repo-docs/doc?project=&doc=`, recursivo, mesma postura de
+confiança) — cobre a cópia de KAD que a materialização grava em `docs/kad/`
+e qualquer outro `.md` que exista ali. Projeto sem `target_repo` (ou sem
+`docs/` nele) simplesmente não mostra essa seção, sem erro.
+
+As metas (`goals` no `_meta.json`) ganham duas visões próprias na web, ambas
+derivadas do que já existe, sem schema novo. A aba **Horizonte** agrupa as
+metas abertas de todos os projetos por prazo derivado de `target_date`
+(atrasada · até 2 semanas · 2 a 4 semanas · mais de 4 · sem prazo) e as plota
+num calendário mensal; meta sem prazo ganha um botão para definir a data ali
+mesmo. A aba **Revisão** mostra uma semana civil por vez via
+`GET /digest?week_start=` (loopback-only, sem token, como `/metrics`).
+
+O `GET /flow?from_date=&to_date=` (mesma postura de confiança) completa a aba
+**Estatísticas** com a metade de entrega — cycle time, espera por decisão em
+`review`, taxa de retrabalho e cards entregues por semana com custo por card.
+A ordem de avanço das colunas vem do `columns` de cada projeto, então um board
+com colunas fora do padrão não gera retrabalho falso; transição envolvendo
+status não declarado é ignorada. As entregas vêm do audit log e o custo vem do
+`token_log` (fonte autoritativa) — de propósito, para não exibir dois números
+quase iguais na mesma tela. Semanas anteriores à primeira medição de tokens
+aparecem sem custo (`—`), nunca como zero.
+
 ### Wizard de planejamento (opcional)
 
 | Variável | Padrão | Descrição |
@@ -87,6 +115,20 @@ antigo não é mais rastreado, mas o log em disco continua legível.
 | `PLANNING_MODEL` | — | Override de modelo do `claude` headless; ausente herda o default do harness |
 | `PLANNING_TURN_TIMEOUT_MS` | `240000` | Kill do turno headless após esse tempo. As etapas `sprints_tasks` e `review` geram respostas grandes — para projetos com muitos épicos, use `900000` |
 | `PLANNING_STUB` | `false` | **Modo de desenvolvimento**: `true`/`1` troca o LLM por respostas sintéticas instantâneas e gratuitas (`StubRunner`) e a materialização final por um resultado sintético (`createStub(Sprint)Materializer`) — nenhum projeto, épico, sprint ou card é criado de verdade, nada é gravado no vault. Todas as telas do wizard funcionam, incluindo refine e retry. Nunca usar em produção |
+
+### Módulos opcionais (opcional)
+
+Estado de ativação e config de cada módulo ficam em `<vault>/.kanban/modules.json`,
+editado por **Configs → Módulos** — não por variável de ambiente. Ver
+[módulos](../for-developers/modules.md).
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `MODULES_LLM_STUB` | `false` | `true`/`1` troca o LLM dos módulos (análise dos relatórios) por respostas sintéticas instantâneas e gratuitas. Dev apenas |
+| `MODULES_LLM_MODEL` | — | Override de modelo do `claude` headless usado pelos módulos; ausente herda o default do harness |
+| `MODULES_LLM_TIMEOUT_MS` | `300000` | Kill da chamada ao LLM após esse tempo |
+| `REPORTS_PYTHON` | `renderer/.venv/bin/python` | Interpretador do renderer de PDF dos relatórios. Sem ele e sem o venv (`make reports-setup`), cai no `python3` do PATH; sem WeasyPrint, o PDF fica indisponível e o Markdown segue valendo |
+| `REPORTS_RENDERER_DIR` | `packages/modules/reports/renderer` | Diretório do `cli.py` do renderer (layouts incomuns) |
 
 ---
 
@@ -125,7 +167,9 @@ vault/
     ├── db.sqlite           # Índice SQLite (derivado, pode ser deletado)
     ├── audit.ndjson        # Audit log append-only
     ├── idempotency.json    # Store de idempotência
-    └── manager-tokens.json # Tokens de manager
+    ├── manager-tokens.json # Tokens de manager
+    ├── modules.json        # Módulos opcionais: ativo/desativado + config
+    └── modules/<id>/       # Dados de cada módulo (ex.: reports/reports/<rep-id>/)
 ```
 
 **Importante:** `kanban-data/` é editável diretamente — o servidor detecta mudanças via file watcher e reconcilia automaticamente. `.kanban/` não deve ser editado manualmente.

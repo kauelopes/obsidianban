@@ -1,5 +1,6 @@
 packages:
   - 'packages/*'
+  - 'packages/modules/*'
 allowBuilds:
   better-sqlite3: true
   esbuild: true

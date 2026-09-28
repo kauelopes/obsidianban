@@ -12,6 +12,62 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
 
+  packages/module-sdk:
+    dependencies:
+      '@obsidiankan/types':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.31
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
+  packages/modules/reports:
+    dependencies:
+      '@obsidiankan/module-sdk':
+        specifier: workspace:*
+        version: link:../../module-sdk
+      '@obsidiankan/types':
+        specifier: workspace:*
+        version: link:../../shared
+    devDependencies:
+      '@testing-library/dom':
+        specifier: 10.4.0
+        version: 10.4.0
+      '@testing-library/react':
+        specifier: 16.3.0
+        version: 16.3.0(@testing-library/dom@10.4.0)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.19.21
+      '@types/react':
+        specifier: ^18.3.12
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.1
+        version: 18.3.7(@types/react@18.3.31)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.7.0(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(tsx@4.22.4))
+      jsdom:
+        specifier: 26.1.0
+        version: 26.1.0
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.9
+        version: 4.1.9(@types/node@22.19.21)(@vitest/coverage-v8@4.1.9)(jsdom@26.1.0)(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(tsx@4.22.4))
+
   packages/server:
     dependencies:
       '@anthropic-ai/sdk':
@@ -20,6 +76,12 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
+      '@obsidiankan/module-reports':
+        specifier: workspace:*
+        version: link:../modules/reports
+      '@obsidiankan/module-sdk':
+        specifier: workspace:*
+        version: link:../module-sdk
       better-sqlite3:
         specifier: ^11.5.0
         version: 11.10.0
@@ -84,6 +146,12 @@ importers:
       '@fontsource/ibm-plex-serif':
         specifier: 5.3.0
         version: 5.3.0
+      '@obsidiankan/module-reports':
+        specifier: workspace:*
+        version: link:../modules/reports
+      '@obsidiankan/module-sdk':
+        specifier: workspace:*
+        version: link:../module-sdk
       '@obsidiankan/types':
         specifier: workspace:*
         version: link:../shared
@@ -3861,6 +3929,18 @@ snapshots:
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
       vite: 6.4.3(@types/node@22.19.21)(lightningcss@1.32.0)(tsx@4.22.4)
+    transitivePeerDependencies:
+      - supports-color
+
+  '@vitejs/plugin-react@4.7.0(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(tsx@4.22.4))':
+    dependencies:
+      '@babel/core': 7.29.7
+      '@babel/plugin-transform-react-jsx-self': 7.29.7(@babel/core@7.29.7)
+      '@babel/plugin-transform-react-jsx-source': 7.29.7(@babel/core@7.29.7)
+      '@rolldown/pluginutils': 1.0.0-beta.27
+      '@types/babel__core': 7.20.5
+      react-refresh: 0.17.0
+      vite: 8.0.16(@types/node@22.19.21)(esbuild@0.28.1)(tsx@4.22.4)
     transitivePeerDependencies:
       - supports-color
 

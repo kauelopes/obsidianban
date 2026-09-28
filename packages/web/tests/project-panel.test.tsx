@@ -34,7 +34,7 @@ describe('ProjectPanel', () => {
     const labels = [...nav.querySelectorAll('button')].map((b) => b.textContent)
     expect(labels).toEqual([
       'Workflow',
-      'Planejamento',
+      'Épicos',
       'Agentes',
       'Arquivamento',
       'Deletar projeto',
@@ -44,15 +44,15 @@ describe('ProjectPanel', () => {
   it('abre na aba Workflow por padrão', () => {
     renderPanel()
     expect(screen.getByText('Repositório do workflow')).toBeTruthy()
-    expect(screen.queryByText('Metas do projeto')).toBeNull()
+    expect(screen.queryByText('Épicos do projeto')).toBeNull()
   })
 
   it('clicar numa aba troca o conteúdo exibido', () => {
     renderPanel()
-    fireEvent.click(screen.getByRole('button', { name: 'Planejamento' }))
-    expect(screen.getByText('Metas do projeto')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Épicos' }))
+    expect(screen.getByText('Épicos do projeto')).toBeTruthy()
     expect(screen.queryByText('Repositório do workflow')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Planejamento' }).classList.contains('active')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Épicos' }).classList.contains('active')).toBe(true)
     expect(screen.getByRole('button', { name: 'Workflow' }).classList.contains('active')).toBe(false)
   })
 

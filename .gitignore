@@ -18,6 +18,9 @@ coverage/
 node_modules/
 packages/*/node_modules/
 packages/*/dist/
+packages/modules/*/dist/
+packages/modules/*/renderer/.venv/
+packages/modules/*/renderer/**/__pycache__/
 dist/
 *.js.map
 *.tsbuildinfo

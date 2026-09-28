@@ -221,6 +221,7 @@ export type SSEEventType =
   | 'JOB_STARTED'
   | 'JOB_STALLED'
   | 'JOB_FINISHED'
+  | 'MODULE_EVENT'
 
 export interface CardCreatedPayload     { card_id: string; project: string; status: string; position: number }
 export interface CardUpdatedPayload     { card_id: string; project: string; changed_fields: string[] }
@@ -249,6 +250,12 @@ export interface WorkflowExitedPayload   { sprint_id: string; project: string; s
 export interface JobStartedPayload       { job_id: string; card_id: string; sprint_id: string; project: string }
 export interface JobStalledPayload       { job_id: string; card_id: string; sprint_id: string; project: string }
 export interface JobFinishedPayload      { job_id: string; card_id: string; sprint_id: string; project: string; status: string; exit_code: number | null }
+/**
+ * Envelope único para eventos de módulos opcionais: o core não conhece os
+ * eventos de cada módulo, só o id de quem emitiu. `module: 'core'` sinaliza
+ * mudança de estado dos módulos (toggle em Configs → Módulos).
+ */
+export interface ModuleEventPayload      { module: string; event: string; payload: unknown }
 
 export type SSEEventPayload =
   | CardCreatedPayload
@@ -278,6 +285,7 @@ export type SSEEventPayload =
   | JobStartedPayload
   | JobStalledPayload
   | JobFinishedPayload
+  | ModuleEventPayload
 
 export interface SSEEvent {
   type: SSEEventType
@@ -578,6 +586,10 @@ export interface DeleteProjectResult {
 export const MODEL_PRICES_USD_PER_TOKEN: Readonly<
   Record<string, { input: number; output: number }>
 > = {
+  'claude-opus-5': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
+  'claude-sonnet-5': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  'claude-fable-5': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
+  'claude-haiku-4-5-20251001': { input: 1 / 1_000_000, output: 5 / 1_000_000 },
   'claude-opus-4-8': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
   'claude-opus-4-6': { input: 5 / 1_000_000, output: 25 / 1_000_000 },
   'claude-sonnet-4-6': { input: 3 / 1_000_000, output: 15 / 1_000_000 },
@@ -593,19 +605,47 @@ export const MODEL_PRICES_USD_PER_TOKEN: Readonly<
   'codex-mini': { input: 0.25 / 1_000_000, output: 2 / 1_000_000 },
 }
 
+// Preço de cache é sempre um múltiplo do preço de INPUT do próprio modelo
+// (tabela pública da Anthropic): leitura de cache é a mais barata, escrita
+// efêmera de 1h é a mais cara — o padrão vale para toda a família Claude.
+const CACHE_READ_MULTIPLIER = 0.1
+const CACHE_WRITE_5M_MULTIPLIER = 1.25
+const CACHE_WRITE_1H_MULTIPLIER = 2
+
+export interface EstimateUsdCacheTokens {
+  /** cache_read_input_tokens do harness. */
+  readTokens?: number
+  /** cache_creation_input_tokens (write efêmero de 5 min), ou o total de escrita quando a fonte não distingue 5m/1h. */
+  creationTokens?: number
+  /** Fração do write que é efêmero de 1h (mais caro) — vem de `cache_creation.ephemeral_1h_input_tokens`. */
+  creation1hTokens?: number
+}
+
 /**
- * Custo estimado de um par de contagens, ou null quando o modelo não está na
- * tabela — inclusive os pseudo-modelos `human`, `plugin` e `unknown`, que o
- * servidor grava e que não têm preço nenhum.
+ * Custo estimado de um turno, ou null quando o modelo não está na tabela —
+ * inclusive os pseudo-modelos `human`, `plugin` e `unknown`, que o servidor
+ * grava e que não têm preço nenhum.
+ *
+ * `cache` é opcional e aditivo: sem ele, o cálculo é só input×preço +
+ * output×preço — o comportamento histórico. Cache read/write tokens ficam
+ * FORA de input/output nos registros do harness; ignorá-los subestimava o
+ * custo real em ~69% nas sessões de terminal (ver terminal_usage).
  */
 export function estimateUsd(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  cache?: EstimateUsdCacheTokens,
 ): number | null {
   const price = MODEL_PRICES_USD_PER_TOKEN[model]
   if (!price) return null
-  return inputTokens * price.input + outputTokens * price.output
+  let usd = inputTokens * price.input + outputTokens * price.output
+  if (cache) {
+    usd += (cache.readTokens ?? 0) * price.input * CACHE_READ_MULTIPLIER
+    usd += (cache.creationTokens ?? 0) * price.input * CACHE_WRITE_5M_MULTIPLIER
+    usd += (cache.creation1hTokens ?? 0) * price.input * CACHE_WRITE_1H_MULTIPLIER
+  }
+  return usd
 }
 
 export type ModelProvider = 'anthropic' | 'openai' | 'other'
@@ -809,6 +849,11 @@ export interface MetricsFilter {
   to_date?: string
   /** Scope to one card's token_log rows — the full-fidelity per-card total (cache/cost included). */
   card_id?: string
+  /**
+   * Linhas do token_log de uma sprint — inclui o uso dos agentes do workflow
+   * (WORKFLOW_DEV/TRIAGE), que não fica em card nenhum. Terminal fica de fora.
+   */
+  sprint_id?: string
 }
 
 /**
@@ -842,6 +887,46 @@ export interface Metrics {
     cost_usd: number
     ops: number
   }>
+  /**
+   * Uso do TERMINAL (sessões Claude Code fora do board), ingerido dos `.jsonl`
+   * de `~/.claude/projects` — Fase 1 (2026-08). `cost_usd` é sempre ESTIMADO
+   * (tabela local de preços), nunca medido. Opcional: servidor sem a migração
+   * de `terminal_usage` simplesmente omite o campo.
+   */
+  terminal?: {
+    total_input_tokens: number
+    total_output_tokens: number
+    total_cache_read_tokens: number
+    total_cache_creation_tokens: number
+    total_cost_usd: number
+    total_ops: number
+  }
+  /** Mesmo dado de `terminal`, quebrado por modelo — cost_usd sempre estimado. */
+  terminal_by_model?: Array<{
+    model: string
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    cache_creation_tokens: number
+    cost_usd: number
+    ops: number
+  }>
+  /** Mesmo dado de `terminal`, quebrado por dia (UTC) — cost_usd sempre estimado. */
+  terminal_by_day?: Array<{
+    date: string
+    input_tokens: number
+    output_tokens: number
+    cost_usd: number
+    ops: number
+  }>
+  /** `board` = token_log (measured), `terminal` = terminal_usage (estimated). */
+  by_origin?: Array<{
+    origin: 'board' | 'terminal'
+    input_tokens: number
+    output_tokens: number
+    cost_usd: number
+    ops: number
+  }>
 }
 
 // ─── Activity (GET /activity) ────────────────────────────────────────────────
@@ -869,8 +954,202 @@ export interface ActivityResponse {
   projects: ProjectActivity[]
 }
 
+// ─── Vault KAD docs (GET /vault/kad, /vault/kad/doc) ─────────────────────────
+
+export interface KadFile {
+  id: string
+  label: string
+  mtime: string
+}
+
+export interface KadListResponse {
+  project: string
+  files: KadFile[]
+}
+
+export interface KadDocResponse {
+  project: string
+  doc: string
+  content: string
+}
+
+// ─── Repo docs (GET /vault/repo-docs, /vault/repo-docs/doc) ──────────────────
+// `docs/` dentro do target_repo do projeto (git) — inclui a cópia de KAD que
+// materialize.ts grava em docs/kad/, mas também qualquer outro .md que exista
+// ali. Mesmo shape de KadFile: `id` é o caminho relativo a docs/, sem `.md`
+// (ex.: "kad/vision", "adr/0001-escolha-de-stack").
+export interface RepoDocsListResponse {
+  project: string
+  files: KadFile[]
+}
+
+export interface RepoDocResponse {
+  project: string
+  doc: string
+  content: string
+}
+
+// ─── Agent skills (GET /skills, /skills/doc, PUT /skills/doc) ────────────────
+// Fonte única em .claude/skills/ no monorepo, replicada por workflow-readiness
+// para o target_repo de cada projeto — editar por aqui é editar a origem que
+// todo projeto herda na próxima checagem de prontidão do workflow.
+
+export interface SkillFileEntry {
+  skill: string // e.g. 'kanban-dev-agent'
+  path: string // relative to .claude/skills/, e.g. 'kanban-dev-agent/SKILL.md'
+}
+
+export interface SkillFilesListResponse {
+  files: SkillFileEntry[]
+}
+
+export interface SkillFileDocResponse {
+  path: string
+  content: string
+}
+
+// ─── Flow metrics (GET /flow) ────────────────────────────────────────────────
+// A metade de entrega da aba Estatísticas: /metrics diz quanto custou, isto diz
+// o que saiu. Tudo derivado do audit log, que registra cada MOVE com
+// from_status/to_status desde o primeiro dia — a série nasce retroativa.
+
+/** Percentis em horas. `count` = amostras; 0 significa "não dá para afirmar". */
+export interface FlowPercentiles {
+  count: number
+  p50: number
+  p90: number
+  max: number
+}
+
+export interface FlowWeek {
+  /** Segunda-feira da semana, YYYY-MM-DD. */
+  week_start: string
+  delivered: number
+  cost_usd: number
+  /** null quando não houve entrega ou o custo não foi reportado na época. */
+  cost_per_card: number | null
+}
+
+export interface FlowRework {
+  forward: number
+  backward: number
+  /** backward / (forward + backward), 0..1. */
+  rate: number
+  by_transition: Array<{ from_status: string; to_status: string; count: number }>
+}
+
+export interface FlowMetrics {
+  /** Extremos do que foi lido, para a tela dizer de quando fala. */
+  window_from: string | null
+  window_to: string | null
+  /** in_progress → done. */
+  cycle_time_hours: FlowPercentiles
+  /** Tempo parado em review até alguém mover — a espera pela decisão humana. */
+  decision_latency_hours: FlowPercentiles
+  rework: FlowRework
+  by_week: FlowWeek[]
+  /**
+   * Primeira semana com custo reportado. Antes disso nada media tokens, então
+   * comparar custo com esse período desenharia uma queda que nunca existiu —
+   * a tela precisa avisar em vez de plotar zero.
+   */
+  cost_reporting_starts: string | null
+  audit_truncated: boolean
+}
+
+// ─── Weekly digest (GET /digest) ─────────────────────────────────────────────
+// Retrospectiva de uma semana civil (segunda a domingo), cross-project. Tudo
+// aqui é computado de fontes que já existem — nenhum dado novo é gravado.
+
+export interface DigestSprintClosed {
+  project: string
+  sprint_id: string
+  name: string
+  goal: string | null
+  ended_at: string
+}
+
+export interface DigestCardDone {
+  project: string
+  card_id: string
+  title: string
+  /** Momento do MOVE para done, do audit log. */
+  ts: string
+}
+
+/**
+ * Goal não tem timestamp de conclusão no schema — este `ts` vem do audit
+ * `GOAL_SET`, então uma meta fechada por edição direta do _meta.json (fora do
+ * MCP) não aparece aqui.
+ */
+export interface DigestGoalDone {
+  project: string
+  goal_id: string
+  title: string
+  ts: string
+}
+
+export interface DigestGoalUpcoming {
+  project: string
+  goal_id: string
+  title: string
+  /** YYYY-MM-DD — cai na semana seguinte à janela. */
+  target_date: string
+}
+
+export interface DigestStalledReview {
+  project: string
+  card_id: string
+  title: string
+  escalated_at: string | null
+  days_stalled: number
+}
+
+export interface WeeklyDigest {
+  /** YYYY-MM-DD, segunda-feira. */
+  week_start: string
+  /** YYYY-MM-DD, domingo (inclusive). */
+  week_end: string
+  sprints_closed: DigestSprintClosed[]
+  cards_done: DigestCardDone[]
+  goals_done: DigestGoalDone[]
+  goals_upcoming: DigestGoalUpcoming[]
+  /** Estado atual, não histórico da semana: o que ainda trava agora. */
+  stalled_reviews: DigestStalledReview[]
+  activity: Pick<Metrics, 'summary' | 'by_day' | 'by_project'>
+  /** Só existe para a semana corrente — ver hours_estimate_available. */
+  hours_estimate: number
+  /**
+   * A estimativa de horas vem de uma janela deslizante de 7 dias, que só
+   * coincide com a semana civil quando ela é a atual. Em semanas passadas o
+   * campo fica zerado e este flag em false, em vez de fingir precisão.
+   */
+  hours_estimate_available: boolean
+  /** O scan do audit log parou no teto de linhas — os totais podem faltar. */
+  audit_truncated: boolean
+}
+
 // ─── Card body zones ─────────────────────────────────────────────────────────
 // Lives here rather than in the server so the web app parses card bodies with
 // the exact same code the server writes them with — a second implementation
 // would drift, and the zone split is a contract, not an implementation detail.
 export * from './sections.js'
+
+// ─── Módulos opcionais (GET /modules, PUT /modules/:id) ─────────────────────
+// Instalado = listado no registry do servidor; ativo = toggle persistido em
+// .kanban/modules.json. Um módulo que falhou no register() aparece com
+// `load_error` e fica fora do ar mesmo se `enabled`.
+
+export interface ModuleInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+  config: Record<string, unknown>
+  load_error: string | null
+}
+
+export interface ModulesListResponse {
+  modules: ModuleInfo[]
+}

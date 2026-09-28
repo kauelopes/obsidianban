@@ -11,14 +11,24 @@ import type {
   Goal,
   ListCardsParams,
   ActivityResponse,
+  KadDocResponse,
+  KadListResponse,
   Metrics,
+  ModuleInfo,
+  ModulesListResponse,
+  RepoDocResponse,
+  RepoDocsListResponse,
+  SkillFileDocResponse,
+  SkillFilesListResponse,
   MoveBetweenSprintsResult,
   MoveCardParams,
   ProjectShapeResult,
   ReorderCardParams,
   ReorderResult,
   SetProjectRepoResult,
+  FlowMetrics,
   Sprint,
+  WeeklyDigest,
   WorkflowAgentsStatus,
   WorkflowLogResult,
   WorkflowReadinessResult,
@@ -371,6 +381,248 @@ export class KanbanClient {
         error: {
           kind: 'offline',
           message: 'não foi possível ler a atividade',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /**
+   * GET /flow — a metade de entrega da aba Estatísticas. Aceita o mesmo
+   * recorte de datas do /metrics porque divide a tela com ele.
+   */
+  async getFlow(params: { from_date?: string; to_date?: string } = {}): Promise<
+    McpResult<FlowMetrics>
+  > {
+    const qs = new URLSearchParams()
+    if (params.from_date) qs.set('from_date', params.from_date)
+    if (params.to_date) qs.set('to_date', params.to_date)
+    const suffix = qs.size > 0 ? `?${qs.toString()}` : ''
+    try {
+      const res = await fetch(`${this.baseUrl}/flow${suffix}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler as métricas de fluxo',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /**
+   * GET /digest — mesma postura do /metrics. `week_start` pode ser qualquer
+   * dia da semana desejada: o servidor normaliza para a segunda.
+   */
+  async getDigest(params: { week_start?: string } = {}): Promise<McpResult<WeeklyDigest>> {
+    const qs = new URLSearchParams({ tz_offset: String(new Date().getTimezoneOffset()) })
+    if (params.week_start) qs.set('week_start', params.week_start)
+    try {
+      const res = await fetch(`${this.baseUrl}/digest?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler a revisão da semana',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async listKadFiles(project: string): Promise<McpResult<KadListResponse>> {
+    try {
+      const qs = new URLSearchParams({ project })
+      const res = await fetch(`${this.baseUrl}/vault/kad?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar os documentos KAD',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async getKadFile(project: string, doc: string): Promise<McpResult<KadDocResponse>> {
+    try {
+      const qs = new URLSearchParams({ project, doc })
+      const res = await fetch(`${this.baseUrl}/vault/kad/doc?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler o documento KAD',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async listRepoDocs(project: string): Promise<McpResult<RepoDocsListResponse>> {
+    try {
+      const qs = new URLSearchParams({ project })
+      const res = await fetch(`${this.baseUrl}/vault/repo-docs?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar os documentos do repositório',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /** Mesma postura do /metrics: rota própria, loopback/LAN, sem token. */
+  async getRepoDoc(project: string, doc: string): Promise<McpResult<RepoDocResponse>> {
+    try {
+      const qs = new URLSearchParams({ project, doc })
+      const res = await fetch(`${this.baseUrl}/vault/repo-docs/doc?${qs.toString()}`)
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler o documento do repositório',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  // ── Módulos opcionais (/modules) ────────────────────────────────────────────
+
+  async listModules(): Promise<McpResult<ModulesListResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/modules`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar os módulos',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  async updateModule(
+    id: string,
+    patch: { enabled?: boolean; config?: Record<string, unknown> },
+  ): Promise<McpResult<ModuleInfo>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/modules/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(patch),
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível atualizar o módulo',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  /**
+   * fetch cru nas rotas de um módulo (/modules/<id><path>), com o bearer e,
+   * em mutações, o content-type JSON que o servidor exige contra CSRF. O
+   * módulo trata a Response — pode ser JSON ou binário (PDF).
+   */
+  moduleFetch(id: string, path: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${this.token}`)
+    const method = (init.method ?? 'GET').toUpperCase()
+    if (method !== 'GET' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    const rel = path.startsWith('/') ? path : `/${path}`
+    return fetch(`${this.baseUrl}/modules/${encodeURIComponent(id)}${rel}`, { ...init, headers })
+  }
+
+  // ── Skills dos agentes (.claude/skills/ fonte, replicada por projeto) ──────
+
+  async listSkillFiles(): Promise<McpResult<SkillFilesListResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/skills`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar as skills',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  async getSkillFile(path: string): Promise<McpResult<SkillFileDocResponse>> {
+    try {
+      const qs = new URLSearchParams({ path })
+      const res = await fetch(`${this.baseUrl}/skills/doc?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler a skill',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  async writeSkillFile(path: string, content: string): Promise<McpResult<SkillFileDocResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/skills/doc`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({ path, content }),
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível salvar a skill',
           cause: err instanceof Error ? err.message : String(err),
         },
       }

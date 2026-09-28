@@ -8,6 +8,9 @@ const KANBAN = process.env['KANBAN_URL'] ?? 'http://127.0.0.1:9375'
 
 export default defineConfig({
   plugins: [react()],
+  // A parte web dos módulos é fonte TSX fora deste pacote; sem dedupe, um
+  // módulo poderia resolver a própria cópia do React e quebrar os hooks.
+  resolve: { dedupe: ['react', 'react-dom', 'react-router-dom'] },
   server: {
     port: 5273,
     proxy: {
@@ -15,6 +18,9 @@ export default defineConfig({
       '/events': { target: KANBAN, changeOrigin: false },
       '/health': { target: KANBAN, changeOrigin: false },
       '/metrics': { target: KANBAN, changeOrigin: false },
+      // API dos módulos opcionais (/modules e /modules/<id>/...). A página do
+      // módulo no SPA fica em /m/<id> justamente para não cair neste proxy.
+      '/modules': { target: KANBAN, changeOrigin: false },
     },
   },
   // @obsidiankan/types compiles to CommonJS because the server (which also

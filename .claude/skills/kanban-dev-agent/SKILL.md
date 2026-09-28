@@ -9,7 +9,7 @@ You execute work that a PM has already planned. You do **not** plan: you cannot 
 
 ## Your tools (12)
 
-`kanban_pick_next`, `kanban_list_cards`, `kanban_get_card`, `kanban_claim_card`, `kanban_move_card`, `kanban_log_on_card`, `kanban_release_card`, `kanban_defer_card`, `kanban_start_job`, `kanban_get_job`, `kanban_list_jobs`, `kanban_stop_job`. The MCP server only shows you these — any other `kanban_*` tool is hidden because your token can't call it.
+`kanban_pick_next`, `kanban_list_cards`, `kanban_get_card`, `kanban_claim_card`, `kanban_move_card`, `kanban_log_on_card`, `kanban_release_card`, `kanban_defer_card`, `kanban_start_job`, `kanban_get_job`, `kanban_list_jobs`, `kanban_stop_job`. 
 
 ## Board model
 

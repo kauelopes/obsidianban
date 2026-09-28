@@ -150,6 +150,28 @@ describe('MetricsService filtro por card_id', () => {
     expect(m.summary.total_input_tokens).toBe(10)
     expect(m.summary.total_ops).toBe(1)
   })
+
+  it('zera os blocos de terminal — uso de terminal não pertence a card nenhum', () => {
+    const db = createTestDb()
+    db.prepare(
+      `INSERT INTO token_log (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project)
+       VALUES ('2026-07-01T10:00:00Z', 'CREATE', 'card-a', 'task', 'agent:dev-1', 'test', 10, 0, 'alfa')`,
+    ).run()
+    db.prepare(
+      `INSERT INTO terminal_usage
+         (session_id, project, ts, model, input_tokens, output_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_5m_tokens, cache_1h_tokens,
+          cost_usd, cwd, git_branch, source_file)
+       VALUES ('sess-1', 'alfa', '2026-07-01T09:00:00.000Z', 'claude-sonnet-5', 40, 20, 1000, 100, 100, 0, 0.25, '/repo', 'main', 'proj/sess-1.jsonl')`,
+    ).run()
+
+    const m = new MetricsService(db).collect({ card_id: 'card-a' })
+    expect(m.terminal.total_ops).toBe(0)
+    expect(m.terminal.total_cost_usd).toBe(0)
+    expect(m.terminal_by_model).toEqual([])
+    expect(m.terminal_by_day).toEqual([])
+    expect(m.by_origin.find((o) => o.origin === 'terminal')?.input_tokens).toBe(0)
+  })
 })
 
 /**
@@ -157,6 +179,72 @@ describe('MetricsService filtro por card_id', () => {
  * card) carregam cache e custo medido, e o summary os agrega. cost_usd é o
  * número autoritativo — as linhas antigas ficam em 0, nunca somem.
  */
+/**
+ * `terminal` e `by_origin` vêm de `terminal_usage` (ingestão do
+ * TerminalUsageService, Fase 1) — tabela separada de token_log, mas mesma
+ * janela de datas e mesma postura read-only.
+ */
+describe('MetricsService terminal/by_origin', () => {
+  it('agrega terminal_usage separado do board e soma os dois em by_origin', () => {
+    const db = createTestDb()
+    seed(db) // board: 137 input / 63 output / cost 0 / 3 ops (dentro da janela usada abaixo)
+    db.prepare(
+      `INSERT INTO terminal_usage
+         (session_id, project, ts, model, input_tokens, output_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_5m_tokens, cache_1h_tokens,
+          cost_usd, cwd, git_branch, source_file)
+       VALUES ('sess-1', 'alfa', '2026-07-01T09:00:00.000Z', 'claude-sonnet-5', 40, 20, 1000, 100, 100, 0, 0.25, '/repo', 'main', 'proj/sess-1.jsonl')`,
+    ).run()
+
+    const m = new MetricsService(db).collect({})
+    expect(m.terminal).toEqual({
+      total_input_tokens: 40,
+      total_output_tokens: 20,
+      total_cache_read_tokens: 1000,
+      total_cache_creation_tokens: 100,
+      total_cost_usd: 0.25,
+      total_ops: 1,
+    })
+    expect(m.by_origin).toEqual([
+      { origin: 'board', input_tokens: 137, output_tokens: 63, cost_usd: 0, ops: 3 },
+      { origin: 'terminal', input_tokens: 40, output_tokens: 20, cost_usd: 0.25, ops: 1 },
+    ])
+  })
+
+  it('respeita a janela de datas igual às demais agregações', () => {
+    const db = createTestDb()
+    db.prepare(
+      `INSERT INTO terminal_usage (session_id, project, ts, model, input_tokens, output_tokens, cost_usd, source_file)
+       VALUES ('sess-1', 'alfa', '2026-07-01T09:00:00.000Z', 'claude-sonnet-5', 40, 20, 0.25, 'proj/sess-1.jsonl')`,
+    ).run()
+    db.prepare(
+      `INSERT INTO terminal_usage (session_id, project, ts, model, input_tokens, output_tokens, cost_usd, source_file)
+       VALUES ('sess-1', 'alfa', '2026-07-10T09:00:00.000Z', 'claude-sonnet-5', 999, 999, 9, 'proj/sess-1.jsonl')`,
+    ).run()
+
+    const m = new MetricsService(db).collect({ from_date: '2026-07-01', to_date: '2026-07-01' })
+    expect(m.terminal?.total_ops).toBe(1)
+    expect(m.terminal?.total_input_tokens).toBe(40)
+  })
+
+  it('sem linhas em terminal_usage, devolve zeros — não undefined', () => {
+    const db = createTestDb()
+    const m = new MetricsService(db).collect({})
+    expect(m.terminal).toEqual({
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_cache_read_tokens: 0,
+      total_cache_creation_tokens: 0,
+      total_cost_usd: 0,
+      total_ops: 0,
+    })
+    expect(m.by_origin).toEqual([
+      { origin: 'board', input_tokens: 0, output_tokens: 0, cost_usd: 0, ops: 0 },
+      { origin: 'terminal', input_tokens: 0, output_tokens: 0, cost_usd: 0, ops: 0 },
+    ])
+  })
+})
+
 describe('MetricsService usage medido (cache + cost_usd)', () => {
   it('soma cache e custo no summary e nos recortes por modelo/projeto', () => {
     const db = createTestDb()
@@ -184,5 +272,24 @@ describe('MetricsService usage medido (cache + cost_usd)', () => {
     const round = m.by_operation.find((r) => r.op === 'WORKFLOW_DEV')!
     expect(round.count).toBe(1)
     expect(round.cost_usd).toBeCloseTo(1.7343, 6)
+  })
+})
+
+describe('MetricsService filtro por sprint', () => {
+  it('sprint_id recorta o token_log (inclui rodadas do workflow) e zera o terminal', () => {
+    const db = createTestDb()
+    seed(db)
+    const insert = db.prepare(
+      `INSERT INTO token_log (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project, cost_usd, sprint_id)
+       VALUES (@ts, 'WORKFLOW_DEV', '', 'workflow_round', 'workflow:dev', 'claude', 10, 20, 'alfa', @usd, @sprint)`,
+    )
+    insert.run({ ts: '2026-07-04T10:00:00Z', usd: 2.5, sprint: 'sprint-01' })
+    insert.run({ ts: '2026-07-04T11:00:00Z', usd: 1.25, sprint: 'sprint-01' })
+    insert.run({ ts: '2026-07-04T12:00:00Z', usd: 9, sprint: 'sprint-02' })
+
+    const m = new MetricsService(db).collect({ sprint_id: 'sprint-01' })
+    expect(m.summary.total_ops).toBe(2)
+    expect(m.summary.total_cost_usd).toBeCloseTo(3.75, 6)
+    expect(m.terminal?.total_ops ?? 0).toBe(0)
   })
 })

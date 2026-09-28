@@ -116,9 +116,30 @@ Colar esse token no gate do web app também funciona — substitui a sessão aut
 
 ---
 
+## 7. Relatórios (opcional)
+
+O módulo **Relatórios** gera relatórios de sprint, de projeto (num período) e do board
+inteiro, com análise opcional por IA.
+
+1. Para o PDF, instale o renderer (Python 3.10+): `make reports-setup`. Sem ele os
+   relatórios saem só em Markdown.
+2. Reinicie o servidor (`make server-restart`) e, no web app, abra **Configs → Módulos**
+   e ative **Relatórios**.
+3. Use **Relatórios** no menu (visão do board) ou a aba **Relatórios** dentro de um
+   projeto → **gerar relatório**: escolha o tipo, a sprint ou o período e se quer a
+   análise por IA. O progresso aparece ao vivo; pronto, dá para ler na tela e baixar
+   o PDF ou o `.md`.
+4. A identidade do PDF (marca, rodapé, site) fica em Configs → Módulos → Relatórios.
+
+A análise por IA usa o `claude` headless com a sua conta logada — consome uso da
+assinatura e leva alguns minutos.
+
+---
+
 ## Próximos passos
 
 - [Guia de agentes](../for-agents/agent-runbook.md) — criar tokens, configurar PM e Dev
 - [Catálogo de tools](../for-agents/tool-catalog.md) — todas as 65 ferramentas MCP
 - [Troubleshooting](troubleshoot.md) — erros comuns e soluções
+- [Módulos opcionais](../for-developers/modules.md) — como os módulos funcionam, módulo Relatórios
 - [Configuração de referência](../reference/config.md) — todas as variáveis de ambiente

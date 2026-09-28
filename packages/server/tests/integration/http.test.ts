@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { promises as fs } from 'node:fs'
 import http from 'node:http'
+import os from 'node:os'
 import path from 'node:path'
 import type { Paths } from '../../src/config.js'
 import { HttpServer } from '../../src/server/http.js'
+import { loadProjectMeta, saveProjectMeta } from '../../src/vault/layout.js'
 import { SSEEventBus } from '../../src/server/sse.js'
 import { IdempotencyStore } from '../../src/server/idempotency.js'
 import { TokenValidator } from '../../src/auth/validator.js'
@@ -14,6 +16,8 @@ import { CardService } from '../../src/services/card.js'
 import { SprintService } from '../../src/services/sprint.js'
 import { HistoryService } from '../../src/services/history.js'
 import { SupervisionService } from '../../src/services/supervision.js'
+import { DigestService } from '../../src/services/digest.js'
+import { FlowService } from '../../src/services/flow.js'
 import { AtomicWriter } from '../../src/writer/atomic.js'
 import { AuditLogger } from '../../src/audit/logger.js'
 import { createAgentToken, createManagerToken, revokeAgentToken } from '../../src/auth/tokens.js'
@@ -112,6 +116,8 @@ beforeAll(async () => {
     sse,
     metrics,
     activity,
+    digest: new DigestService(paths, repo, metrics, activity, supervisionService),
+    flow: new FlowService(paths, metrics),
     mcp: mcpStub,
     workflow,
     cardsRepo: repo,
@@ -566,6 +572,75 @@ describe('manager token', () => {
   })
 })
 
+describe('GET /flow', () => {
+  it('devolve a forma esperada das métricas de fluxo', async () => {
+    const res = await httpGet(port, '/flow')
+    expect(res.status).toBe(200)
+    const body = res.body as Record<string, any>
+    for (const k of ['cycle_time_hours', 'decision_latency_hours']) {
+      expect(body[k]).toMatchObject({
+        count: expect.any(Number),
+        p50: expect.any(Number),
+        p90: expect.any(Number),
+        max: expect.any(Number),
+      })
+    }
+    expect(body['rework']).toMatchObject({ forward: expect.any(Number), backward: expect.any(Number) })
+    expect(Array.isArray(body['by_week'])).toBe(true)
+    expect(body['audit_truncated']).toBe(false)
+  })
+
+  it('aceita o mesmo recorte de datas do /metrics', async () => {
+    const res = await httpGet(port, '/flow?from_date=2026-01-01&to_date=2026-12-31')
+    expect(res.status).toBe(200)
+  })
+
+  it('400 com data malformada', async () => {
+    expect((await httpGet(port, '/flow?from_date=01-01-2026')).status).toBe(400)
+    expect((await httpGet(port, '/flow?to_date=2026-99-99')).status).toBe(400)
+  })
+})
+
+describe('GET /digest', () => {
+  it('sem week_start, devolve a semana corrente com todas as seções', async () => {
+    const res = await httpGet(port, '/digest')
+    expect(res.status).toBe(200)
+    const body = res.body as Record<string, unknown>
+    // Segunda-feira e domingo, seis dias depois.
+    expect(body['week_start']).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(new Date(`${body['week_start'] as string}T00:00:00Z`).getUTCDay()).toBe(1)
+    expect(new Date(`${body['week_end'] as string}T00:00:00Z`).getUTCDay()).toBe(0)
+    for (const key of [
+      'sprints_closed',
+      'cards_done',
+      'goals_done',
+      'goals_upcoming',
+      'stalled_reviews',
+    ]) {
+      expect(Array.isArray(body[key])).toBe(true)
+    }
+    expect(body['activity']).toHaveProperty('summary')
+    expect(body['hours_estimate_available']).toBe(true)
+  })
+
+  it('normaliza qualquer dia da semana para a segunda', async () => {
+    const res = await httpGet(port, '/digest?week_start=2026-07-09')
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ week_start: '2026-07-06', week_end: '2026-07-12' })
+  })
+
+  it('semana passada não finge estimativa de horas', async () => {
+    const res = await httpGet(port, '/digest?week_start=2026-07-06')
+    expect((res.body as Record<string, unknown>)['hours_estimate_available']).toBe(false)
+  })
+
+  it('400 com week_start malformado ou tz_offset fora da faixa', async () => {
+    expect((await httpGet(port, '/digest?week_start=09-07-2026')).status).toBe(400)
+    expect((await httpGet(port, '/digest?week_start=2026-13-45')).status).toBe(400)
+    expect((await httpGet(port, '/digest?tz_offset=9999')).status).toBe(400)
+  })
+})
+
 describe('GET /workflow/log', () => {
   it('serve o log do disco com leitura incremental', async () => {
     const res = await httpGet(port, '/workflow/log?sprint_id=wf1')
@@ -642,6 +717,143 @@ describe('GET /workflow/agents', () => {
   })
 })
 
+describe('GET /vault/kad', () => {
+  it('lista os arquivos .md de kad/, ordenados pelos ids canônicos primeiro', async () => {
+    const kadDir = path.join(paths.kanbanData, 'test-project', 'kad')
+    await fs.mkdir(kadDir, { recursive: true })
+    await fs.writeFile(path.join(kadDir, 'roadmap.md'), '# Roadmap\n', 'utf8')
+    await fs.writeFile(path.join(kadDir, 'vision.md'), '# Visão\n', 'utf8')
+    await fs.writeFile(path.join(kadDir, 'extra-doc.md'), '# Extra\n', 'utf8')
+
+    const res = await httpGet(port, '/vault/kad?project=test-project')
+    expect(res.status).toBe(200)
+    const body = res.body as { project: string; files: Array<{ id: string; label: string }> }
+    expect(body.project).toBe('test-project')
+    // vision (id canônico, rank menor) antes de roadmap (rank maior), e o
+    // desconhecido 'extra-doc' por último, em ordem alfabética.
+    expect(body.files.map((f) => f.id)).toEqual(['vision', 'roadmap', 'extra-doc'])
+    expect(body.files.find((f) => f.id === 'vision')?.label).toBe('Visão')
+    expect(body.files.find((f) => f.id === 'extra-doc')?.label).toBe('extra-doc')
+  })
+
+  it('projeto sem kad/ retorna lista vazia, não erro', async () => {
+    const res = await httpGet(port, '/vault/kad?project=projeto-sem-planejamento')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ project: 'projeto-sem-planejamento', files: [] })
+  })
+
+  it('400 sem project', async () => {
+    expect((await httpGet(port, '/vault/kad')).status).toBe(400)
+  })
+})
+
+describe('GET /vault/kad/doc', () => {
+  it('lê o conteúdo de um doc existente', async () => {
+    const kadDir = path.join(paths.kanbanData, 'test-project', 'kad')
+    await fs.mkdir(kadDir, { recursive: true })
+    await fs.writeFile(path.join(kadDir, 'prd.md'), '# PRD\n\nConteúdo.\n', 'utf8')
+
+    const res = await httpGet(port, '/vault/kad/doc?project=test-project&doc=prd')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ project: 'test-project', doc: 'prd', content: '# PRD\n\nConteúdo.\n' })
+  })
+
+  it('404 para doc inexistente', async () => {
+    const res = await httpGet(port, '/vault/kad/doc?project=test-project&doc=nao-existe')
+    expect(res.status).toBe(404)
+  })
+
+  it('404 (não 500) para doc com tentativa de path traversal', async () => {
+    const traversal = await httpGet(
+      port,
+      `/vault/kad/doc?project=test-project&doc=${encodeURIComponent('../_meta')}`,
+    )
+    expect(traversal.status).toBe(404)
+
+    const slash = await httpGet(
+      port,
+      `/vault/kad/doc?project=test-project&doc=${encodeURIComponent('sub/doc')}`,
+    )
+    expect(slash.status).toBe(404)
+  })
+
+  it('400 sem project ou sem doc', async () => {
+    expect((await httpGet(port, '/vault/kad/doc?project=test-project')).status).toBe(400)
+    expect((await httpGet(port, '/vault/kad/doc?doc=prd')).status).toBe(400)
+  })
+})
+
+describe('GET /vault/repo-docs', () => {
+  it('lista .md de docs/ dentro do target_repo, recursivamente', async () => {
+    const targetRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidiankan-repo-docs-'))
+    const docsDir = path.join(targetRepo, 'docs')
+    await fs.mkdir(path.join(docsDir, 'kad'), { recursive: true })
+    await fs.writeFile(path.join(docsDir, 'kad', 'vision.md'), '# Visão\n', 'utf8')
+    await fs.writeFile(path.join(docsDir, 'readme.md'), '# Readme\n', 'utf8')
+
+    const meta = await loadProjectMeta(paths, 'test-project')
+    await saveProjectMeta(paths, 'test-project', { ...meta, target_repo: targetRepo })
+
+    const res = await httpGet(port, '/vault/repo-docs?project=test-project')
+    expect(res.status).toBe(200)
+    const body = res.body as { project: string; files: Array<{ id: string }> }
+    expect(body.project).toBe('test-project')
+    expect(body.files.map((f) => f.id).sort()).toEqual(['kad/vision', 'readme'])
+
+    await fs.rm(targetRepo, { recursive: true, force: true })
+    await saveProjectMeta(paths, 'test-project', meta)
+  })
+
+  it('projeto sem target_repo (ou sem docs/) retorna lista vazia, não erro', async () => {
+    const res = await httpGet(port, '/vault/repo-docs?project=projeto-sem-planejamento')
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ project: 'projeto-sem-planejamento', files: [] })
+  })
+
+  it('400 sem project', async () => {
+    expect((await httpGet(port, '/vault/repo-docs')).status).toBe(400)
+  })
+})
+
+describe('GET /vault/repo-docs/doc', () => {
+  it('lê um doc em subpasta, e rejeita traversal', async () => {
+    const targetRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidiankan-repo-docs-'))
+    const docsDir = path.join(targetRepo, 'docs')
+    await fs.mkdir(path.join(docsDir, 'kad'), { recursive: true })
+    await fs.writeFile(path.join(docsDir, 'kad', 'vision.md'), '# Visão\n\nConteúdo.\n', 'utf8')
+
+    const meta = await loadProjectMeta(paths, 'test-project')
+    await saveProjectMeta(paths, 'test-project', { ...meta, target_repo: targetRepo })
+
+    const ok = await httpGet(port, '/vault/repo-docs/doc?project=test-project&doc=kad/vision')
+    expect(ok.status).toBe(200)
+    expect(ok.body).toEqual({
+      project: 'test-project',
+      doc: 'kad/vision',
+      content: '# Visão\n\nConteúdo.\n',
+    })
+
+    const traversal = await httpGet(
+      port,
+      `/vault/repo-docs/doc?project=test-project&doc=${encodeURIComponent('../../etc/passwd')}`,
+    )
+    expect(traversal.status).toBe(404)
+
+    await fs.rm(targetRepo, { recursive: true, force: true })
+    await saveProjectMeta(paths, 'test-project', meta)
+  })
+
+  it('404 sem target_repo configurado', async () => {
+    const res = await httpGet(port, '/vault/repo-docs/doc?project=projeto-sem-planejamento&doc=readme')
+    expect(res.status).toBe(404)
+  })
+
+  it('400 sem project ou sem doc', async () => {
+    expect((await httpGet(port, '/vault/repo-docs/doc?project=test-project')).status).toBe(400)
+    expect((await httpGet(port, '/vault/repo-docs/doc?doc=readme')).status).toBe(400)
+  })
+})
+
 // Regressão: HttpServer.stop() usava server.close() puro, que no Node só
 // resolve quando TODA conexão aberta termina sozinha — e um stream SSE
 // (/events) fica aberto indefinidamente por design. Em produção isso travou
@@ -671,6 +883,14 @@ describe('HttpServer.stop() com uma conexão SSE aberta', () => {
       sse,
       metrics,
       activity,
+      digest: new DigestService(
+        shutdownPaths,
+        repo,
+        metrics,
+        activity,
+        new SupervisionService(shutdownPaths, repo),
+      ),
+      flow: new FlowService(shutdownPaths, metrics),
       mcp: mcpStub,
     })
     await shutdownServer.start()

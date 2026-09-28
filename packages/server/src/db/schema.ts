@@ -56,4 +56,33 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_token_log_type     ON token_log(card_type)`,
   `CREATE INDEX IF NOT EXISTS idx_token_log_model    ON token_log(model)`,
   `CREATE INDEX IF NOT EXISTS idx_token_log_project  ON token_log(project)`,
+  // Usage ingerido dos `.jsonl` de ~/.claude/projects (sessões de terminal,
+  // fora do board) — ver TerminalUsageService. UNIQUE cobre re-scan idempotente.
+  `CREATE TABLE IF NOT EXISTS terminal_usage (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id            TEXT NOT NULL,
+    project               TEXT,
+    ts                    TEXT NOT NULL,
+    model                 TEXT NOT NULL,
+    input_tokens          INTEGER NOT NULL DEFAULT 0,
+    output_tokens         INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_5m_tokens       INTEGER NOT NULL DEFAULT 0,
+    cache_1h_tokens       INTEGER NOT NULL DEFAULT 0,
+    cost_usd              REAL NOT NULL DEFAULT 0,
+    cwd                   TEXT,
+    git_branch            TEXT,
+    source_file           TEXT NOT NULL,
+    UNIQUE(session_id, ts, source_file)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_terminal_usage_ts      ON terminal_usage(ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_terminal_usage_project ON terminal_usage(project)`,
+  // Offset de leitura por arquivo — scan incremental, nunca reprocessa o
+  // arquivo inteiro (81MB+ neste vault).
+  `CREATE TABLE IF NOT EXISTS terminal_scan_progress (
+    source_file  TEXT PRIMARY KEY,
+    byte_offset  INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL
+  )`,
 ]

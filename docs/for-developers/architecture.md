@@ -12,6 +12,7 @@ Referência técnica da arquitetura do sistema: estrutura estática, fluxos de p
 - [A4 — Setup Inicial de Agentes](#a4--setup-inicial-de-agentes-sequência)
 - [A5 — Loop Interno do Sprint Workflow](#a5--loop-interno-do-sprint-workflow)
 - [A6 — Jobs de Longa Duração](#a6--jobs-de-longa-duração)
+- [A7 — Módulos Opcionais](#a7--módulos-opcionais)
 - [B1 — Criação de Sprint](#b1--criação-de-sprint)
 - [B2 — Execução da Sprint](#b2--execução-da-sprint)
 - [B3 — Ciclo de Vida de um Card](#b3--ciclo-de-vida-de-um-card)
@@ -312,6 +313,39 @@ no board vem de duas vias já existentes: entradas no `# Agent Log` do card
 
 ---
 
+## A7 — Módulos Opcionais
+
+Funcionalidades fora do núcleo (a primeira é **Relatórios**) são pacotes em
+`packages/modules/<id>` com parte servidor e parte web. O core conhece só o
+contrato `@obsidiankan/module-sdk` e um arquivo de registry de cada lado
+(`packages/server/src/modules/registry.ts`, `packages/web/src/modules/registry.ts`).
+
+```mermaid
+sequenceDiagram
+    participant Boot as index.ts (boot)
+    participant Host as ModuleHost
+    participant Mod as ServerModule
+    participant Web as SPA
+    Boot->>Host: load(INSTALLED_MODULES)
+    Host->>Mod: register(ctx) — dados read-only, llm, rotas, eventos
+    Web->>Host: GET /modules
+    Note over Web: menu/abas só dos ativos
+    Web->>Host: PUT /modules/reports {enabled:true} (manager)
+    Host-->>Web: SSE MODULE_EVENT {module:'core', event:'modules_changed'}
+    Web->>Host: /modules/reports/... (gate isActive a cada requisição)
+    Host->>Mod: handler
+    Mod-->>Web: SSE MODULE_EVENT {module:'reports', event:'progress'}
+```
+
+- Ativação em runtime (`.kanban/modules.json`), sem restart; desativado = 404.
+- `register()` que lança deixa o módulo com `load_error`, sem derrubar o boot.
+- `LlmProvider` (`packages/server/src/llm/`) é a camada de LLM genérica: o wizard de
+  planejamento e os módulos usam a mesma implementação do `claude` headless.
+
+Detalhes, contrato completo e o módulo Relatórios: [modules.md](modules.md).
+
+---
+
 ## B1 — Criação de Sprint
 
 Do backlog vazio à sprint pronta para iniciar.
@@ -513,6 +547,9 @@ Cards são arquivos `.md` em `vault/kanban-data/<project>/`. O SQLite é um índ
 Todas as escritas em disco usam arquivos `.tmp` renomeados atomicamente, prevenindo corrupção em caso de crash ou escritas simultâneas de agentes e humanos.
 
 ### Broadcast SSE
+Eventos de módulos usam um envelope único, `MODULE_EVENT` (`{ module, event, payload }`):
+o core nunca ganha tipos específicos de módulo na união de eventos.
+
 O servidor mantém um bus SSE central. Mutações em cards, projetos e sprints disparam eventos para todos os clientes conectados (web app via `EventSource`). 14 tipos de evento: `CARD_*`, `PROJECT_*`, `SPRINT_*`.
 
 ### Audit trail

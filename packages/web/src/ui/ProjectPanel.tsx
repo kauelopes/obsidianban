@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import type { CreateAgentTokenResult, Epic, Goal, WorkflowReadinessResult } from '@obsidiankan/types'
+import type { CreateAgentTokenResult, Epic, WorkflowReadinessResult } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
-import { errorText, type McpResult } from '../api/result.js'
+import { errorText } from '../api/result.js'
 import { Dialog } from './Dialog.js'
 
 const TABS = [
   { key: 'workflow', label: 'Workflow' },
-  { key: 'planning', label: 'Planejamento' },
+  { key: 'epics', label: 'Épicos' },
   { key: 'agents', label: 'Agentes' },
   { key: 'archive', label: 'Arquivamento' },
   { key: 'danger', label: 'Deletar projeto', danger: true },
@@ -157,10 +157,13 @@ export function ProjectPanel({
             </section>
           )}
 
-          {activeTab === 'planning' && (
+          {activeTab === 'epics' && (
             <section className="panel-section">
-              <h3>Planejamento do projeto</h3>
-              <GoalsSection client={client} project={project} onChanged={onChanged} setError={setError} />
+              <h3>Épicos do projeto</h3>
+              <p className="field-help">
+                Metas do projeto agora têm aba própria no workspace — veja <strong>Metas</strong>{' '}
+                na barra lateral do board.
+              </p>
               <EpicsSection client={client} project={project} onChanged={onChanged} setError={setError} />
             </section>
           )}
@@ -246,132 +249,6 @@ export function ProjectPanel({
         </div>
       </div>
     </Dialog>
-  )
-}
-
-/**
- * Metas de médio prazo do projeto. A home só EXIBE; criar, concluir, replanejar
- * prazo e remover acontecem aqui. O estado local é a resposta das tools — o
- * resto da UI atualiza pelo SSE de PROJECT_GOALS_UPDATED via onChanged.
- */
-function GoalsSection({
-  client,
-  project,
-  onChanged,
-  setError,
-}: {
-  client: KanbanClient
-  project: string
-  onChanged: () => void
-  setError: (e: string | null) => void
-}) {
-  const [goals, setGoals] = useState<Goal[]>([])
-  const [title, setTitle] = useState('')
-  const [date, setDate] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    void client.listProjects({ include_archived: true }).then((res) => {
-      if (res.ok) {
-        setGoals(res.data.projects.find((p) => p.project === project)?.goals ?? [])
-      }
-    })
-  }, [client, project])
-
-  async function mutate<T>(fn: () => Promise<McpResult<T>>): Promise<boolean> {
-    setBusy(true)
-    setError(null)
-    const res = await fn()
-    setBusy(false)
-    if (!res.ok) {
-      setError(errorText(res.error))
-      return false
-    }
-    onChanged()
-    return true
-  }
-
-  async function addGoal() {
-    const ok = await mutate(() =>
-      client.setGoal({ project, title: title.trim(), target_date: date || null }),
-    )
-    if (ok) {
-      setTitle('')
-      setDate('')
-      await reload()
-    }
-  }
-
-  async function patch(id: string, changes: { status?: Goal['status']; target_date?: string | null }) {
-    if (await mutate(() => client.setGoal({ project, id, ...changes }))) await reload()
-  }
-
-  async function remove(id: string) {
-    if (await mutate(() => client.deleteGoal({ project, id }))) await reload()
-  }
-
-  async function reload() {
-    const res = await client.listProjects({ include_archived: true })
-    if (res.ok) setGoals(res.data.projects.find((p) => p.project === project)?.goals ?? [])
-  }
-
-  return (
-    <div className="form">
-      <p className="label">Metas do projeto</p>
-      {goals.length === 0 && <p className="field-help">Nenhuma meta ainda.</p>}
-      {goals.map((g) => (
-        <div className="form-row goal-row" key={g.id}>
-          <span className={`goal-title${g.status !== 'open' ? ' muted' : ''}`} title={g.title}>
-            {g.status === 'done' ? '✓ ' : g.status === 'dropped' ? '× ' : ''}
-            {g.title}
-          </span>
-          <div className="goal-actions">
-            <input
-              type="date"
-              aria-label={`Prazo de ${g.title}`}
-              value={g.target_date ?? ''}
-              disabled={busy || g.status !== 'open'}
-              onChange={(e) => void patch(g.id, { target_date: e.target.value || null })}
-            />
-            {g.status === 'open' ? (
-              <button disabled={busy} onClick={() => void patch(g.id, { status: 'done' })}>
-                Concluir
-              </button>
-            ) : (
-              <button disabled={busy} onClick={() => void patch(g.id, { status: 'open' })}>
-                Reabrir
-              </button>
-            )}
-            <button className="danger" disabled={busy} onClick={() => void remove(g.id)}>
-              Remover
-            </button>
-          </div>
-        </div>
-      ))}
-      <label>
-        <span>Nova meta</span>
-        <div className="form-row">
-          <input
-            value={title}
-            placeholder="ex. Lançar a v1 pública"
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <input
-            type="date"
-            aria-label="Prazo da nova meta"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-          <button className="primary" disabled={busy || !title.trim()} onClick={() => void addGoal()}>
-            Adicionar meta
-          </button>
-        </div>
-        <span className="field-help">
-          Metas vivem no _meta.json do projeto — dá para editá-las também pelo Obsidian, e os
-          agentes as enxergam via kanban_list_projects.
-        </span>
-      </label>
-    </div>
   )
 }
 

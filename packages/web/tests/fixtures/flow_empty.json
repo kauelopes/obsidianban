@@ -1,0 +1,10 @@
+{
+  "window_from": null,
+  "window_to": null,
+  "cycle_time_hours": { "count": 0, "p50": 0, "p90": 0, "max": 0 },
+  "decision_latency_hours": { "count": 0, "p50": 0, "p90": 0, "max": 0 },
+  "rework": { "forward": 0, "backward": 0, "rate": 0, "by_transition": [] },
+  "by_week": [],
+  "cost_reporting_starts": null,
+  "audit_truncated": false
+}

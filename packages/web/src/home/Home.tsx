@@ -1,32 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type {
-  ActivityResponse,
-  CardSummary,
-  Goal,
-  PlanningSessionView,
-  ProjectActivity,
-} from '@obsidiankan/types'
+import type { ActivityResponse, Goal, ProjectActivity } from '@obsidiankan/types'
 import type { KanbanClient } from '../api/client.js'
 import { subscribe } from '../api/events.js'
 import type { useBoard } from '../board/useBoard.js'
 import { Sparkline } from '../metrics/widgets.js'
-import { stepIndex, stepMeta, PLAN_STEPS } from '../plan/steps-meta.js'
-import { usePlanningSummary } from '../plan/usePlanningSummary.js'
-import { humanTime, relativeTime } from '../util/time.js'
-import {
-  buildOverview,
-  compareEscalation,
-  compareReview,
-  mergeCards,
-  type ProjectOverview,
-} from './overview.js'
+import { fmtDay, humanTime, relativeTime, todayIso } from '../util/time.js'
+import { goalUrgency, type GoalUrgency } from './goal-urgency.js'
+import { buildOverview, type ProjectOverview } from './overview.js'
 
 const WORKING_POLL_MS = 5000
 
 /**
- * Hub de supervisão. Ordem das seções = urgência: o que espera decisão humana
- * vem antes do estado dos projetos, que vem antes da contabilidade.
+ * Grade de projetos — a Home cuidava disto E de "o que precisa de você",
+ * misturando duas perguntas diferentes na mesma tela. A supervisão do vault
+ * (pendências, agentes rodando, metas próximas, resumo da semana) mora agora
+ * no dashboard em `/` (home/Dashboard.tsx); esta página responde só "quais
+ * projetos existem e como estão".
  */
 export function Home({
   client,
@@ -39,23 +29,11 @@ export function Home({
   onCreateProject: () => void
   onPlanProject?: () => void
 }) {
-  // A janela de 200 do board pode deixar cards em review de fora — e um falso
-  // "nada esperando você" é o pior erro que esta página pode cometer. Um
-  // snapshot dedicado por status cobre o mount; dali em diante o SSE upserta
-  // mudanças no board.cards, que ganha do snapshot no merge.
-  const [reviewSnapshot, setReviewSnapshot] = useState<readonly CardSummary[]>([])
-  useEffect(() => {
-    void client.listCards({ status: 'review', limit: 200 }).then((res) => {
-      if (res.ok) setReviewSnapshot(res.data.cards)
-    })
-  }, [client])
-
-  // Cards crus, não groups: groups aplicam filtro de sprint por projeto, e o
-  // resumo da home deve enxergar tudo.
+  // Cards crus, não groups: groups aplicam filtro de sprint por projeto, e a
+  // grade de projetos deve enxergar tudo.
   const overview = useMemo(
-    () =>
-      buildOverview(mergeCards(board.cards, reviewSnapshot), board.projects, board.escalations),
-    [board.cards, reviewSnapshot, board.projects, board.escalations],
+    () => buildOverview(board.cards, board.projects, board.escalations),
+    [board.cards, board.projects, board.escalations],
   )
 
   // Contabilidade/custo mora na aba Estatísticas — a home fica só com o pulso
@@ -88,20 +66,6 @@ export function Home({
   // cards, que não dispara quando só o workflow muda de fase.
   const working = useWorkingProjects(client, overview)
 
-  const pendingReview = overview.flatMap((p) => p.review).sort(compareReview)
-  const pendingEscalations = overview.flatMap((p) => p.escalations).sort(compareEscalation)
-  const needsYou = pendingReview.length + pendingEscalations.length
-  const planning = usePlanningSummary(client)
-
-  // A aba fica aberta enquanto agentes trabalham; o badge no título é o que
-  // avisa sem exigir alternar para cá.
-  useEffect(() => {
-    document.title = needsYou > 0 ? `(${needsYou}) ObsidianKan` : 'ObsidianKan'
-    return () => {
-      document.title = 'ObsidianKan'
-    }
-  }, [needsYou])
-
   if (board.loading) {
     return (
       <div className="detail">
@@ -122,117 +86,30 @@ export function Home({
           </div>
         </div>
 
-        {/* Aside primeiro no DOM: ao empilhar (<1280px) a fila de decisões
-            continua no topo; em tela larga o grid a põe na lateral. */}
-        <div className="home-grid">
-          <aside className="home-side">
-            {needsYou > 0 ? (
-              <section className="needs-you">
-                <p className="label">
-                  precisa de você — {needsYou} {needsYou === 1 ? 'item' : 'itens'}
-                </p>
-                <ul className="pending">
-                  {pendingEscalations.map((e) => (
-                    <li key={`esc-${e.card_id}`}>
-                      <Link to={`/card/${e.card_id}`}>
-                        <span className="flag escalated">▲ escalado</span>
-                        <strong>{e.title}</strong>
-                        <span className="mono where">{e.project}</span>
-                        <span className="age">
-                          esperando {relativeTime(e.escalated_at ?? e.updated_at)}
-                        </span>
-                        {e.reason && <span className="why">{truncate(e.reason, 90)}</span>}
-                      </Link>
-                    </li>
-                  ))}
-                  {pendingReview.map((c) => (
-                    <li key={`rev-${c.id}`}>
-                      <Link to={`/card/${c.id}`}>
-                        <span className="flag review">● review</span>
-                        <strong>{c.title}</strong>
-                        <span className="mono where">{c.project}</span>
-                        <span className={`prio ${c.priority}`}>{c.priority}</span>
-                        <span className="age">esperando {relativeTime(c.updated_at)}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ) : (
-              overview.length > 0 && <AllClear overview={overview} />
-            )}
-            {planning && <PlanningCard session={planning} />}
-          </aside>
-
-          <div className="home-main">
-            <section className="project-grid">
-              {overview.length === 0 && (
-                <div className="empty-lg">
-                  <p>Nenhum projeto ainda.</p>
-                  {onPlanProject && (
-                    <button className="primary" onClick={onPlanProject}>
-                      planejar um novo projeto
-                    </button>
-                  )}
-                  <button onClick={onCreateProject}>+ criar o primeiro projeto</button>
-                </div>
+        <section className="project-grid" style={{ marginTop: 'var(--s-6)' }}>
+          {overview.length === 0 && (
+            <div className="empty-lg">
+              <p>Nenhum projeto ainda.</p>
+              {onPlanProject && (
+                <button className="primary" onClick={onPlanProject}>
+                  planejar um novo projeto
+                </button>
               )}
-              {overview.map((p) => (
-                <ProjectCard
-                  key={p.project}
-                  p={p}
-                  activity={activityByProject.get(p.project)}
-                  peak={activityPeak}
-                  working={working.has(p.project)}
-                />
-              ))}
-            </section>
-          </div>
-        </div>
+              <button onClick={onCreateProject}>+ criar o primeiro projeto</button>
+            </div>
+          )}
+          {overview.map((p) => (
+            <ProjectCard
+              key={p.project}
+              p={p}
+              activity={activityByProject.get(p.project)}
+              peak={activityPeak}
+              working={working.has(p.project)}
+            />
+          ))}
+        </section>
       </div>
     </div>
-  )
-}
-
-/** Sessão de planejamento em curso — retomável de qualquer lugar do hub. */
-function PlanningCard({ session }: { session: PlanningSessionView }) {
-  const idx = stepIndex(session.current_step)
-  const meta = stepMeta(session.current_step)
-  return (
-    <section className="home-plan">
-      <p className="label">planejamento em curso</p>
-      <Link to={`/planejar/${session.session_id}`}>
-        <span className="pill planning">planning</span>
-        <strong>{session.project_name ?? 'novo projeto'}</strong>
-        {meta && (
-          <span className="mono muted">
-            etapa {idx + 1} de {PLAN_STEPS.length} — {meta.title}
-          </span>
-        )}
-      </Link>
-    </section>
-  )
-}
-
-/**
- * "Tudo em ordem" é o melhor resultado que esta página entrega — merece
- * presença, não silêncio. E um hub vazio de pendência aponta o próximo passo
- * útil: a sprint mais próxima de precisar de um plano revisado.
- */
-function AllClear({ overview }: { overview: readonly ProjectOverview[] }) {
-  const next = overview.find((p) => p.planned.length > 0)
-  return (
-    <section className="all-clear">
-      <p className="headline">Nada esperando você.</p>
-      {next ? (
-        <p className="next">
-          Próximo passo: <Link to={`/board/${next.project}`}>{next.planned[0]!.name}</Link> está
-          em planejamento em <span className="mono">{next.project}</span> — revisar o plano.
-        </p>
-      ) : (
-        <p className="next">Os agentes seguem com o que está em andamento.</p>
-      )}
-    </section>
   )
 }
 
@@ -241,8 +118,11 @@ function AllClear({ overview }: { overview: readonly ProjectOverview[] }) {
  * parado à espera de humano. Só `kanban_workflow_status` diz o estado real do
  * processo, daí o poll dedicado (o SSE de cards não dispara quando só a fase
  * do workflow muda).
+ *
+ * Exportado: o dashboard em `/` reusa o mesmo poll pra listar "projetos com
+ * agentes rodando" sem duplicar a lógica de status.
  */
-function useWorkingProjects(
+export function useWorkingProjects(
   client: KanbanClient,
   overview: readonly ProjectOverview[],
 ): ReadonlySet<string> {
@@ -302,8 +182,16 @@ function ProjectCard({
 }) {
   const alert = p.escalations.length + p.review.length
   const openGoals = p.goals.filter((g) => g.status === 'open')
+  const today = todayIso()
+  // Prazo apertado acende o tile mas fica fora do contador: "N decisões" conta
+  // o que espera resposta agora, e somar prazo ali misturaria duas urgências
+  // com tempos de resposta diferentes.
+  const goalAlert = openGoals.some((g) => goalUrgency(g, today) !== 'ok')
   return (
-    <Link className={`project-tile${alert > 0 ? ' alert' : ''}`} to={`/board/${p.project}`}>
+    <Link
+      className={`project-tile${alert > 0 || goalAlert ? ' alert' : ''}`}
+      to={`/board/${p.project}`}
+    >
       {working && <div className="pt-working">● agentes trabalhando</div>}
       <div className="pt-head">
         <h2>{p.project}</h2>
@@ -329,7 +217,7 @@ function ProjectCard({
       {openGoals.length > 0 && (
         <ul className="pt-goals">
           {openGoals.map((g) => (
-            <GoalLine key={g.id} goal={g} />
+            <GoalLine key={g.id} goal={g} today={today} />
           ))}
         </ul>
       )}
@@ -375,32 +263,25 @@ function ProjectCard({
   )
 }
 
+const URGENCY_MARK: Record<GoalUrgency, string> = { ok: '◇', 'due-soon': '◆', overdue: '▲' }
+
 /**
- * Meta aberta num tile: título + prazo. Vencida entra no canal de alerta — é
- * um estado que pede decisão (replanejar ou desistir), não decoração.
+ * Meta aberta num tile: título + prazo. Vencida e vencendo entram no canal de
+ * alerta — são estados que pedem decisão (replanejar ou correr), não
+ * decoração; o losango cheio separa "aperta" de "já passou" sem gastar um
+ * quarto matiz.
  */
-function GoalLine({ goal }: { goal: Goal }) {
-  const overdue =
-    goal.target_date !== null && goal.target_date < new Date().toLocaleDateString('sv')
+function GoalLine({ goal, today }: { goal: Goal; today: string }) {
+  const urgency = goalUrgency(goal, today)
   return (
-    <li className={overdue ? 'goal-overdue' : undefined} title={goal.notes}>
-      <span className="goal-mark">{overdue ? '▲' : '◇'}</span> {goal.title}
+    <li className={urgency === 'ok' ? undefined : `goal-${urgency}`} title={goal.notes}>
+      <span className="goal-mark">{URGENCY_MARK[urgency]}</span> {goal.title}
       {goal.target_date && (
         <span className="mono goal-date">
-          {overdue ? 'venceu ' : 'até '}
+          {urgency === 'overdue' ? 'venceu ' : 'até '}
           {fmtDay(goal.target_date)}
         </span>
       )}
     </li>
   )
-}
-
-/** YYYY-MM-DD → dd/mm, sem passar por Date (é data pura, fuso não entra). */
-function fmtDay(iso: string): string {
-  const [, m, d] = iso.split('-')
-  return `${d}/${m}`
-}
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? s.slice(0, n - 1) + '…' : s
 }

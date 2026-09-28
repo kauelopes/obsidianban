@@ -390,8 +390,11 @@ data: {"type":"CARD_UPDATED","payload":{"card_id":"card-abc","project":"marketin
 
 Event types: `CARD_CREATED`, `CARD_UPDATED`, `CARD_MOVED`, `CARD_REORDERED`,
 `CARD_HUMAN_EDITED`, `CARD_DELETED`, `CARD_ARCHIVED`, `CARD_UNARCHIVED`,
-`PROJECT_ARCHIVED`, `PROJECT_UNARCHIVED`, `PROJECT_DELETED`. Pass
-`Last-Event-ID` on reconnect to replay missed frames (100-event rolling
+`PROJECT_ARCHIVED`, `PROJECT_UNARCHIVED`, `PROJECT_DELETED`, plus sprint,
+planning, workflow and job events, and `MODULE_EVENT` — a single envelope
+`{ module, event, payload }` for optional modules (`module: 'core'` with
+`event: 'modules_changed'` when one is toggled; the reports module emits
+`progress`). Pass `Last-Event-ID` on reconnect to replay missed frames (100-event rolling
 buffer).
 
 **Card filenames.** Each card lives at
@@ -432,6 +435,43 @@ stream is reconnecting.
 
 **Metrics.** `GET /metrics` (loopback only, no auth) returns token totals and
 aggregates by type/model/agent/day/operation. Filter with `?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD`.
+
+**Flow.** `GET /flow` (loopback only, no auth) is the delivery half of
+`/metrics`: cycle time (`in_progress`→`done`) and decision latency (time
+parked in `review`) as p50/p90/max, rework rate (backward column moves,
+ranked by transition), and a weekly series of cards delivered with cost per
+card. Accepts the same `?from_date=&to_date=` filter. Everything is derived
+from the audit log, so the series covers the vault's whole history — no new
+instrumentation. `cost_reporting_starts` marks the first week with measured
+`cost_usd`; weeks before it report `cost_per_card: null`, never `0`.
+
+**Weekly digest.** `GET /digest?week_start=YYYY-MM-DD` (loopback only, no
+auth) returns one civil week (Monday–Sunday; any day in the week is
+normalized to its Monday): sprints closed, cards and goals completed, goals
+due next week, stalled reviews, plus the window's activity totals. Backs the
+web app's **Revisão** tab. Two known gaps, by design: a card created directly
+in `done` emits no `MOVE` and a goal closed by editing `_meta.json` by hand
+emits no `GOAL_SET`, so neither shows up.
+
+**KAD docs.** `GET /vault/kad?project=` (loopback only, no auth) lists the
+planning docs (`kad/*.md`) a project has; `GET /vault/kad/doc?project=&doc=`
+returns one doc's raw markdown content. Backs the web app's **Arquivos** tab.
+
+**Repo docs.** Same shape, second source: `GET /vault/repo-docs?project=` and
+`GET /vault/repo-docs/doc?project=&doc=` list/read `.md` files under
+`docs/` inside the project's `target_repo` (recursive; `doc` may include
+subfolders, e.g. `doc=kad/vision`). Empty list when the project has no
+`target_repo` or no `docs/` in it — not an error.
+
+**Optional modules.** `GET /modules` (any valid token) lists installed modules
+with `enabled`, `config` and `load_error`; `PUT /modules/<id>` with
+`{ enabled?, config? }` (manager, JSON content-type) toggles one at runtime.
+Everything under `/modules/<id>/` belongs to that module and answers `404`
+while it is disabled. The reports module exposes `GET /modules/reports/options`,
+`GET|POST /modules/reports/` (list / generate — generating needs a pm or
+manager token), `GET /modules/reports/<id>`, `…/<id>/markdown`, `…/<id>/pdf`
+and `DELETE /modules/reports/<id>`. These are HTTP routes for the web app, not
+MCP tools. See `docs/for-developers/modules.md`.
 
 ---
 

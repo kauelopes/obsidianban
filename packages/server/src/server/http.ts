@@ -2,14 +2,25 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import type { Socket } from 'node:net'
 import type Database from 'better-sqlite3'
 import type { TokenValidator } from '../auth/validator.js'
-import { extractBearer } from '../auth/validator.js'
+import {
+  authenticate,
+  isLoopback,
+  isPrivateLan,
+  readJsonBody,
+  rejectUnsafeRequest,
+  sendFile,
+  sendJson,
+} from './http-helpers.js'
 import type { IdempotencyStore } from './idempotency.js'
 import { isValidRequestId } from './idempotency.js'
 import type { SSEEventBus } from './sse.js'
 import type { TokenClaims } from '@obsidiankan/types'
 import { HttpError } from '../services/errors.js'
 import type { MetricsService } from '../services/metrics.js'
+import type { TerminalUsageService } from '../services/terminal-usage.js'
 import type { ActivityService } from '../services/activity.js'
+import type { DigestService } from '../services/digest.js'
+import type { FlowService } from '../services/flow.js'
 import { ACTIVITY_DAYS_DEFAULT, ACTIVITY_DAYS_MAX, HTTP_SHUTDOWN_TIMEOUT_MS } from '../util/constants.js'
 import type { McpHttpManager } from './mcp-http.js'
 import type { StaticSite } from './static.js'
@@ -20,6 +31,12 @@ import type { CardRepository } from '../cards/repository.js'
 import type { Paths } from '../config.js'
 import { listAgentTokens } from '../auth/tokens.js'
 import type { WorkflowAgentsStatus, WorkflowInProgressCard } from '@obsidiankan/types'
+import { listKadDocs, readKadDoc } from '../vault/kad.js'
+import { listRepoDocs, readRepoDoc } from '../vault/repo-docs.js'
+import { listSkillFiles, readSkillFile, writeSkillFile } from '../services/skills.js'
+import { requireManager, requirePmOrManager } from '../services/guards.js'
+import type { ModuleHost } from '../modules/host.js'
+import { logger } from '../util/logger.js'
 
 export interface ServerState {
   startedAt: number
@@ -37,7 +54,11 @@ export interface HttpServerDeps {
   idempotency: IdempotencyStore
   sse: SSEEventBus
   metrics: MetricsService
+  /** Ingestão sob demanda das sessões de terminal — ausente em testes que não precisam do bloco `terminal`. */
+  terminalUsage?: Pick<TerminalUsageService, 'ensureFresh'> | undefined
   activity: ActivityService
+  digest: DigestService
+  flow: FlowService
   mcp: McpHttpManager
   /** Built web SPA, served from the same origin. Absent when not built. */
   site?: StaticSite | undefined
@@ -51,6 +72,8 @@ export interface HttpServerDeps {
   paths?: Paths | undefined
   /** Jobs de longa duração — alimenta o campo `jobs` em GET /workflow/agents. */
   jobManager?: Pick<JobManager, 'listRunning'> | undefined
+  /** Módulos opcionais — serve /modules e /modules/<id>/... Ausente = sem módulos. */
+  modules?: ModuleHost | undefined
 }
 
 interface ToolHandler {
@@ -141,14 +164,46 @@ export class HttpServer {
     if (req.method === 'GET' && url.split('?')[0] === '/activity') {
       return this.handleActivity(req, res, url)
     }
+    if (req.method === 'GET' && url.split('?')[0] === '/flow') {
+      return this.handleFlow(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/digest') {
+      return this.handleDigest(req, res, url)
+    }
     if (req.method === 'GET' && url.split('?')[0] === '/workflow/log') {
       return this.handleWorkflowLog(req, res, url)
     }
     if (req.method === 'GET' && url.split('?')[0] === '/workflow/agents') {
       return this.handleWorkflowAgents(req, res, url)
     }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/kad') {
+      return this.handleKadList(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/kad/doc') {
+      return this.handleKadDoc(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/repo-docs') {
+      return this.handleRepoDocsList(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/vault/repo-docs/doc') {
+      return this.handleRepoDoc(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/skills') {
+      return this.handleSkillsList(req, res)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/skills/doc') {
+      return this.handleSkillDoc(req, res, url)
+    }
+    if (req.method === 'PUT' && url.split('?')[0] === '/skills/doc') {
+      return this.handleSkillDocWrite(req, res)
+    }
 
-    const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(url.split('?')[0] ?? '')
+    const pathname = url.split('?')[0] ?? ''
+    if (this.deps.modules && (pathname === '/modules' || pathname.startsWith('/modules/'))) {
+      return this.handleModules(req, res, pathname, url, this.deps.modules)
+    }
+
+    const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(pathname)
     if (toolMatch && req.method === 'POST') {
       return this.handleToolCall(req, res, toolMatch[1]!)
     }
@@ -201,7 +256,7 @@ export class HttpServer {
     })
   }
 
-  private handleMetrics(req: IncomingMessage, res: ServerResponse, url: string): void {
+  private async handleMetrics(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
     // Rota sem token: a checagem de rede é a única barreira. Permite loopback
     // e a LAN privada em que o servidor pode estar (opcionalmente) exposto
     // via HOST=0.0.0.0, mas nunca a internet pública.
@@ -210,6 +265,12 @@ export class HttpServer {
       sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
       return
     }
+    // Best-effort: ingestão do terminal falhar (fs indisponível, jsonl
+    // corrompido) não pode derrubar o /metrics — o bloco `terminal` da
+    // resposta só fica com dado velho, o resto (token_log) segue intacto.
+    await this.deps.terminalUsage?.ensureFresh().catch((err) => {
+      logger.warn({ err: String(err) }, 'terminal-usage: ensureFresh falhou')
+    })
     const params = new URL(url, 'http://localhost').searchParams
     try {
       const metrics = this.deps.metrics.collect({
@@ -247,6 +308,62 @@ export class HttpServer {
       return
     }
     sendJson(res, 200, await this.deps.activity.collect({ days, tzOffsetMinutes: tzOffset }))
+  }
+
+  /**
+   * Mesma postura e os mesmos filtros do /metrics — os dois alimentam a mesma
+   * aba, e um intervalo que valesse só para metade dela seria armadilha.
+   */
+  private async handleFlow(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: string,
+  ): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const from = params.get('from_date')
+    const to = params.get('to_date')
+    for (const [field, value] of [['from_date', from], ['to_date', to]] as const) {
+      if (value !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)))) {
+        sendJson(res, 400, { error: 'invalid_field', field, expected: 'YYYY-MM-DD' })
+        return
+      }
+    }
+    sendJson(res, 200, await this.deps.flow.collect({
+      ...(from ? { from_date: from } : {}),
+      ...(to ? { to_date: to } : {}),
+    }))
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleDigest(
+    req: IncomingMessage,
+    res: ServerResponse,
+    url: string,
+  ): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    // Sem week_start, a semana corrente em UTC. O serviço normaliza qualquer
+    // dia para a segunda da sua semana, então o cliente pode mandar "hoje".
+    const weekStart = params.get('week_start') ?? new Date().toISOString().slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart) || Number.isNaN(Date.parse(weekStart))) {
+      sendJson(res, 400, { error: 'invalid_field', field: 'week_start', expected: 'YYYY-MM-DD' })
+      return
+    }
+    const tzOffset = intParam(params.get('tz_offset'), 0, -840, 840)
+    if (tzOffset === null) {
+      sendJson(res, 400, { error: 'invalid_field', field: 'tz_offset', expected: '-840..840' })
+      return
+    }
+    sendJson(res, 200, await this.deps.digest.collect({ weekStart, tzOffsetMinutes: tzOffset }))
   }
 
   /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
@@ -340,46 +457,282 @@ export class HttpServer {
     sendJson(res, 200, body)
   }
 
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleKadList(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    if (!project) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project obrigatório' })
+      return
+    }
+    const files = await listKadDocs(this.deps.paths, project)
+    sendJson(res, 200, { project, files })
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleKadDoc(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    const doc = params.get('doc')
+    if (!project || !doc) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project e doc obrigatórios' })
+      return
+    }
+    const content = await readKadDoc(this.deps.paths, project, doc)
+    if (content === null) {
+      sendJson(res, 404, { error: 'not_found' })
+      return
+    }
+    sendJson(res, 200, { project, doc, content })
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleRepoDocsList(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    if (!project) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project obrigatório' })
+      return
+    }
+    const files = await listRepoDocs(this.deps.paths, project)
+    sendJson(res, 200, { project, files })
+  }
+
+  /** Mesma postura do /metrics: rota da SPA local, sem token, loopback ou LAN privada. */
+  private async handleRepoDoc(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const remote = req.socket.remoteAddress ?? ''
+    if (!isPrivateLan(remote)) {
+      sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+      return
+    }
+    if (!this.deps.paths) {
+      sendJson(res, 501, { error: 'not_implemented' })
+      return
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const project = params.get('project')
+    const doc = params.get('doc')
+    if (!project || !doc) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'project e doc obrigatórios' })
+      return
+    }
+    const content = await readRepoDoc(this.deps.paths, project, doc)
+    if (content === null) {
+      sendJson(res, 404, { error: 'not_found' })
+      return
+    }
+    sendJson(res, 200, { project, doc, content })
+  }
+
   /**
-   * Recusa requisição que um site de terceiros poderia ter disparado.
-   *
-   * O servidor escuta em 127.0.0.1, mas isso não protege do navegador: qualquer
-   * aba aberta alcança essa porta. O que impede o abuso é o header
-   * `Authorization`, que exige preflight e portanto não pode ser forjado
-   * cross-origin — só que a defesa inteira estava apoiada nesse detalhe. Estas
-   * três checagens tiram a dependência:
-   *
-   * - `content-type: application/json` é obrigatório. Sem isso, uma página
-   *   qualquer manda um POST "simples" com `text/plain`, sem preflight, e o
-   *   readJsonBody parseia do mesmo jeito.
-   * - `Sec-Fetch-Site` é posto pelo navegador e não é falsificável por script.
-   *   Ausente significa cliente não-navegador (curl, agente, SDK) — permitido.
-   * - `Origin` cross-origin é recusado por redundância, para navegador antigo
-   *   sem Sec-Fetch-Site.
+   * Skills-fonte (.claude/skills/ no monorepo) — a origem única que
+   * workflow-readiness replica para cada projeto. Diferente das rotas de
+   * vault acima, exige token de manager: é configuração global compartilhada
+   * por todo agente de todo projeto, não um documento de leitura per-project.
    */
-  private rejectUnsafeRequest(req: IncomingMessage, res: ServerResponse): boolean {
-    const contentType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase()
-    if (contentType !== 'application/json') {
-      sendJson(res, 415, {
-        error: 'unsupported_media_type',
-        hint: 'send content-type: application/json',
+  private async handleSkillsList(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const claims = await authenticate(this.deps.validator, req, res)
+    if (!claims) return
+    requireManager(claims)
+    sendJson(res, 200, { files: listSkillFiles() })
+  }
+
+  private async handleSkillDoc(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const claims = await authenticate(this.deps.validator, req, res)
+    if (!claims) return
+    requireManager(claims)
+    const params = new URL(url, 'http://localhost').searchParams
+    const relPath = params.get('path')
+    if (!relPath) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'path obrigatório' })
+      return
+    }
+    const content = await readSkillFile(relPath)
+    sendJson(res, 200, { path: relPath, content })
+  }
+
+  private async handleSkillDocWrite(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (rejectUnsafeRequest(req, res)) return
+    const claims = await authenticate(this.deps.validator, req, res)
+    if (!claims) return
+    requireManager(claims)
+    const body = await readJsonBody(req).catch((_err) => null)
+    if (body === null) {
+      sendJson(res, 400, { error: 'invalid_json' })
+      return
+    }
+    const params = body as Record<string, unknown>
+    const relPath = params['path']
+    const content = params['content']
+    if (typeof relPath !== 'string' || typeof content !== 'string') {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'path e content obrigatórios' })
+      return
+    }
+    await writeSkillFile(relPath, content)
+    sendJson(res, 200, { path: relPath, content })
+  }
+
+  /**
+   * `/modules` e `/modules/<id>` (exatos) são do core: listar e ligar/desligar.
+   * Tudo abaixo de `/modules/<id>/` é do módulo, despachado pelo ModuleHost.
+   */
+  private async handleModules(
+    req: IncomingMessage,
+    res: ServerResponse,
+    pathname: string,
+    url: string,
+    modules: ModuleHost,
+  ): Promise<void> {
+    if (pathname === '/modules') {
+      if (req.method !== 'GET') {
+        res.setHeader('allow', 'GET')
+        sendJson(res, 405, { error: 'method_not_allowed' })
+        return
+      }
+      const claims = await authenticate(this.deps.validator, req, res)
+      if (!claims) return
+      sendJson(res, 200, { modules: modules.list() })
+      return
+    }
+
+    const m = /^\/modules\/([^/]+)(\/.*)?$/.exec(pathname)
+    if (!m) {
+      sendJson(res, 404, { error: 'not_found' })
+      return
+    }
+    const id = m[1]!
+    const subpath = m[2]
+
+    if (subpath === undefined) {
+      if (req.method === 'GET') {
+        const claims = await authenticate(this.deps.validator, req, res)
+        if (!claims) return
+        const info = modules.get(id)
+        if (!info) sendJson(res, 404, { error: 'not_found' })
+        else sendJson(res, 200, info)
+        return
+      }
+      if (req.method !== 'PUT') {
+        res.setHeader('allow', 'GET, PUT')
+        sendJson(res, 405, { error: 'method_not_allowed' })
+        return
+      }
+      if (rejectUnsafeRequest(req, res)) return
+      const claims = await authenticate(this.deps.validator, req, res)
+      if (!claims) return
+      requireManager(claims)
+      const body = await readJsonBody(req).catch((_err) => null)
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        sendJson(res, 400, { error: 'invalid_json' })
+        return
+      }
+      const { enabled, config } = body as Record<string, unknown>
+      if (enabled !== undefined && typeof enabled !== 'boolean') {
+        sendJson(res, 400, { error: 'invalid_field', field: 'enabled', expected: 'boolean' })
+        return
+      }
+      if (config !== undefined && (typeof config !== 'object' || config === null || Array.isArray(config))) {
+        sendJson(res, 400, { error: 'invalid_field', field: 'config', expected: 'object' })
+        return
+      }
+      const info = await modules.update(id, {
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(config !== undefined ? { config: config as Record<string, unknown> } : {}),
       })
-      return true
+      if (!info) sendJson(res, 404, { error: 'not_found' })
+      else sendJson(res, 200, info)
+      return
     }
 
-    const fetchSite = req.headers['sec-fetch-site']
-    if (typeof fetchSite === 'string' && fetchSite !== 'same-origin' && fetchSite !== 'none') {
-      sendJson(res, 403, { error: 'forbidden', reason: 'cross_site' })
-      return true
+    const match = modules.match(id, req.method ?? '', subpath)
+    if (match.kind === 'not_found') {
+      sendJson(res, 404, { error: 'not_found' })
+      return
+    }
+    if (match.kind === 'method_not_allowed') {
+      res.setHeader('allow', match.allow.join(', '))
+      sendJson(res, 405, { error: 'method_not_allowed' })
+      return
     }
 
-    const origin = req.headers['origin']
-    if (typeof origin === 'string' && !sameHost(origin, req.headers.host)) {
-      sendJson(res, 403, { error: 'forbidden', reason: 'cross_origin' })
-      return true
+    const { route, params } = match
+    const mutating = route.method !== 'GET'
+    if (mutating && rejectUnsafeRequest(req, res)) return
+
+    let claims: TokenClaims | null = null
+    if (route.auth === 'lan') {
+      if (!isPrivateLan(req.socket.remoteAddress ?? '')) {
+        sendJson(res, 403, { error: 'forbidden', reason: 'localhost_only' })
+        return
+      }
+    } else {
+      claims = await authenticate(this.deps.validator, req, res)
+      if (!claims) return
+      if (route.auth === 'pm') requirePmOrManager(claims)
+      if (route.auth === 'manager') requireManager(claims)
     }
 
-    return false
+    let body: unknown = undefined
+    if (route.method === 'POST' || route.method === 'PUT') {
+      body = await readJsonBody(req).catch((_err) => null)
+      if (body === null) {
+        sendJson(res, 400, { error: 'invalid_json' })
+        return
+      }
+    }
+
+    let out
+    try {
+      out = await route.handler({
+        method: route.method,
+        path: subpath,
+        params,
+        query: new URL(url, 'http://localhost').searchParams,
+        body,
+        claims,
+      })
+    } catch (err) {
+      const e = err as { status?: unknown; body?: unknown }
+      if (typeof e?.status === 'number' && typeof e.body === 'object' && e.body !== null) {
+        sendJson(res, e.status, e.body)
+        return
+      }
+      logger.error({ err, module: id, route: `${route.method} ${route.pattern}` }, 'modules: handler lançou')
+      sendJson(res, 500, { error: 'internal_error', module: id })
+      return
+    }
+    if ('file' in out) {
+      sendFile(res, out.status ?? 200, out.file.data, out.file.contentType, out.file.filename)
+    } else {
+      sendJson(res, out.status ?? 200, out.json)
+    }
   }
 
   private async handleToolCall(
@@ -387,9 +740,9 @@ export class HttpServer {
     res: ServerResponse,
     toolName: string,
   ): Promise<void> {
-    if (this.rejectUnsafeRequest(req, res)) return
+    if (rejectUnsafeRequest(req, res)) return
 
-    const claims = await this.authenticate(req, res)
+    const claims = await authenticate(this.deps.validator, req, res)
     if (!claims) return
 
     const body = await readJsonBody(req).catch((_err) => null)
@@ -442,9 +795,9 @@ export class HttpServer {
       })
       return
     }
-    if (this.rejectUnsafeRequest(req, res)) return
+    if (rejectUnsafeRequest(req, res)) return
 
-    const claims = await this.authenticate(req, res)
+    const claims = await authenticate(this.deps.validator, req, res)
     if (!claims) return
     const body = await readJsonBody(req).catch((_err) => null)
     if (body === null) {
@@ -452,24 +805,6 @@ export class HttpServer {
       return
     }
     await this.deps.mcp.handleRequest(req, res, claims, body)
-  }
-
-  private async authenticate(
-    req: IncomingMessage,
-    res: ServerResponse,
-  ): Promise<TokenClaims | null> {
-    const bearer = extractBearer(req.headers.authorization)
-    const result = await this.deps.validator.validate(bearer)
-    if (!result.ok) {
-      const errors = {
-        missing: 'missing_token',
-        invalid: 'invalid_token',
-        revoked: 'revoked_token',
-      } as const
-      sendJson(res, 401, { error: errors[result.reason] })
-      return null
-    }
-    return result.claims
   }
 }
 
@@ -479,52 +814,4 @@ function intParam(raw: string | null, fallback: number, min: number, max: number
   const n = Number(raw)
   if (!Number.isInteger(n) || n < min || n > max) return null
   return n
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.statusCode = status
-  res.setHeader('content-type', 'application/json; charset=utf-8')
-  res.end(JSON.stringify(body))
-}
-
-/**
- * O header Origin traz esquema + host + porta; o Host, só host + porta. A
- * comparação é entre as duas últimas partes — o esquema não entra porque o
- * servidor é http puro em loopback.
- */
-function sameHost(origin: string, host: string | undefined): boolean {
-  if (!host) return false
-  try {
-    return new URL(origin).host === host
-  } catch {
-    return false
-  }
-}
-
-function isLoopback(addr: string): boolean {
-  return addr === '::1' || addr.startsWith('127.') || addr.startsWith('::ffff:127.')
-}
-
-/**
- * Loopback ou faixa RFC 1918 (LAN privada: 10/8, 172.16/12, 192.168/16).
- * Node reporta clientes IPv4 como `::ffff:x.x.x.x` quando o servidor escuta
- * em 0.0.0.0 sob socket dual-stack — por isso os dois formatos são checados.
- */
-function isPrivateLan(addr: string): boolean {
-  if (isLoopback(addr)) return true
-  const v4 = addr.startsWith('::ffff:') ? addr.slice('::ffff:'.length) : addr
-  if (v4.startsWith('10.') || v4.startsWith('192.168.')) return true
-  const m = /^172\.(\d{1,3})\./.exec(v4)
-  if (m) {
-    const octet = Number(m[1])
-    return octet >= 16 && octet <= 31
-  }
-  return false
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
-  if (chunks.length === 0) return {}
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
