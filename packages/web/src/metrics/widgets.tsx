@@ -3,9 +3,22 @@
  * Metrics.tsx sem mudança de comportamento.
  */
 
-export function Tile({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+import { fmtCompact } from '../util/format.js'
+
+export function Tile({
+  label,
+  value,
+  muted,
+  title,
+}: {
+  label: string
+  value: string
+  muted?: boolean
+  /** Valor exato, para quando `value` já veio abreviado (1.2K etc.). */
+  title?: string
+}) {
   return (
-    <div className="tile">
+    <div className="tile" title={title}>
       <span className="label">{label}</span>
       <strong className={muted ? 'tile-value muted' : 'tile-value'}>{value}</strong>
     </div>
@@ -49,12 +62,15 @@ export function BarChart({
           const pct = total > 0 ? (r.value / total) * 100 : 0
           const share = total > 0 ? Math.round((r.value / total) * 100) : 0
           return (
-            <li key={r.label} title={`${r.label}: ${r.value} (${share}% do total)`}>
+            <li
+              key={r.label}
+              title={`${r.label}: ${r.value.toLocaleString('pt-BR')} (${share}% do total)`}
+            >
               <span className="bar-label mono">{r.label}</span>
               <span className="bar-track">
                 <span className="bar-fill" style={{ width: `${pct}%` }} />
               </span>
-              <span className="bar-value mono">{r.value.toLocaleString('pt-BR')}</span>
+              <span className="bar-value mono">{fmtCompact(r.value)}</span>
             </li>
           )
         })}
@@ -171,18 +187,30 @@ export function TokenTable({
             {rows.map((r) => (
               <tr key={r.label}>
                 <td className="mono">{r.label}</td>
-                <td className="num">{r.input > 0 ? r.input.toLocaleString('pt-BR') : '—'}</td>
-                <td className="num">{r.output > 0 ? r.output.toLocaleString('pt-BR') : '—'}</td>
+                <td className="num" title={r.input > 0 ? r.input.toLocaleString('pt-BR') : undefined}>
+                  {r.input > 0 ? fmtCompact(r.input) : '—'}
+                </td>
+                <td className="num" title={r.output > 0 ? r.output.toLocaleString('pt-BR') : undefined}>
+                  {r.output > 0 ? fmtCompact(r.output) : '—'}
+                </td>
                 {showCache && (
-                  <td className="num">
-                    {r.cacheRead && r.cacheRead > 0 ? r.cacheRead.toLocaleString('pt-BR') : '—'}
+                  <td
+                    className="num"
+                    title={r.cacheRead && r.cacheRead > 0 ? r.cacheRead.toLocaleString('pt-BR') : undefined}
+                  >
+                    {r.cacheRead && r.cacheRead > 0 ? fmtCompact(r.cacheRead) : '—'}
                   </td>
                 )}
                 {showCache && (
-                  <td className="num">
-                    {r.cacheCreation && r.cacheCreation > 0
-                      ? r.cacheCreation.toLocaleString('pt-BR')
-                      : '—'}
+                  <td
+                    className="num"
+                    title={
+                      r.cacheCreation && r.cacheCreation > 0
+                        ? r.cacheCreation.toLocaleString('pt-BR')
+                        : undefined
+                    }
+                  >
+                    {r.cacheCreation && r.cacheCreation > 0 ? fmtCompact(r.cacheCreation) : '—'}
                   </td>
                 )}
                 {showCost && (

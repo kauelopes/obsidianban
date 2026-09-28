@@ -6,7 +6,7 @@ import { loadProjectMetaOrNull } from '../vault/layout.js'
 import { logger } from '../util/logger.js'
 import type { WorkflowReadinessResult, SkillFileCheck, ConfigFileCheck, GeneratedToken } from '@obsidiankan/types'
 
-const REQUIRED_SKILL_FILES = [
+export const REQUIRED_SKILL_FILES = [
   'kanban-dev-agent/SKILL.md',
   'kanban-dev-agent/reference/protocol.md',
   'kanban-pm-agent/SKILL.md',
@@ -18,7 +18,7 @@ const REQUIRED_SKILL_FILES = [
   'kanban-manager-agent/reference/protocol.md',
 ]
 
-function resolveSkillsSource(): string {
+export function resolveSkillsSource(): string {
   if (process.env['OBSIDIANKAN_SKILLS_SOURCE']) return process.env['OBSIDIANKAN_SKILLS_SOURCE']
   // packages/server/src/services/ → up 4 levels → monorepo root → .claude/skills/
   return path.join(__dirname, '..', '..', '..', '..', '.claude', 'skills')

@@ -68,6 +68,25 @@ describe('Dashboard', () => {
     expect(container.querySelector('.needs-you .label')?.textContent).toContain('precisa de você')
   })
 
+  it('card escalado não é contado duas vezes: listEscalations devolve todo card em review', () => {
+    const review = CARDS.find((c) => c.status === 'review')!
+    const escalation: EscalationItem = {
+      card_id: review.id,
+      project: review.project,
+      title: review.title,
+      status: 'review',
+      version: 1,
+      priority: review.priority,
+      assigned_to: null,
+      updated_at: review.updated_at,
+      escalated_at: review.updated_at,
+      reason: 'preciso de uma decisão',
+    }
+    const { container } = renderDashboard(CARDS, [escalation])
+    expect(container.querySelector('.needs-you .label')?.textContent).toContain('1 item')
+    expect(container.querySelectorAll('.pending.inbox > li')).toHaveLength(1)
+  })
+
   it('sem review nem escalação, o all-clear abre a página no lugar da fila', () => {
     const semReview = CARDS.filter((c) => c.status !== 'review')
     const { container } = renderDashboard(semReview)

@@ -4,7 +4,7 @@ import type { CardSummary, Sprint } from '@obsidiankan/types'
 import { KanbanClient } from './api/client.js'
 import { CardDetail } from './card/CardDetail.js'
 import { useBoard } from './board/useBoard.js'
-import { Help } from './help/Help.js'
+import { Configs } from './configs/Configs.js'
 import { Dashboard } from './home/Dashboard.js'
 import { Home } from './home/Home.js'
 import { Horizon } from './horizon/Horizon.js'
@@ -174,11 +174,12 @@ export function App() {
             }
           />
           <Route path="/revisao" element={<Navigate to="/atividade" replace />} />
+          <Route path="/ajuda" element={<Navigate to="/configs" replace />} />
           <Route
-            path="/ajuda"
+            path="/configs"
             element={
               <Shell client={client} onLogout={clearToken}>
-                <Help />
+                <Configs client={client} />
               </Shell>
             }
           />

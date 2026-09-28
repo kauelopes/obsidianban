@@ -16,6 +16,8 @@ import type {
   Metrics,
   RepoDocResponse,
   RepoDocsListResponse,
+  SkillFileDocResponse,
+  SkillFilesListResponse,
   MoveBetweenSprintsResult,
   MoveCardParams,
   ProjectShapeResult,
@@ -497,6 +499,68 @@ export class KanbanClient {
         error: {
           kind: 'offline',
           message: 'não foi possível ler o documento do repositório',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  // ── Skills dos agentes (.claude/skills/ fonte, replicada por projeto) ──────
+
+  async listSkillFiles(): Promise<McpResult<SkillFilesListResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/skills`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível listar as skills',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  async getSkillFile(path: string): Promise<McpResult<SkillFileDocResponse>> {
+    try {
+      const qs = new URLSearchParams({ path })
+      const res = await fetch(`${this.baseUrl}/skills/doc?${qs.toString()}`, {
+        headers: { Authorization: `Bearer ${this.token}` },
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível ler a skill',
+          cause: err instanceof Error ? err.message : String(err),
+        },
+      }
+    }
+  }
+
+  async writeSkillFile(path: string, content: string): Promise<McpResult<SkillFileDocResponse>> {
+    try {
+      const res = await fetch(`${this.baseUrl}/skills/doc`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify({ path, content }),
+      })
+      return toMcpResult(res.status, await res.json())
+    } catch (err) {
+      return {
+        ok: false,
+        error: {
+          kind: 'offline',
+          message: 'não foi possível salvar a skill',
           cause: err instanceof Error ? err.message : String(err),
         },
       }

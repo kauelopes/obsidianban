@@ -156,6 +156,57 @@ describe('TerminalUsageService', () => {
     expect(rows.map((r) => r.ts)).toEqual(['2026-08-01T10:00:00.000Z', '2026-08-01T10:05:00.000Z'])
   })
 
+  it('registro sem o bloco cache_creation cobra o write como 5m, não como zero', async () => {
+    claudeProjectsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidiankan-claude-projects-legacy-'))
+    const sessionDir = path.join(claudeProjectsDir, 'proj')
+    await fs.mkdir(sessionDir, { recursive: true })
+    paths = await createTempVault()
+
+    // Sessões mais antigas do Claude Code trazem só o total agregado.
+    const legacy = JSON.stringify({
+      type: 'assistant',
+      timestamp: '2026-08-01T10:00:00.000Z',
+      sessionId: 'sess-legacy',
+      cwd: '/x',
+      message: {
+        model: 'claude-sonnet-5',
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 500_000,
+        },
+      },
+    })
+    await fs.writeFile(path.join(sessionDir, 'legacy.jsonl'), legacy + '\n', 'utf8')
+    await fs.writeFile(
+      path.join(sessionDir, 'modern.jsonl'),
+      assistantLine({
+        sessionId: 'sess-modern',
+        ts: '2026-08-01T10:00:00.000Z',
+        model: 'claude-sonnet-5',
+        cwd: '/x',
+        input: 100,
+        output: 50,
+        cache5m: 500_000,
+      }) + '\n',
+      'utf8',
+    )
+
+    const db = createTestDb()
+    await new TerminalUsageService(db, paths, claudeProjectsDir).ensureFresh()
+
+    const rows = db
+      .prepare(`SELECT session_id, cost_usd, cache_creation_tokens FROM terminal_usage ORDER BY session_id`)
+      .all() as Array<{ session_id: string; cost_usd: number; cache_creation_tokens: number }>
+    expect(rows).toHaveLength(2)
+    const [legacyRow, modernRow] = rows as [(typeof rows)[0], (typeof rows)[0]]
+    expect(legacyRow.session_id).toBe('sess-legacy')
+    expect(legacyRow.cache_creation_tokens).toBe(500_000)
+    expect(legacyRow.cost_usd).toBe(modernRow.cost_usd)
+    expect(legacyRow.cost_usd).toBeGreaterThan(0)
+  })
+
   it('projeto sem target_repo (ou diretório inexistente) não quebra o scan', async () => {
     claudeProjectsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'obsidiankan-claude-projects-empty-'))
     paths = await createTempVault()

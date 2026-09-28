@@ -16,18 +16,14 @@ import { Markdown } from '../markdown/Markdown.js'
  */
 export function Help() {
   return (
-    <div className="detail">
-      <div className="detail-inner">
-        <div className="detail-head">
-          <h1>Briefing do agente</h1>
-          <div className="detail-ident">
-            <span>o que um agente lê antes de tocar num card</span>
-            <span className="sep">│</span>
-            <span>em inglês de propósito — é o texto que se cola no prompt do agente</span>
-          </div>
-        </div>
-        <Markdown prose>{BRIEFING}</Markdown>
+    <div className="detail-head">
+      <h1>Briefing do agente</h1>
+      <div className="detail-ident">
+        <span>o que um agente lê antes de tocar num card</span>
+        <span className="sep">│</span>
+        <span>em inglês de propósito — é o texto que se cola no prompt do agente</span>
       </div>
+      <Markdown prose>{BRIEFING}</Markdown>
     </div>
   )
 }

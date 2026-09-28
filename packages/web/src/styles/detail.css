@@ -901,6 +901,92 @@
   }
 }
 
+/* ── Configs → Skills: lista de arquivos + editor ────────────────────────── */
+
+.skills-layout {
+  display: flex;
+  gap: var(--s-6);
+  align-items: flex-start;
+  margin-top: var(--s-4);
+}
+
+.skills-files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  flex: 0 0 220px;
+}
+
+.skills-group-label {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+  color: var(--fg-2);
+  margin-bottom: var(--s-2);
+}
+
+.skills-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.skills-files button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+}
+
+.skills-files button:hover:not(:disabled) {
+  background: var(--ink-2);
+  color: var(--fg-0);
+}
+
+.skills-files button.active {
+  background: var(--ink-2);
+  border-color: var(--rule-strong);
+  color: var(--fg-0);
+  font-weight: 600;
+}
+
+.skills-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+.skills-editor-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--fg-2);
+}
+
+.skills-editor-actions {
+  display: flex;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+}
+
+@media (max-width: 640px) {
+  .skills-layout {
+    flex-direction: column;
+  }
+
+  .skills-files {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+}
+
 /* ── Workspace do projeto: Board / Arquivos / Estatísticas / Metas ──────────
    Mesmo padrão visual do .settings-layout, mas align-items:stretch (não
    flex-start) e .project-content como coluna flex com min-height:0 — o board

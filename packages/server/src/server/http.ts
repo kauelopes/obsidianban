@@ -25,6 +25,8 @@ import { listAgentTokens } from '../auth/tokens.js'
 import type { WorkflowAgentsStatus, WorkflowInProgressCard } from '@obsidiankan/types'
 import { listKadDocs, readKadDoc } from '../vault/kad.js'
 import { listRepoDocs, readRepoDoc } from '../vault/repo-docs.js'
+import { listSkillFiles, readSkillFile, writeSkillFile } from '../services/skills.js'
+import { requireManager } from '../services/guards.js'
 import { logger } from '../util/logger.js'
 
 export interface ServerState {
@@ -174,6 +176,15 @@ export class HttpServer {
     }
     if (req.method === 'GET' && url.split('?')[0] === '/vault/repo-docs/doc') {
       return this.handleRepoDoc(req, res, url)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/skills') {
+      return this.handleSkillsList(req, res)
+    }
+    if (req.method === 'GET' && url.split('?')[0] === '/skills/doc') {
+      return this.handleSkillDoc(req, res, url)
+    }
+    if (req.method === 'PUT' && url.split('?')[0] === '/skills/doc') {
+      return this.handleSkillDocWrite(req, res)
     }
 
     const toolMatch = /^\/mcp\/tool\/([^/?]+)$/.exec(url.split('?')[0] ?? '')
@@ -522,6 +533,54 @@ export class HttpServer {
       return
     }
     sendJson(res, 200, { project, doc, content })
+  }
+
+  /**
+   * Skills-fonte (.claude/skills/ no monorepo) — a origem única que
+   * workflow-readiness replica para cada projeto. Diferente das rotas de
+   * vault acima, exige token de manager: é configuração global compartilhada
+   * por todo agente de todo projeto, não um documento de leitura per-project.
+   */
+  private async handleSkillsList(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const claims = await this.authenticate(req, res)
+    if (!claims) return
+    requireManager(claims)
+    sendJson(res, 200, { files: listSkillFiles() })
+  }
+
+  private async handleSkillDoc(req: IncomingMessage, res: ServerResponse, url: string): Promise<void> {
+    const claims = await this.authenticate(req, res)
+    if (!claims) return
+    requireManager(claims)
+    const params = new URL(url, 'http://localhost').searchParams
+    const relPath = params.get('path')
+    if (!relPath) {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'path obrigatório' })
+      return
+    }
+    const content = await readSkillFile(relPath)
+    sendJson(res, 200, { path: relPath, content })
+  }
+
+  private async handleSkillDocWrite(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (this.rejectUnsafeRequest(req, res)) return
+    const claims = await this.authenticate(req, res)
+    if (!claims) return
+    requireManager(claims)
+    const body = await readJsonBody(req).catch((_err) => null)
+    if (body === null) {
+      sendJson(res, 400, { error: 'invalid_json' })
+      return
+    }
+    const params = body as Record<string, unknown>
+    const relPath = params['path']
+    const content = params['content']
+    if (typeof relPath !== 'string' || typeof content !== 'string') {
+      sendJson(res, 400, { error: 'invalid_field', hint: 'path e content obrigatórios' })
+      return
+    }
+    await writeSkillFile(relPath, content)
+    sendJson(res, 200, { path: relPath, content })
   }
 
   /**

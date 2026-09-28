@@ -1,7 +1,6 @@
 import { Link, NavLink } from 'react-router-dom'
 import type { KanbanClient } from '../api/client.js'
 import { usePlanningSummary } from '../plan/usePlanningSummary.js'
-import { ThemeToggle, useTheme } from './theme.js'
 
 export function Shell({
   children,
@@ -15,7 +14,6 @@ export function Shell({
   onLogout: () => void
   client: KanbanClient
 }) {
-  const { pref, cycle } = useTheme()
   // Sessão de planejamento é estado do vault, não de uma página — a pill
   // acompanha o usuário em qualquer rota para a jornada nunca se perder.
   const planning = usePlanningSummary(client)
@@ -35,8 +33,8 @@ export function Shell({
           <NavLink to="/atividade" className={({ isActive }) => (isActive ? 'active' : '')}>
             Estatísticas
           </NavLink>
-          <NavLink to="/ajuda" className={({ isActive }) => (isActive ? 'active' : '')}>
-            Ajuda
+          <NavLink to="/configs" className={({ isActive }) => (isActive ? 'active' : '')}>
+            Configs
           </NavLink>
         </nav>
         <div className="spacer" />
@@ -46,7 +44,6 @@ export function Shell({
           </NavLink>
         )}
         {status}
-        <ThemeToggle pref={pref} cycle={cycle} />
         <button className="ghost" onClick={onLogout}>
           sair
         </button>

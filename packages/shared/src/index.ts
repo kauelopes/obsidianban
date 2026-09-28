@@ -888,6 +888,24 @@ export interface Metrics {
     total_cost_usd: number
     total_ops: number
   }
+  /** Mesmo dado de `terminal`, quebrado por modelo — cost_usd sempre estimado. */
+  terminal_by_model?: Array<{
+    model: string
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    cache_creation_tokens: number
+    cost_usd: number
+    ops: number
+  }>
+  /** Mesmo dado de `terminal`, quebrado por dia (UTC) — cost_usd sempre estimado. */
+  terminal_by_day?: Array<{
+    date: string
+    input_tokens: number
+    output_tokens: number
+    cost_usd: number
+    ops: number
+  }>
   /** `board` = token_log (measured), `terminal` = terminal_usage (estimated). */
   by_origin?: Array<{
     origin: 'board' | 'terminal'
@@ -955,6 +973,25 @@ export interface RepoDocsListResponse {
 export interface RepoDocResponse {
   project: string
   doc: string
+  content: string
+}
+
+// ─── Agent skills (GET /skills, /skills/doc, PUT /skills/doc) ────────────────
+// Fonte única em .claude/skills/ no monorepo, replicada por workflow-readiness
+// para o target_repo de cada projeto — editar por aqui é editar a origem que
+// todo projeto herda na próxima checagem de prontidão do workflow.
+
+export interface SkillFileEntry {
+  skill: string // e.g. 'kanban-dev-agent'
+  path: string // relative to .claude/skills/, e.g. 'kanban-dev-agent/SKILL.md'
+}
+
+export interface SkillFilesListResponse {
+  files: SkillFileEntry[]
+}
+
+export interface SkillFileDocResponse {
+  path: string
   content: string
 }
 

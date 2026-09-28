@@ -81,8 +81,12 @@ export class TerminalUsageService {
     }
 
     const prefixes = await this.buildProjectPrefixes()
+    // Orçamento da rodada inteira, não por arquivo: com uma sessão por arquivo,
+    // um cap por arquivo deixaria o primeiro GET /metrics ler o backlog todo.
+    let budget = TERMINAL_SCAN_MAX_BYTES_PER_ROUND
 
     for (const dir of dirs) {
+      if (budget <= 0) break
       const dirPath = path.join(this.claudeProjectsDir, dir)
       let entries: string[]
       try {
@@ -93,31 +97,45 @@ export class TerminalUsageService {
         continue
       }
       for (const entry of entries) {
+        if (budget <= 0) break
         if (!entry.endsWith('.jsonl')) continue
         const filePath = path.join(dirPath, entry)
         const sourceKey = `${dir}/${entry}`
-        await this.scanFile(filePath, sourceKey, prefixes).catch((err) => {
+        const consumed = await this.scanFile(filePath, sourceKey, prefixes, budget).catch((err) => {
           logger.warn({ err: String(err), sourceKey }, 'terminal-usage: falha ao escanear sessão')
+          return 0
         })
+        budget -= consumed
       }
+    }
+
+    if (budget <= 0) {
+      logger.info('terminal-usage: orçamento da rodada esgotado — backlog continua no próximo scan')
     }
   }
 
-  private async scanFile(filePath: string, sourceKey: string, prefixes: ProjectPrefixes[]): Promise<void> {
+  /** Retorna quantos bytes consumiu do orçamento da rodada. */
+  private async scanFile(
+    filePath: string,
+    sourceKey: string,
+    prefixes: ProjectPrefixes[],
+    budget: number,
+  ): Promise<number> {
     const offset = this.getOffset(sourceKey)
-    const slice = await readLogSlice(filePath, offset, TERMINAL_SCAN_MAX_BYTES_PER_ROUND)
-    if (!slice || slice.size <= offset) return
+    const slice = await readLogSlice(filePath, offset, budget)
+    if (!slice || slice.size <= offset) return 0
 
     // jsonl é append-only; só avançamos o offset até o último `\n` completo,
     // pra nunca partir uma linha em progresso de escrita ao meio.
     const lastNewline = slice.data.lastIndexOf('\n')
-    if (lastNewline < 0) return
+    if (lastNewline < 0) return 0
     const chunk = slice.data.slice(0, lastNewline)
     const consumedBytes = Buffer.byteLength(slice.data.slice(0, lastNewline + 1), 'utf8')
 
     const rows = this.parseLines(chunk, sourceKey, prefixes)
     this.insertRows(rows)
     this.setOffset(sourceKey, offset + consumedBytes)
+    return consumedBytes
   }
 
   private parseLines(chunk: string, sourceKey: string, prefixes: ProjectPrefixes[]): TerminalUsageRow[] {
@@ -155,10 +173,16 @@ export class TerminalUsageService {
       const cache5m = numberOr(cacheCreationBlock?.['ephemeral_5m_input_tokens'], 0)
       const cache1h = numberOr(cacheCreationBlock?.['ephemeral_1h_input_tokens'], 0)
 
+      // Registros sem o bloco `cache_creation` (sessões mais antigas) só trazem
+      // o total em cache_creation_input_tokens — contá-lo como 5m (o TTL padrão)
+      // em vez de zerar, senão o write, maior fatia do custo, sai como US$ 0.
+      const hasBreakdown = cache5m + cache1h > 0
+      const creation5m = hasBreakdown ? cache5m : cacheCreation
+
       const cost =
         estimateUsd(model, inputTokens, outputTokens, {
           readTokens: cacheRead,
-          creationTokens: cache5m,
+          creationTokens: creation5m,
           creation1hTokens: cache1h,
         }) ?? 0
 
@@ -170,7 +194,7 @@ export class TerminalUsageService {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         cache_read_tokens: cacheRead,
-        cache_creation_tokens: cacheCreation || cache5m + cache1h,
+        cache_creation_tokens: hasBreakdown ? cache5m + cache1h : cacheCreation,
         cache_5m_tokens: cache5m,
         cache_1h_tokens: cache1h,
         cost_usd: cost,

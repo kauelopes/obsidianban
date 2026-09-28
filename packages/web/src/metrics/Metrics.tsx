@@ -11,6 +11,7 @@ import {
 import type { KanbanClient } from '../api/client.js'
 import { errorText } from '../api/result.js'
 import { addDays, mondayOf, todayIso, fmtDay } from '../util/time.js'
+import { fmtCompact } from '../util/format.js'
 import { BarChart, Tile, TokenTable } from './widgets.js'
 import { FlowPanel } from './FlowPanel.js'
 
@@ -124,9 +125,28 @@ export function Metrics({ client }: { client: KanbanClient }) {
   // `?? 0` cobre servidor antigo (resposta sem os campos medidos).
   const measured =
     data && (data.summary.total_cost_usd ?? 0) > 0 ? data.summary.total_cost_usd : null
+  // Terminal é sempre estimado (ver TerminalUsage abaixo) — por isso o total
+  // vive num tile à parte, nunca substituindo o "custo medido" do board.
+  const terminalCost = data?.terminal?.total_cost_usd ?? 0
+  const totalCost = (measured ?? 0) + terminalCost
+  const hasTotalCost = (measured !== null && measured > 0) || terminalCost > 0
   const cacheTokens = data
     ? (data.summary.total_cache_read_tokens ?? 0) + (data.summary.total_cache_creation_tokens ?? 0)
     : 0
+
+  // Geral = board + terminal de fato, não só o board por baixo de um rótulo
+  // genérico. As 3 tiles abaixo (mais cache) somam os dois lados; os 3
+  // gráficos de "operações por X" continuam só-board — token_log é a única
+  // fonte com esse detalhamento, terminal_usage só guarda agregado.
+  const totalOps = data ? data.summary.total_ops + (data.terminal?.total_ops ?? 0) : 0
+  const totalInputTokens = data
+    ? data.summary.total_input_tokens + (data.terminal?.total_input_tokens ?? 0)
+    : 0
+  const totalOutputTokens = data
+    ? data.summary.total_output_tokens + (data.terminal?.total_output_tokens ?? 0)
+    : 0
+  const totalCacheTokens =
+    cacheTokens + (data?.terminal ? data.terminal.total_cache_read_tokens + data.terminal.total_cache_creation_tokens : 0)
 
   return (
     <div className="detail">
@@ -179,35 +199,85 @@ export function Metrics({ client }: { client: KanbanClient }) {
 
             {activeTab === 'geral' && data && (
               <>
+                {/* Só o que de fato soma board + terminal entra aqui — o resto
+                    (medido vs. estimado, gráficos por operação/tipo/projeto,
+                    fluxo de card) é só board e vive na aba Board. */}
                 <div className="tiles">
-                  <Tile label="operações" value={data.summary.total_ops.toLocaleString('pt-BR')} />
+                  {/* Ops é COUNT(*) — nunca ambíguo como os tokens abaixo, então
+                      sempre mostra o número (mesmo 0), nunca "não reportado". */}
                   <Tile
-                    label="tokens de entrada"
-                    value={
-                      data.summary.total_input_tokens > 0
-                        ? data.summary.total_input_tokens.toLocaleString('pt-BR')
-                        : 'não reportado'
-                    }
-                    muted={data.summary.total_input_tokens === 0}
+                    label="operações (board + terminal)"
+                    value={fmtCompact(totalOps)}
+                    title={totalOps.toLocaleString('pt-BR')}
                   />
                   <Tile
-                    label="tokens de saída"
-                    value={
-                      data.summary.total_output_tokens > 0
-                        ? data.summary.total_output_tokens.toLocaleString('pt-BR')
-                        : 'não reportado'
-                    }
-                    muted={data.summary.total_output_tokens === 0}
+                    label="tokens de entrada (board + terminal)"
+                    value={totalInputTokens > 0 ? fmtCompact(totalInputTokens) : 'não reportado'}
+                    muted={totalInputTokens === 0}
+                    title={totalInputTokens > 0 ? totalInputTokens.toLocaleString('pt-BR') : undefined}
                   />
                   <Tile
-                    label="tokens de cache (r+w)"
-                    value={cacheTokens > 0 ? cacheTokens.toLocaleString('pt-BR') : 'não reportado'}
-                    muted={cacheTokens === 0}
+                    label="tokens de saída (board + terminal)"
+                    value={totalOutputTokens > 0 ? fmtCompact(totalOutputTokens) : 'não reportado'}
+                    muted={totalOutputTokens === 0}
+                    title={totalOutputTokens > 0 ? totalOutputTokens.toLocaleString('pt-BR') : undefined}
                   />
                   <Tile
-                    label="custo medido (US$, lista API)"
+                    label="tokens de cache — r+w (board + terminal)"
+                    value={totalCacheTokens > 0 ? fmtCompact(totalCacheTokens) : 'não reportado'}
+                    muted={totalCacheTokens === 0}
+                    title={totalCacheTokens > 0 ? totalCacheTokens.toLocaleString('pt-BR') : undefined}
+                  />
+                  <Tile
+                    label="custo total — board + terminal (US$)"
+                    value={hasTotalCost ? totalCost.toFixed(4) : 'não reportado'}
+                    muted={!hasTotalCost}
+                  />
+                </div>
+
+                {hasTotalCost && terminalCost > 0 && (
+                  <p className="note">
+                    Custo <strong>total</strong>: US$ {(measured ?? 0).toFixed(4)} medidos no board +
+                    US$ {terminalCost.toFixed(4)} estimados no terminal (detalhe de cada lado nas
+                    abas "Uso via board" e "Uso terminal"). Mistura medição com estimativa.
+                  </p>
+                )}
+
+                {data.by_origin && (
+                  <BarChart
+                    title="Custo por origem (US$, board medido + terminal estimado)"
+                    rows={data.by_origin.map((r) => ({
+                      label: r.origin === 'board' ? 'board' : 'terminal',
+                      value: Number(r.cost_usd.toFixed(4)),
+                    }))}
+                  />
+                )}
+              </>
+            )}
+
+            {activeTab === 'board' && data && (
+              <>
+                {/* summary.total_cost_usd é medido e já board-only (token_log) —
+                    mesmo número usado no tile "custo total" da aba Geral. */}
+                <div className="tiles">
+                  <Tile
+                    label="operações (board)"
+                    value={fmtCompact(data.summary.total_ops)}
+                    title={data.summary.total_ops.toLocaleString('pt-BR')}
+                  />
+                  <Tile
+                    label="custo medido (board, US$)"
                     value={measured !== null ? measured.toFixed(4) : 'não reportado'}
                     muted={measured === null}
+                  />
+                  <Tile
+                    label="custo médio por operação (US$)"
+                    value={
+                      measured !== null && data.summary.total_ops > 0
+                        ? (measured / data.summary.total_ops).toFixed(4)
+                        : 'não reportado'
+                    }
+                    muted={measured === null || data.summary.total_ops === 0}
                   />
                 </div>
 
@@ -216,8 +286,9 @@ export function Metrics({ client }: { client: KanbanClient }) {
                     Custo <strong>medido</strong>: soma do <code>cost_usd</code> reportado pelas
                     próprias operações (o <code>total_cost_usd</code> do harness no sprint workflow).
                     {estimated !== null && (
-                      <> A estimativa por tokens ficaria em US$ {estimated.toFixed(4)} — ela ignora
-                      cache e operações sem medição, use-a só como referência.</>
+                      <> A estimativa por tokens ficaria em US$ {estimated.toFixed(4)} — ela já
+                      inclui cache, mas ignora operações de modelo desconhecido, use-a só como
+                      referência.</>
                     )}{' '}
                     Em ambos os casos o valor é o <strong>preço de lista da API</strong> (pay-per-token):
                     não reflete o que você paga num plano de assinatura como Claude Max, que é flat-rate.
@@ -237,23 +308,6 @@ export function Metrics({ client }: { client: KanbanClient }) {
                   )
                 )}
 
-                {flow && <FlowPanel data={flow} />}
-
-                <BarChart
-                  title="Operações por tipo de mutação"
-                  rows={data.by_operation.map((r) => ({ label: r.op, value: r.count }))}
-                />
-
-                <BarChart
-                  title="Operações por tipo de card"
-                  rows={data.by_type.map((r) => ({ label: r.type, value: r.ops }))}
-                />
-
-                <BarChart
-                  title="Operações por projeto"
-                  rows={data.by_project.map((r) => ({ label: r.project, value: r.ops }))}
-                />
-
                 {tokensReported === 0 && (
                   <p className="note">
                     Nenhum token foi reportado neste intervalo. Os agentes de dev são instruídos a
@@ -262,11 +316,7 @@ export function Metrics({ client }: { client: KanbanClient }) {
                     tabela <code>token_log</code> não é reconstruída a partir dos arquivos do vault.
                   </p>
                 )}
-              </>
-            )}
 
-            {activeTab === 'board' && data && (
-              <>
                 {/* by_agent não tem contagem, só tokens — por isso tabela e não gráfico. */}
                 <TokenTable
                   title="Por ator"
@@ -309,13 +359,37 @@ export function Metrics({ client }: { client: KanbanClient }) {
                 />
 
                 <Usage metrics={data} />
+
+                {/* Fluxo (ciclo, throughput) e as 3 quebras abaixo só existem
+                    para o board — cards e suas mutações não têm equivalente
+                    no terminal. */}
+                {flow && <FlowPanel data={flow} />}
+
+                <BarChart
+                  title="Operações por tipo de mutação"
+                  rows={data.by_operation.map((r) => ({ label: r.op, value: r.count }))}
+                />
+
+                <BarChart
+                  title="Operações por tipo de card"
+                  rows={data.by_type.map((r) => ({ label: r.type, value: r.ops }))}
+                />
+
+                <BarChart
+                  title="Operações por projeto"
+                  rows={data.by_project.map((r) => ({ label: r.project, value: r.ops }))}
+                />
               </>
             )}
 
             {activeTab === 'terminal' && data && (
               <>
                 {data.terminal ? (
-                  <TerminalUsage terminal={data.terminal} byOrigin={data.by_origin} />
+                  <TerminalUsage
+                    terminal={data.terminal}
+                    byModel={data.terminal_by_model}
+                    byDay={data.terminal_by_day}
+                  />
                 ) : (
                   <p className="empty-lg">Sem dados de terminal para o intervalo selecionado.</p>
                 )}
@@ -338,26 +412,42 @@ export function Metrics({ client }: { client: KanbanClient }) {
  */
 function TerminalUsage({
   terminal,
-  byOrigin,
+  byModel,
+  byDay,
 }: {
   terminal: NonNullable<MetricsData['terminal']>
-  byOrigin: MetricsData['by_origin']
+  byModel: MetricsData['terminal_by_model']
+  byDay: MetricsData['terminal_by_day']
 }) {
   const cacheTokens = terminal.total_cache_read_tokens + terminal.total_cache_creation_tokens
   return (
     <section className="chart">
       <p className="label">Terminal (sessões Claude Code fora do board)</p>
       <div className="tiles">
-        <Tile label="operações (terminal)" value={terminal.total_ops.toLocaleString('pt-BR')} />
+        <Tile
+          label="operações (terminal)"
+          value={fmtCompact(terminal.total_ops)}
+          title={terminal.total_ops.toLocaleString('pt-BR')}
+        />
         <Tile
           label="tokens de cache (r+w)"
-          value={cacheTokens > 0 ? cacheTokens.toLocaleString('pt-BR') : 'sem dados'}
+          value={cacheTokens > 0 ? fmtCompact(cacheTokens) : 'sem dados'}
           muted={cacheTokens === 0}
+          title={cacheTokens > 0 ? cacheTokens.toLocaleString('pt-BR') : undefined}
         />
         <Tile
           label="custo estimado (terminal, US$)"
           value={terminal.total_cost_usd > 0 ? terminal.total_cost_usd.toFixed(2) : 'sem dados'}
           muted={terminal.total_cost_usd === 0}
+        />
+        <Tile
+          label="custo médio por operação (terminal, US$)"
+          value={
+            terminal.total_cost_usd > 0 && terminal.total_ops > 0
+              ? (terminal.total_cost_usd / terminal.total_ops).toFixed(4)
+              : 'sem dados'
+          }
+          muted={terminal.total_cost_usd === 0 || terminal.total_ops === 0}
         />
       </div>
       {terminal.total_ops === 0 ? (
@@ -365,24 +455,45 @@ function TerminalUsage({
           Nenhuma sessão de terminal encontrada em <code>~/.claude/projects</code> neste intervalo.
         </p>
       ) : (
-        <>
-          {byOrigin && (
-            <BarChart
-              title="Custo por origem (US$, board medido + terminal estimado)"
-              rows={byOrigin.map((r) => ({
-                label: r.origin === 'board' ? 'board' : 'terminal',
-                value: Number(r.cost_usd.toFixed(4)),
-              }))}
-            />
-          )}
-          <p className="note">
-            Custo do terminal é sempre <strong>estimado</strong> por tabela local de preços —
-            inclui cache read/write (≈69% do custo real em sessões interativas), mas nunca é uma
-            medição do harness. Ingestão incremental dos `.jsonl` locais; sessões com{' '}
-            <code>cwd</code> fora dos <code>target_repo</code> conhecidos não são atribuídas a
-            nenhum projeto.
-          </p>
-        </>
+        <p className="note">
+          Custo do terminal é sempre <strong>estimado</strong> por tabela local de preços —
+          inclui cache read/write (≈69% do custo real em sessões interativas), mas nunca é uma
+          medição do harness. Ingestão incremental dos `.jsonl` locais; sessões com{' '}
+          <code>cwd</code> fora dos <code>target_repo</code> conhecidos não são atribuídas a
+          nenhum projeto. Comparação com o board está na aba "Geral" (gráfico "Custo por
+          origem").
+        </p>
+      )}
+
+      {terminal.total_ops > 0 && byModel && byModel.length > 0 && (
+        <TokenTable
+          title="Por modelo"
+          head="modelo"
+          showCache
+          showCost
+          rows={byModel.map((r) => ({
+            label: r.model,
+            input: r.input_tokens,
+            output: r.output_tokens,
+            cacheRead: r.cache_read_tokens,
+            cacheCreation: r.cache_creation_tokens,
+            cost: r.cost_usd,
+          }))}
+        />
+      )}
+
+      {terminal.total_ops > 0 && byDay && byDay.length > 0 && (
+        <TokenTable
+          title="Por dia"
+          head="data"
+          showCost
+          rows={byDay.map((r) => ({
+            label: r.date,
+            input: r.input_tokens,
+            output: r.output_tokens,
+            cost: r.cost_usd,
+          }))}
+        />
       )}
     </section>
   )

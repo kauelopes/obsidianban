@@ -53,10 +53,16 @@ export function Horizon({ client }: { client: KanbanClient }) {
     const res = await client.listProjects()
     setLoading(false)
     if (!res.ok) {
-      setUnavailable(true)
+      // Só 403 é "seu token não alcança isto". Servidor fora do ar (offline) ou
+      // erro 5xx viravam a mesma mensagem de permissão e mandavam o usuário
+      // caçar um problema de token que não existe.
+      const forbidden = res.error.kind === 'server' && res.error.status === 403
+      setUnavailable(forbidden)
+      setError(forbidden ? null : errorText(res.error))
       return
     }
     setUnavailable(false)
+    setError(null)
     // Arquivar é pedir para sair da supervisão — vale para as metas também.
     setProjects(
       res.data.projects

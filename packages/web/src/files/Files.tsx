@@ -38,7 +38,13 @@ export function Files({
   const [project, setProject] = useState(fixedProject ?? '')
 
   useEffect(() => {
-    if (fixedProject) return
+    // O workspace renderiza o mesmo elemento para /board/A/arquivos e
+    // /board/B/arquivos — o router reusa a instância na troca de param, então
+    // o estado inicial não basta para trocar de projeto.
+    if (fixedProject) {
+      setProject(fixedProject)
+      return
+    }
     void client.listProjects().then((res) => {
       if (!res.ok) {
         setProjectsUnavailable(true)

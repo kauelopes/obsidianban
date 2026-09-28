@@ -51,7 +51,12 @@ export function Dashboard({
 
   const pendingReview = overview.flatMap((p) => p.review).sort(compareReview)
   const pendingEscalations = overview.flatMap((p) => p.escalations).sort(compareEscalation)
-  const needsYou = pendingReview.length + pendingEscalations.length
+  // listEscalations devolve todo card em review, então pendingReview é
+  // superconjunto por id de pendingEscalations — somar os dois contaria o mesmo
+  // card duas vezes (e o NeedsYou só renderiza os não-escalados).
+  const escalatedIds = new Set(pendingEscalations.map((e) => e.card_id))
+  const needsYou =
+    pendingEscalations.length + pendingReview.filter((c) => !escalatedIds.has(c.id)).length
   const planning = usePlanningSummary(client)
   const working = useWorkingProjects(client, overview)
 
@@ -233,7 +238,7 @@ function NeedsYou({
 
   const escalatedIds = new Set(escalations.map((e) => e.card_id))
   const plainReview = review.filter((c) => !escalatedIds.has(c.id))
-  const needsYou = escalations.length + review.length
+  const needsYou = escalations.length + plainReview.length
 
   async function resolve(cardId: string, version: number, text: string, outcome: 'close' | 'return') {
     setBusyId(cardId)

@@ -133,13 +133,17 @@ export class SupervisionService {
    * estado. Mesma construção de item de `listEscalations`.
    */
   async listStalledReviews(project?: string): Promise<EscalationItem[]> {
+    // Filtrar status no SQL, não em memória: `updated_at DESC` + teto de 1000
+    // corta justamente as revisões mais antigas — as únicas que interessam a
+    // quem chama. Com o filtro, o teto só é atingido com 1000 cards em review.
     const rows = this.repo.query({
       ...(project ? { project } : {}),
+      status: 'review',
       orderBy: 'updated_at',
       limit: 1000,
       offset: 0,
     })
-    return this.buildItems(rows.filter((row) => row.status === 'review'))
+    return this.buildItems(rows)
   }
 
   /**

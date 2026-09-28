@@ -150,6 +150,28 @@ describe('MetricsService filtro por card_id', () => {
     expect(m.summary.total_input_tokens).toBe(10)
     expect(m.summary.total_ops).toBe(1)
   })
+
+  it('zera os blocos de terminal — uso de terminal não pertence a card nenhum', () => {
+    const db = createTestDb()
+    db.prepare(
+      `INSERT INTO token_log (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project)
+       VALUES ('2026-07-01T10:00:00Z', 'CREATE', 'card-a', 'task', 'agent:dev-1', 'test', 10, 0, 'alfa')`,
+    ).run()
+    db.prepare(
+      `INSERT INTO terminal_usage
+         (session_id, project, ts, model, input_tokens, output_tokens,
+          cache_read_tokens, cache_creation_tokens, cache_5m_tokens, cache_1h_tokens,
+          cost_usd, cwd, git_branch, source_file)
+       VALUES ('sess-1', 'alfa', '2026-07-01T09:00:00.000Z', 'claude-sonnet-5', 40, 20, 1000, 100, 100, 0, 0.25, '/repo', 'main', 'proj/sess-1.jsonl')`,
+    ).run()
+
+    const m = new MetricsService(db).collect({ card_id: 'card-a' })
+    expect(m.terminal.total_ops).toBe(0)
+    expect(m.terminal.total_cost_usd).toBe(0)
+    expect(m.terminal_by_model).toEqual([])
+    expect(m.terminal_by_day).toEqual([])
+    expect(m.by_origin.find((o) => o.origin === 'terminal')?.input_tokens).toBe(0)
+  })
 })
 
 /**

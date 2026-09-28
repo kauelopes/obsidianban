@@ -46,9 +46,9 @@ export const JOB_STOP_WAIT_TIMEOUT_MS_DEFAULT = 15_000
 // Pull sob demanda no GET /metrics, não watcher: latência de minutos é ok
 // para um dado de contabilidade.
 export const TERMINAL_USAGE_TTL_MS = 60_000
-// Teto de bytes lidos por arquivo por rodada de scan — evita que o backfill
-// inicial (81MB+ num vault com uso real) trave o primeiro GET /metrics; o
-// resto completa nos acessos seguintes (offset persistido).
+// Teto de bytes lidos por RODADA de scan, somando todos os arquivos — evita que
+// o backfill inicial (81MB+ num vault com uso real) trave o primeiro
+// GET /metrics; o resto completa nos acessos seguintes (offset persistido).
 export const TERMINAL_SCAN_MAX_BYTES_PER_ROUND = 8 * 1024 * 1024
 // Cache do `git worktree list` por projeto (ligação sessão↔projeto).
 export const TERMINAL_PROJECTS_CACHE_TTL_MS = 60_000
