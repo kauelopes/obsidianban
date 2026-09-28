@@ -12,7 +12,14 @@ packages/
     scripts/ # sprint-workflow.ts — orquestrador autônomo de sprint
   web/       # @obsidiankan/web — SPA React (board + card detail), servido pelo servidor na mesma origem
   shared/    # @obsidiankan/types — Tipos + parser de zonas do card
+  module-sdk/ # @obsidiankan/module-sdk — contrato core ↔ módulos opcionais (só tipos)
+  modules/
+    reports/ # @obsidiankan/module-reports — relatórios (sprint/projeto/board), MD + PDF
 ```
+
+**Módulos opcionais:** o core só importa módulo nos dois `modules/registry.ts`
+(server e web); ativação em Configs → Módulos (`.kanban/modules.json`). Guia em
+`docs/for-developers/modules.md`.
 
 **Gerenciador de pacotes:** pnpm (workspace). Em shells não-interativos, usar `~/.local/share/pnpm/bin/pnpm`.
 
@@ -39,6 +46,11 @@ MCP_HTTP_PORT=9375               # Porta do servidor (padrão 9375)
 PLANNING_MODEL=…                 # override de modelo do claude headless (default: o do harness)
 PLANNING_TURN_TIMEOUT_MS=240000  # kill do turno headless após esse tempo
 PLANNING_STUB=true               # dev: turnos sintéticos sem LLM e materialização simulada (nada é criado de verdade) — nunca em produção
+
+# Opcionais — módulos (relatórios)
+MODULES_LLM_STUB=true            # dev: análise por IA sintética, sem LLM
+MODULES_LLM_MODEL=…              # override de modelo do claude headless dos módulos
+REPORTS_PYTHON=…                 # python do renderer de PDF (padrão: renderer/.venv de make reports-setup)
 ```
 
 Referência completa em `docs/reference/config.md`.
@@ -85,6 +97,7 @@ make server-stop     # SIGTERM limpo (pidfile em .run/server.pid)
 make server-restart  # stop + start
 make server-status   # pid + GET /health
 make server-logs     # tail -f do log (.run/server.log)
+make reports-setup   # venv do renderer de PDF dos relatórios (WeasyPrint + matplotlib)
 ```
 
 Sem autostart configurado (nem systemd nem cron) — depois de reiniciar a
@@ -114,6 +127,8 @@ auto-launch não religa sozinho — precisa de `kanban_workflow_start` manual
 | `watcher/` | Chokidar — detecta edições humanas no vault |
 | `writer/` | Escritas atômicas (.tmp → rename) |
 | `audit/` | Audit log append-only (NDJSON) |
+| `modules/` | Módulos opcionais — `ModuleHost` (rotas `/modules/<id>/…`, gate de ativação), `modules.json`, fachada de dados read-only, registry |
+| `llm/` | `LlmProvider` genérico — `ClaudeCliProvider` (`claude -p`), `StubLlmProvider`, fábrica dos módulos |
 
 ---
 

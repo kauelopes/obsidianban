@@ -116,6 +116,20 @@ aparecem sem custo (`—`), nunca como zero.
 | `PLANNING_TURN_TIMEOUT_MS` | `240000` | Kill do turno headless após esse tempo. As etapas `sprints_tasks` e `review` geram respostas grandes — para projetos com muitos épicos, use `900000` |
 | `PLANNING_STUB` | `false` | **Modo de desenvolvimento**: `true`/`1` troca o LLM por respostas sintéticas instantâneas e gratuitas (`StubRunner`) e a materialização final por um resultado sintético (`createStub(Sprint)Materializer`) — nenhum projeto, épico, sprint ou card é criado de verdade, nada é gravado no vault. Todas as telas do wizard funcionam, incluindo refine e retry. Nunca usar em produção |
 
+### Módulos opcionais (opcional)
+
+Estado de ativação e config de cada módulo ficam em `<vault>/.kanban/modules.json`,
+editado por **Configs → Módulos** — não por variável de ambiente. Ver
+[módulos](../for-developers/modules.md).
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `MODULES_LLM_STUB` | `false` | `true`/`1` troca o LLM dos módulos (análise dos relatórios) por respostas sintéticas instantâneas e gratuitas. Dev apenas |
+| `MODULES_LLM_MODEL` | — | Override de modelo do `claude` headless usado pelos módulos; ausente herda o default do harness |
+| `MODULES_LLM_TIMEOUT_MS` | `300000` | Kill da chamada ao LLM após esse tempo |
+| `REPORTS_PYTHON` | `renderer/.venv/bin/python` | Interpretador do renderer de PDF dos relatórios. Sem ele e sem o venv (`make reports-setup`), cai no `python3` do PATH; sem WeasyPrint, o PDF fica indisponível e o Markdown segue valendo |
+| `REPORTS_RENDERER_DIR` | `packages/modules/reports/renderer` | Diretório do `cli.py` do renderer (layouts incomuns) |
+
 ---
 
 ## Arquivo `.mcp.json`
@@ -153,7 +167,9 @@ vault/
     ├── db.sqlite           # Índice SQLite (derivado, pode ser deletado)
     ├── audit.ndjson        # Audit log append-only
     ├── idempotency.json    # Store de idempotência
-    └── manager-tokens.json # Tokens de manager
+    ├── manager-tokens.json # Tokens de manager
+    ├── modules.json        # Módulos opcionais: ativo/desativado + config
+    └── modules/<id>/       # Dados de cada módulo (ex.: reports/reports/<rep-id>/)
 ```
 
 **Importante:** `kanban-data/` é editável diretamente — o servidor detecta mudanças via file watcher e reconcilia automaticamente. `.kanban/` não deve ser editado manualmente.

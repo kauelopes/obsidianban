@@ -12,6 +12,7 @@ import { ReportRunner } from './pipeline.js'
 import { ReportStore } from './store.js'
 import { REPORT_TYPES } from './types/index.js'
 import { badRequest } from './types/common.js'
+import { fmtPeriod } from './format.js'
 
 export type { ReportTheme } from './pdf.js'
 export * from './api-types.js'
@@ -144,8 +145,9 @@ async function titleFor(p: { type: ReportTypeId; project: string | null; sprint_
     const sprint = project?.sprints.find((s) => s.id === p.sprint_id)
     return `Sprint ${sprint?.name ?? p.sprint_id} · ${p.project}`
   }
-  if (p.type === 'project') return `Projeto ${p.project} · ${p.from} a ${p.to}`
-  return `Board · ${p.from} a ${p.to}`
+  const period = fmtPeriod({ from: p.from!, to: p.to! })
+  if (p.type === 'project') return `Projeto ${p.project} · ${period}`
+  return `Board · ${period}`
 }
 
 function fileSlug(meta: ReportMeta): string {

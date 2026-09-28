@@ -149,8 +149,10 @@ export function ReportsView({ host, project }: { host: ModuleHost; project?: str
               <ul className="pending reports-list">
                 {reports.map((r) => (
                   <li key={r.id}>
-                    <a
-                      className={r.id === selectedId ? 'active' : undefined}
+                    <button
+                      type="button"
+                      className={`reports-item${r.id === selectedId ? ' active' : ''}`}
+                      aria-current={r.id === selectedId ? 'true' : undefined}
                       onClick={() => {
                         setActionError(null)
                         setSelectedId(r.id)
@@ -161,7 +163,7 @@ export function ReportsView({ host, project }: { host: ModuleHost; project?: str
                         {TYPE_LABEL[r.type]} · {fmtDateBr(r.created_at)}
                       </span>
                       <span className={`pill ${statusClass(r)}`}>{STATUS_LABEL[r.status]}</span>
-                    </a>
+                    </button>
                   </li>
                 ))}
               </ul>
