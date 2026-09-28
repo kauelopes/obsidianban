@@ -849,6 +849,11 @@ export interface MetricsFilter {
   to_date?: string
   /** Scope to one card's token_log rows — the full-fidelity per-card total (cache/cost included). */
   card_id?: string
+  /**
+   * Linhas do token_log de uma sprint — inclui o uso dos agentes do workflow
+   * (WORKFLOW_DEV/TRIAGE), que não fica em card nenhum. Terminal fica de fora.
+   */
+  sprint_id?: string
 }
 
 /**

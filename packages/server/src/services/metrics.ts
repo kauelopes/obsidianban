@@ -138,6 +138,10 @@ export class MetricsService {
       where.push('card_id = @card_id')
       params['card_id'] = filter.card_id
     }
+    if (filter.sprint_id != null) {
+      where.push('sprint_id = @sprint_id')
+      params['sprint_id'] = filter.sprint_id
+    }
     const whereClause = where.length > 0 ? ' WHERE ' + where.join(' AND ') : ''
 
     const summary = this.db
@@ -265,7 +269,8 @@ export class MetricsService {
     // parâmetros, mas o WHERE é reconstruído sem a cláusula card_id. Com
     // card_id, o recorte é de um card: uso de terminal não pertence a nenhum,
     // e devolvê-lo cheio faria a UI somar o vault inteiro ao total do card.
-    const terminalWhere: string[] = filter.card_id != null ? ['0 = 1'] : []
+    // Mesmo raciocínio para sprint_id: sessão de terminal não pertence a sprint.
+    const terminalWhere: string[] = filter.card_id != null || filter.sprint_id != null ? ['0 = 1'] : []
     if (filter.from_date != null) terminalWhere.push('substr(ts, 1, 10) >= @from_date')
     if (filter.to_date != null) terminalWhere.push('substr(ts, 1, 10) <= @to_date')
     const terminalWhereClause = terminalWhere.length > 0 ? ' WHERE ' + terminalWhere.join(' AND ') : ''

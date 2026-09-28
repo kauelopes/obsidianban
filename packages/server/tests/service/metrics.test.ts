@@ -274,3 +274,22 @@ describe('MetricsService usage medido (cache + cost_usd)', () => {
     expect(round.cost_usd).toBeCloseTo(1.7343, 6)
   })
 })
+
+describe('MetricsService filtro por sprint', () => {
+  it('sprint_id recorta o token_log (inclui rodadas do workflow) e zera o terminal', () => {
+    const db = createTestDb()
+    seed(db)
+    const insert = db.prepare(
+      `INSERT INTO token_log (ts, op, card_id, card_type, actor, model, input_tokens, output_tokens, project, cost_usd, sprint_id)
+       VALUES (@ts, 'WORKFLOW_DEV', '', 'workflow_round', 'workflow:dev', 'claude', 10, 20, 'alfa', @usd, @sprint)`,
+    )
+    insert.run({ ts: '2026-07-04T10:00:00Z', usd: 2.5, sprint: 'sprint-01' })
+    insert.run({ ts: '2026-07-04T11:00:00Z', usd: 1.25, sprint: 'sprint-01' })
+    insert.run({ ts: '2026-07-04T12:00:00Z', usd: 9, sprint: 'sprint-02' })
+
+    const m = new MetricsService(db).collect({ sprint_id: 'sprint-01' })
+    expect(m.summary.total_ops).toBe(2)
+    expect(m.summary.total_cost_usd).toBeCloseTo(3.75, 6)
+    expect(m.terminal?.total_ops ?? 0).toBe(0)
+  })
+})

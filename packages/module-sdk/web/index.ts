@@ -2,7 +2,7 @@
 // (sem build próprio). O módulo nunca importa código do web: tudo que ele usa
 // do core chega pelo `ModuleHost`.
 
-import type { ComponentType } from 'react'
+import type { ComponentType, ReactNode } from 'react'
 
 export interface ModuleWebApi {
   /** fetch em /modules/<id><path>, com o bearer da sessão já anexado. */
@@ -11,9 +11,17 @@ export interface ModuleWebApi {
   onEvent(handler: (event: string, payload: unknown) => void): () => void
 }
 
+/**
+ * Componentes do core que o módulo reusa para ficar com a mesma cara do resto
+ * da interface. As classes CSS globais do core (detail, home-grid, banner,
+ * empty-lg, label, field-help, pill, button.primary…) e os tokens (--s-*,
+ * --fg-*, --ink-*, --rule, --accent) também fazem parte do contrato.
+ */
 export interface ModuleHostUi {
   /** Renderizador Markdown do core (GFM, math, mermaid). */
   Markdown: ComponentType<{ children: string; prose?: boolean }>
+  /** Modal do core: overlay, foco preso, Esc fecha. */
+  Dialog: ComponentType<{ title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }>
 }
 
 export interface ModuleHost {
@@ -22,6 +30,8 @@ export interface ModuleHost {
   ui: ModuleHostUi
   /** config do modules.json, como o servidor devolveu. */
   config: Record<string, unknown>
+  /** Grava a config do módulo (só manager). Recarrega a lista de módulos. */
+  saveConfig(config: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string }>
 }
 
 export interface ModulePageProps {

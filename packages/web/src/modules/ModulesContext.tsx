@@ -3,7 +3,9 @@ import type { ModuleInfo } from '@obsidiankan/types'
 import type { ModuleHost, WebModule } from '@obsidiankan/module-sdk/web'
 import type { KanbanClient } from '../api/client.js'
 import { subscribe } from '../api/events.js'
+import { errorText } from '../api/result.js'
 import { Markdown } from '../markdown/Markdown.js'
+import { Dialog } from '../ui/Dialog.js'
 import { INSTALLED_WEB_MODULES } from './registry.js'
 
 export interface ActiveModule {
@@ -40,7 +42,11 @@ export function makeModuleHost(client: KanbanClient, info: ModuleInfo): ModuleHo
   return {
     moduleId: info.id,
     config: info.config,
-    ui: { Markdown },
+    ui: { Markdown, Dialog },
+    saveConfig: async (config) => {
+      const res = await client.updateModule(info.id, { config })
+      return res.ok ? { ok: true } : { ok: false, error: errorText(res.error) }
+    },
     api: {
       fetch: (path, init) => client.moduleFetch(info.id, path, init),
       onEvent: (handler) =>

@@ -18,5 +18,5 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "../shared" }, { "path": "../module-sdk" }]
+  "references": [{ "path": "../shared" }, { "path": "../module-sdk" }, { "path": "../modules/reports" }]
 }

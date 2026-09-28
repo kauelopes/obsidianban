@@ -1,0 +1,41 @@
+{
+  "name": "@obsidiankan/module-reports",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Módulo opcional de relatórios — sprint, projeto e board, em Markdown e PDF",
+  "main": "dist/server/index.js",
+  "types": "dist/server/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server/index.d.ts",
+      "default": "./dist/server/index.js"
+    },
+    "./web": "./web/index.tsx"
+  },
+  "scripts": {
+    "build": "tsc --build tsconfig.json",
+    "typecheck": "tsc --build tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@obsidiankan/module-sdk": "workspace:*",
+    "@obsidiankan/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@testing-library/react": "16.3.0",
+    "@testing-library/dom": "10.4.0",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "26.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.9"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  }
+}
