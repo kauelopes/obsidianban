@@ -1,8 +1,10 @@
 PID_FILE := .run/server.pid
 LOG_FILE := .run/server.log
 PNPM := ~/.local/share/pnpm/bin/pnpm
+REPORTS_RENDERER := packages/modules/reports/renderer
+PYTHON ?= python3
 
-.PHONY: start_server server-build server-start server-stop server-restart server-status server-logs
+.PHONY: start_server server-build server-start server-stop server-restart server-status server-logs reports-setup reports-check
 
 # Dev mode em foreground (hot reload via tsx watch) — para trabalhar no código do servidor.
 start_server:
@@ -49,3 +51,15 @@ server-status:
 
 server-logs:
 	tail -f $(LOG_FILE)
+
+# Módulo Relatórios: venv do renderer de PDF (Python + WeasyPrint + matplotlib).
+# Sem ele o módulo funciona e gera Markdown; o PDF aparece como indisponível.
+# O servidor acha o venv sozinho (renderer/.venv) — REPORTS_PYTHON sobrescreve.
+reports-setup:
+	$(PYTHON) -m venv $(REPORTS_RENDERER)/.venv
+	$(REPORTS_RENDERER)/.venv/bin/python -m pip install --quiet --upgrade pip
+	$(REPORTS_RENDERER)/.venv/bin/python -m pip install --quiet -r $(REPORTS_RENDERER)/requirements.txt
+	@$(MAKE) --no-print-directory reports-check
+
+reports-check:
+	@$(REPORTS_RENDERER)/.venv/bin/python -c "import weasyprint, matplotlib; print('renderer ok — weasyprint', weasyprint.__version__, '· matplotlib', matplotlib.__version__)"
